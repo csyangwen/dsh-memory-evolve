@@ -76,6 +76,14 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 - **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` / `memoryTabEnabled` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
 
+![设置 → 记忆管理](docs/images/设置-记忆管理.png)
+
+### 会话页记忆 Tab（可选）
+
+开启「会话页记忆 Tab」（配置 `memoryTabEnabled`，默认关，开启后刷新页面生效）后，会话页顶部出现「记忆」标签页：直接预览 AGENTS.md / 长期记忆 / 用户档案（只读），编辑项目记忆与今日日志（保存即写文件），每行可一键用系统工具打开。
+
+![会话页记忆 Tab](docs/images/记忆tab.png)
+
 ### 用户侧命令
 
 
@@ -98,6 +106,11 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
   - 技能 → `skill_manage` 自动创建/优化 `~/.agents/skills` 下的技能；
   - 深读（可选）：摘要信息不足时，用 `agent_session_read` 读取完整会话，或 `memory target=project/daily` 按需查阅；
 - 并发：同时最多一个审查；异步执行不阻塞主流程；`origin: 'subagent'` 的会话永不触发（防递归）。
+
+每次审查会派生一个「memory-review」子代理，在会话列表中可见（子代理详情可查看它读取的转录与产出的建议/技能）：
+
+![审查子代理 · 会话列表](docs/images/记忆子代理列表.png)
+![审查子代理 · 详情](docs/images/记忆子代理-详情.png)
 
 ## 配置
 
