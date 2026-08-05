@@ -153,6 +153,35 @@ test('api approve supports edited contents', async () => {
   }
 })
 
+test('api approve with empty contents falls back to the suggested content', async () => {
+  const api = await bootApi()
+  try {
+    // The panel sends contents: [''] when the textarea was never edited —
+    // that must not overwrite the suggestion with an empty entry.
+    api.queue.append({ time: 't', target: 'memory', content: '原始建议文本', reason: 'r', cwd: null })
+    const res = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      contents: [''],
+    })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('memory').length, 1)
+    assert.equal(api.store.entriesOf('memory')[0].includes('原始建议文本'), true)
+    assert.equal(api.queue.read().length, 0)
+    // Whitespace-only edits fall back the same way.
+    api.queue.append({ time: 't2', target: 'user', content: '另一条建议', reason: 'r', cwd: null })
+    const ws = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      contents: ['   '],
+    })
+    assert.equal(ws.status, 200)
+    assert.equal(api.store.entriesOf('user')[0].includes('另一条建议'), true)
+    assert.equal(api.queue.read().length, 0)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
 test('api reveal resolves whitelisted targets and rejects unknown ones', async () => {
   const api = await bootApi()
   try {

@@ -99,7 +99,11 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
     if (indices !== undefined) {
       body.indices = indices
       if (op === 'approve') {
-        body.contents = indices.map((index) => edits[index] ?? '')
+        const contents = indices.map((index) => edits[index] ?? '')
+        // Send contents only when the user actually edited some entry; an
+        // all-empty contents array would otherwise be treated as a real edit
+        // of every entry ("" is not nullish), overwriting the suggestion.
+        if (contents.some((content) => content !== '')) body.contents = contents
       }
     }
     void api<{ lines?: string[]; removed?: number; remaining: number }>(`/api/suggestions/${op}`, {
