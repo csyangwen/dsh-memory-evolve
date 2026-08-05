@@ -39,7 +39,7 @@ async function bootApi(overrides = {}) {
   installApi(ctx, {
     store, queue, getRuntime, updateRuntime,
     resolveRevealTarget: (target) => revealTargets[target],
-    revealPath: () => {},
+    revealPath: overrides.revealPath ?? (() => {}),
   })
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -200,6 +200,22 @@ test('api reveal resolves whitelisted targets and rejects unknown ones', async (
     assert.equal(bad.status, 400)
     const missing = await api.request('POST', '/memory-evolve/api/reveal', { target: 'nope' })
     assert.equal(missing.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api reveal surfaces open-command failures instead of swallowing them', async () => {
+  const api = await bootApi({
+    // No open command available (the WSL-without-xdg-utils case): the panel
+    // must see a 400 with a reason, not a silent no-op.
+    revealPath: async () => { throw new Error('没有可用的打开命令（Linux/WSL 请安装 xdg-utils 或 wslu）') },
+  })
+  try {
+    const res = await api.request('POST', '/memory-evolve/api/reveal', { target: 'memoryDir' })
+    assert.equal(res.status, 400)
+    assert.ok(res.data.error.includes('xdg-utils'))
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })

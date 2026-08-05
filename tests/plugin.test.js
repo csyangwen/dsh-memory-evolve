@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { apply, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { dirname, join } from 'node:path'
+import { apply, resolveConfig, renderSnapshot, resolveRevealTarget } from '../lib/index.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
 import { buildReviewPrompt } from '../lib/review.js'
 
@@ -618,6 +618,27 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly), hermes 
   assert.ok(snapshot.includes('target=project'))
   assert.ok(!snapshot.includes('Hermes 记忆'), 'hermes injection off by default')
   clean(dir)
+})
+
+test('resolveRevealTarget falls back to containing directories for missing files', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir, skillDir: join(dir, 'no-skills') })
+  const prevHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dir // a dsh home without AGENTS.md
+  try {
+    // Missing AGENTS.md → open the dsh home (issue #1: previously an
+    // 'unknown target' error on WSL installs without the file).
+    assert.equal(resolveRevealTarget(config, 'agentsFile'), dir)
+    // Missing skill dir → open its parent.
+    assert.equal(resolveRevealTarget(config, 'skillDir'), dirname(config.skillDir))
+    // Missing memory file → open the memory dir.
+    assert.equal(resolveRevealTarget(config, 'memoryFile'), dir)
+    assert.equal(resolveRevealTarget(config, 'nope'), undefined)
+    assert.equal(resolveRevealTarget(config, '/etc'), undefined)
+  } finally {
+    process.env.DSH_HOME = prevHome
+    clean(dir)
+  }
 })
 
 test('autoApproveGlobal lets subagents write global tracks directly', async () => {
