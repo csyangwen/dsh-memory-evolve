@@ -220,6 +220,52 @@ test('review enabled registers suggest tool and trigger; counting gates on messa
   clean(dir)
 })
 
+test('reviews are incremental: later reviews only see new turns', async () => {
+  const dir = tempDir()
+  const started = []
+  const fakeSubagents = {
+    getProvider: (name) => ({ name }),
+    start: async (name, request) => {
+      started.push({ name, request })
+      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
+    },
+  }
+  const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
+  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
+  const settled = ctx.state.listeners['agent/settled'][0]
+  const agent = (turns) => ({
+    id: 's1',
+    session: {
+      header: { origin: undefined },
+      events: turns.flatMap((turn) => [
+        { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
+        { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
+      ]),
+    },
+  })
+
+  // First review after turn 2: sees turns 1-2.
+  settled(agent([1]), 1, { kind: 'completed' })
+  settled(agent([1, 2]), 2, { kind: 'completed' })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(started.length, 1)
+  const first = started[0].request.prompt[0].text
+  assert.ok(first.includes('问题1'), 'first review sees turn 1')
+  assert.ok(first.includes('问题2'), 'first review sees turn 2')
+
+  // Second review after turn 4: only turns 3-4, never re-reads the past.
+  settled(agent([1, 2, 3]), 3, { kind: 'completed' })
+  settled(agent([1, 2, 3, 4]), 4, { kind: 'completed' })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(started.length, 2)
+  const second = started[1].request.prompt[0].text
+  assert.ok(second.includes('问题3'), 'second review sees turn 3')
+  assert.ok(second.includes('问题4'), 'second review sees turn 4')
+  assert.ok(!second.includes('问题1'), 'second review skips already-reviewed turns')
+  assert.ok(!second.includes('问题2'), 'second review skips already-reviewed turns')
+  clean(dir)
+})
+
 test('suggest tool appends to the queue; command approves/rejects', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()

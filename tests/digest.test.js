@@ -48,8 +48,42 @@ test('digest renders messages in order with turn markers', () => {
   assert.ok(digest.includes('助手: 你好！'))
   assert.ok(digest.includes('用户: 继续'))
   assert.ok(digest.includes('助手: 好的'))
-  assert.ok(digest.includes('工具调用: bash'))
-  assert.ok(!digest.includes('ok')) // tool output hidden by default
+  assert.ok(!digest.includes('工具调用'))
+  assert.ok(!digest.includes('工具结果'))
+})
+
+test('digest never contains tool or reasoning content', () => {
+  const session = sessionWith([
+    { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+    userMsg('跑一下测试'),
+    {
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: '让我想想怎么跑' },
+            { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' },
+          ],
+        },
+      },
+    },
+    { type: 'tool/call', data: { name: 'bash', arguments: '{"cmd":"ls"}' } },
+    { type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'secret output' }] } } },
+    {
+      type: 'assistant/message',
+      data: { turn: 1, step: 2, message: { role: 'assistant', content: [{ type: 'text', text: '跑完了' }] } },
+    },
+  ])
+  const digest = buildDigest(session, {})
+  assert.ok(digest.includes('用户: 跑一下测试'))
+  assert.ok(digest.includes('助手: 跑完了'))
+  assert.ok(!digest.includes('bash'))
+  assert.ok(!digest.includes('工具'))
+  assert.ok(!digest.includes('让我想想')) // reasoning never enters
+  assert.ok(!digest.includes('secret')) // tool output never enters
 })
 
 test('digest tolerates the wrapped user/message shape', () => {
@@ -78,16 +112,6 @@ test('digest skips system-injected user-role messages', () => {
   assert.ok(digest.includes('真实的用户输入'))
   assert.ok(!digest.includes('Current runtime context'))
   assert.ok(!digest.includes('<system-reminder>'))
-})
-
-test('digest includes tool output when asked', () => {
-  const session = sessionWith([
-    { type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'secret output' }] }, error: undefined } },
-    { type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'boom' }] }, error: { code: 'E2BIG' } } },
-  ])
-  const digest = buildDigest(session, { includeToolOutput: true })
-  assert.ok(digest.includes('secret output'))
-  assert.ok(digest.includes('失败(E2BIG)'))
 })
 
 test('digest quota counts messages, not streaming chunk events', () => {
