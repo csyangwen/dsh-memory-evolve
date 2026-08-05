@@ -2,13 +2,15 @@
 
 为 DeepSeek Harness 带来 Hermes 式「记忆 + 自我进化」能力的纯插件实现：**零核心修改、零运行时依赖**，随装随用、卸载即净。
 
+> **📖 记忆与审查规则（功能说明）**：[docs/rules.md](docs/rules.md) —— 四层记忆如何工作、审查何时触发与产出什么、什么该记什么不该记、哪些需要你确认。README 只讲安装与配置。
+
 ## 特性
 
 - **分层记忆（四轨）**：用户档案 · 全局事实 · 项目记忆（按工作目录隔离）· 每日日志，注入范围随层级收窄，互不污染；
-- **后台审查**：每 N 个用户回合自动回顾会话（**增量转录**：每次只摘要上次审查以来的新对话），产出记忆建议、追加项目/每日记忆，并自动创建/优化技能；支持 `/memory_now` 手动触发与会话关闭终局补审；
+- **后台审查**：每 N 个用户回合自动回顾会话（**增量转录**：每次只摘要上次审查以来的新对话），产出记忆建议、追加项目/每日记忆，并创建/优化技能；支持 `/memory_now` 手动触发与会话关闭终局补审；
 - **可追溯审查**（可选）：配合 [dsh-session-search](https://github.com/dsh-external/dsh-session-search) 插件安装时，审查子代理可在摘要信息不足时按需读取完整会话（不装也完全正常，仅失去深读能力）；
-- **技能自我进化**：审查子代理自动创建/优化 `~/.agents/skills` 下的技能（read-before-write 保护，DSH 与 Hermes 双向可用）；
-- **建议确认制**：全局记忆（用户档案/全局事实）写入需经 `/memory_review` 确认，杜绝无人把关的自我修改；
+- **技能自我进化（创建需确认）**：审查子代理优化 `~/.agents/skills` 下已有技能（read-before-write 保护）；**新技能默认进入待确认队列**，设置面板采纳后才移入技能库（创建门槛严格：多次踩坑、难度大、后续会复用才创建）——技能注入所有会话，必须克制；
+- **建议确认制**：全局记忆（用户档案/全局事实）写入需经设置面板或 `/memory_review` 确认；新技能同样需确认，杜绝无人把关的自我修改；
 - **安全设计**：防漂移备份、跨进程文件锁、原子写、字符上限、提示注入扫描、禁用技能保护；
 - **缓存友好**：记忆快照走 user-role 尾部消息注入（变更检测），system prompt 与历史前缀保持稳定。**只注入低频变化的全局轨**（用户档案/全局事实/可选的只读 Hermes）——项目记忆与每日日志每次审查都会变化，若注入会导致每轮追加新的上下文快照、前缀缓存命中率下降，因此它们**默认不注入**，改为按需读取（快照中保留一行稳定提示告知模型可随时读取）。
 
@@ -70,7 +72,8 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 `dsh web` 左下角设置 → **记忆管理**：
 
 - **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
-- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
+- **待确认技能**：审查创建的新技能在此「采纳」（移入技能库，立即生效）或「拒绝」；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` / `memoryTabEnabled` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
 
 ### 用户侧命令
@@ -113,7 +116,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 与 Hermes 共同扫描） |
 | `skillManageToolName` | `skill_manage` | 技能管理工具名 |
 | `skillMaxBytes` | 65536 | SKILL.md 大小上限 |
-| `skillReviewEnabled` | `true` | 审查子代理的技能轨开关 |
+| `skillReviewEnabled` | `false` | 技能自动沉淀：关（默认）= 审查创建的新技能进待确认队列；开 = 直接创建无需确认 |
 | `reviewEnabled` | `false` | 后台审查总开关 |
 | `reviewInterval` | 5 | 每 N 个用户回合审查一次 |
 | `reviewDigestEvents` | 40 | 转录尾部**消息**条数（≈20 轮对话，不含流式 chunk） |
@@ -123,6 +126,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `reviewFinalOnDispose` | `true` | 会话关闭时未审查会话自动补审 |
 | `reviewNowCommandName` | `memory_now` | 手动触发审查的命令名 |
 | `autoApproveGlobal` | `false` | 全局轨（user/memory）自动沉淀：开启后审查子代理直接写入，无需确认（注意提示注入风险） |
+| `memoryTabEnabled` | `false` | 会话页「记忆」Tab 开关：开启后会话页顶部可查看/编辑记忆文件（project/daily 可编辑，全局轨只读）；默认关，开启后刷新页面生效 |
 | `reviewProviderName` | `spawn` | 审查子代理提供者 |
 
 ## 安全设计
