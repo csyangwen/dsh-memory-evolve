@@ -121,9 +121,21 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
   const saveConfig = (): void => {
     if (draft === null) return
     setBusy(true)
+    // Send only the fields this panel edits: the GET response carries exactly
+    // the runtime-changeable keys, but an explicit patch keeps the payload
+    // stable if the host ever adds more (static config keys are rejected by
+    // the host's validateRuntimePatch).
+    const patch: RuntimeConfig = {
+      reviewEnabled: draft.reviewEnabled,
+      reviewInterval: draft.reviewInterval,
+      skillReviewEnabled: draft.skillReviewEnabled,
+      autoApproveGlobal: draft.autoApproveGlobal,
+      injectProjectMemory: draft.injectProjectMemory,
+      injectDailySummary: draft.injectDailySummary,
+    }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
-      body: JSON.stringify({ patch: draft }),
+      body: JSON.stringify({ patch }),
     }).then((res) => {
       setConfig(res.config)
       setDraft(res.config)

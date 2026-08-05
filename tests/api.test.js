@@ -104,12 +104,19 @@ test('api config get/update with validation', async () => {
   try {
     const got = await api.request('GET', '/memory-evolve/api/config')
     assert.equal(got.data.config.reviewEnabled, true)
+    // Only runtime-changeable keys are exposed — static config keys are not
+    // valid patch keys, and echoing them back must not 400 on save.
+    assert.equal('memoryDir' in got.data.config, false)
+    assert.equal('toolName' in got.data.config, false)
     const updated = await api.request('POST', '/memory-evolve/api/config', { patch: { reviewInterval: 5 } })
     assert.equal(updated.data.config.reviewInterval, 5)
     const bad = await api.request('POST', '/memory-evolve/api/config', { patch: { reviewInterval: 0 } })
     assert.equal(bad.status, 400)
     const unknown = await api.request('POST', '/memory-evolve/api/config', { patch: { nope: 1 } })
     assert.equal(unknown.status, 400)
+    // Static keys are still rejected when a caller sends them explicitly.
+    const staticKey = await api.request('POST', '/memory-evolve/api/config', { patch: { memoryDir: '/tmp/x' } })
+    assert.equal(staticKey.status, 400)
     const notPatch = await api.request('POST', '/memory-evolve/api/config', { patch: [1] })
     assert.equal(notPatch.status, 400)
   } finally {
