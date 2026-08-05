@@ -145,11 +145,10 @@ const BADGE_POLL_MS = 30_000
 
 /**
  * The plugin entry: register locale, stylesheet, the settings section, and
- * the badge poller.
+ * the badge poller. 'conversation' is an ordering edge for the session
+ * memory tab (its 'conversation.view' slot is declared by ui-conversation).
  * @param ctx - the client plugin context (`slots`, `locale` injected).
  */
-export const inject = ['slots', 'locale']
-
 export const inject = ['slots', 'locale', 'conversation']
 
 /**
