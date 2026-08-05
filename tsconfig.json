@@ -1,0 +1,52 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "react": [
+        "/Users/edgar/.dsh/source/current/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react"
+      ],
+      "react/jsx-runtime": [
+        "/Users/edgar/.dsh/source/current/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/jsx-runtime.d.ts"
+      ],
+      "cordis": [
+        "/Users/edgar/.dsh/source/current/vendor/cordis/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-slots": [
+        "/Users/edgar/.dsh/source/current/packages/client/ui-slots/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-conversation/client": [
+        "/Users/edgar/.dsh/source/current/packages/client/ui-conversation/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-locale/client": [
+        "/Users/edgar/.dsh/source/current/packages/client/locale/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-runtime/client": [
+        "/Users/edgar/.dsh/source/current/packages/client/runtime/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-primitives": [
+        "/Users/edgar/.dsh/source/current/packages/client/ui-primitives/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-web-react": [
+        "/Users/edgar/.dsh/source/current/packages/client/web-react/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-settings/client": [
+        "/Users/edgar/.dsh/source/current/packages/client/ui-settings/lib/types/client/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx"
+  ]
+}

@@ -64,7 +64,15 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 - `memory list target=daily`：查看今日日志；
 - replace/remove 用唯一子串片段匹配。
 
+### Web 设置面板（推荐）
+
+`dsh web` 左下角设置 → **记忆管理**：
+
+- **待确认建议**：列出全部待确认建议，逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `injectProjectMemory` / `injectDailySummary` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）。
+
 ### 用户侧命令
+
 
 ```
 /memory_review                  # 列出待确认建议（带序号）

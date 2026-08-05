@@ -15,19 +15,32 @@ function clean(dir) {
   rmSync(dir, { recursive: true, force: true })
 }
 
-/** Minimal context exercising the seams the plugin touches. */
+/** Minimal context exercising the seams the plugin touches. `inject` follows
+ *  cordis semantics: the callback only runs when every declared service
+ *  exists in the fake service table. */
 function fakeCtx(overrides = {}) {
-  const state = { tools: [], contexts: [], commands: [], listeners: {} }
-  const ctx = {
-    state,
+  const state = { tools: [], contexts: [], commands: [], listeners: [], routes: [] }
+  const services = {
     tools: { register: (def) => { state.tools.push(def); return () => {} } },
     systemPrompt: { context: (def) => { state.contexts.push(def); return () => {} } },
     commands: { register: (def) => { state.commands.push(def); return () => {} } },
+    httpServer: { register: (route) => { state.routes.push(route); return () => {} } },
+    ...(overrides.services ?? {}),
+  }
+  const ctx = {
+    state,
+    tools: services.tools,
+    systemPrompt: services.systemPrompt,
+    commands: services.commands,
+    httpServer: services.httpServer,
     on: (name, listener) => {
       ;(state.listeners[name] ??= []).push(listener)
       return () => {}
     },
     inject: (deps, callback) => {
+      if (!deps.every((dep) => services[dep] !== undefined)) {
+        return { dispose: () => {} }
+      }
       const disposer = callback(ctx)
       return { dispose: disposer ?? (() => {}) }
     },
@@ -35,7 +48,7 @@ function fakeCtx(overrides = {}) {
       const disposer = fn()
       return disposer ?? (() => {})
     },
-    get: () => undefined,
+    get: (key) => services[key],
     logger: { warn: () => {}, info: () => {}, error: () => {} },
     ...overrides,
   }
