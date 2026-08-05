@@ -350,7 +350,10 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
             </div>
             <div className="me-group">
               <label className="me-field">
-                <span className="me-field-label">{t('panel.config.skillReviewEnabled')}</span>
+                <span className="me-field-label">
+                  {t('panel.config.skillReviewEnabled')}
+                  <em className="me-field-hint">{t('panel.config.skillReviewEnabled.hint')}</em>
+                </span>
                 <input
                   type="checkbox"
                   className="me-switch"
