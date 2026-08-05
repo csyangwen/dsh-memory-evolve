@@ -109,14 +109,18 @@ test('resolveConfig defaults and validation', () => {
 })
 
 test('apply registers memory tool and snapshot context by default', () => {
+  const dir = tempDir()
   const ctx = fakeCtx()
-  apply(ctx, {})
+  // Isolated memory dir: the default (~/.dsh/memories) would load the user's
+  // real plugin-state.json overrides into `runtime` and flip review on.
+  apply(ctx, { memoryDir: dir })
   const tool = ctx.state.tools.find((t) => t.name === 'memory')
   assert.ok(tool, 'memory tool registered')
   assert.ok(ctx.state.tools.some((t) => t.name === 'skill_manage'), 'skill tool registered by default')
   assert.ok(ctx.state.contexts.some((c) => c.name === 'memory:snapshot'), 'snapshot context registered')
   assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_suggest'), 'suggest tool off by default')
   assert.ok(ctx.state.commands.some((c) => c.name === 'memory_review'), 'review command registered')
+  clean(dir)
 })
 
 test('memory tool end-to-end add/list/replace/remove', async () => {
@@ -184,7 +188,12 @@ test('review enabled registers suggest tool and trigger; counting gates on messa
     id,
     session: {
       header: { origin: undefined },
-      events: turns.map((turn) => ({ type: 'turn/start', data: { turn, trigger: { kind: 'message' } } })),
+      // A real turn always carries a user message with source.kind 'user';
+      // the review digest skips sessions without human input rows.
+      events: turns.flatMap((turn) => [
+        { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
+        { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
+      ]),
     },
   })
 
@@ -289,7 +298,16 @@ test('final review fires on agent/disposed for unreviewed sessions', async () =>
   apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 10, reviewFinalOnDispose: true })
   const settled = ctx.state.listeners['agent/settled'][0]
   const disposed = ctx.state.listeners['agent/disposed'][0]
-  const agent = { id: 's1', session: { header: { origin: undefined }, events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } }] } }
+  const agent = {
+    id: 's1',
+    session: {
+      header: { origin: undefined },
+      events: [
+        { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+        { type: 'user/message', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '问题1' }] } },
+      ],
+    },
+  }
 
   // one user turn, session ends before the interval → final review fires
   settled(agent, 1, { kind: 'completed' })
@@ -348,7 +366,7 @@ test('memory_now command triggers a review through the review api', async () => 
     id: 's1',
     session: {
       header: { origin: undefined },
-      events: [{ type: 'user/message', data: { message: { content: [{ type: 'text', text: '你好' }] } } }],
+      events: [{ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '你好' }] } }],
     },
   }
   const result = command.handler({ rawInput: '', agent })

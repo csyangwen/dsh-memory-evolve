@@ -6,22 +6,78 @@ function sessionWith(events) {
   return { events }
 }
 
-test('digest renders events in order', () => {
+// DSH shapes: user/message carries the message as `data` itself (content
+// blocks at data.content), assistant/message wraps it in data.message. A
+// user message's `source` distinguishes direct human input (kind 'user')
+// from system-injected user-role content (kind 'plugin' etc.).
+function userMsg(text) {
+  return {
+    type: 'user/message',
+    data: { id: `m-${text}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] },
+  }
+}
+
+function assistantMsg(turn, text) {
+  return {
+    type: 'assistant/message',
+    data: { turn, step: 1, message: { role: 'assistant', content: [{ type: 'text', text }] } },
+  }
+}
+
+function chunk(text) {
+  return { type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text } } }
+}
+
+test('digest renders messages in order with turn markers', () => {
   const session = sessionWith([
     { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
-    { type: 'user/message', data: { message: { content: [{ type: 'text', text: '你好' }] } } },
-    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '你好！' }] } } },
+    userMsg('你好'),
+    assistantMsg(1, '你好！'),
     { type: 'tool/call', data: { name: 'bash', arguments: '{"cmd":"ls"}' } },
     { type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'ok' }] } } },
     { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } },
+    userMsg('继续'),
+    assistantMsg(2, '好的'),
+    { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
   ])
   const digest = buildDigest(session, {})
-  assert.ok(digest.includes('turn 1'))
+  assert.ok(digest.includes('=== turn 1 ==='))
+  assert.ok(digest.includes('=== turn 2 ==='))
   assert.ok(digest.includes('用户: 你好'))
   assert.ok(digest.includes('助手: 你好！'))
+  assert.ok(digest.includes('用户: 继续'))
+  assert.ok(digest.includes('助手: 好的'))
   assert.ok(digest.includes('工具调用: bash'))
-  assert.ok(digest.includes('工具结果: 成功'))
   assert.ok(!digest.includes('ok')) // tool output hidden by default
+})
+
+test('digest tolerates the wrapped user/message shape', () => {
+  const session = sessionWith([
+    { type: 'user/message', data: { message: { content: [{ type: 'text', text: '你好' }] }, source: { kind: 'user' } } },
+  ])
+  const digest = buildDigest(session, {})
+  assert.ok(digest.includes('用户: 你好'))
+})
+
+test('digest skips system-injected user-role messages', () => {
+  const session = sessionWith([
+    { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+    userMsg('真实的用户输入'),
+    {
+      type: 'user/message',
+      data: { id: 'inject-1', role: 'user', source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' }, content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes…' }] },
+    },
+    {
+      type: 'user/message',
+      data: { id: 'inject-2', role: 'user', source: { kind: 'workspace-instructions', baseline: true }, content: [{ type: 'text', text: '<system-reminder> workspace instructions…' }] },
+    },
+    assistantMsg(1, '回答'),
+  ])
+  const digest = buildDigest(session, {})
+  assert.ok(digest.includes('真实的用户输入'))
+  assert.ok(!digest.includes('Current runtime context'))
+  assert.ok(!digest.includes('<system-reminder>'))
 })
 
 test('digest includes tool output when asked', () => {
@@ -34,11 +90,31 @@ test('digest includes tool output when asked', () => {
   assert.ok(digest.includes('失败(E2BIG)'))
 })
 
-test('digest keeps only the tail and caps total chars', () => {
-  const events = Array.from({ length: 40 }, (_, i) => ({
-    type: 'user/message',
-    data: { message: { content: [{ type: 'text', text: `m${i}` }] } },
-  }))
+test('digest quota counts messages, not streaming chunk events', () => {
+  // A streaming turn floods the log with chunk events; the quota must still
+  // cover every real message, not just the closing chunks of one reply.
+  const events = [
+    { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+    userMsg('第一轮问题'),
+    assistantMsg(1, '第一轮回答'),
+    ...Array.from({ length: 500 }, (_, i) => chunk(`chunk-${i}`)),
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } },
+    userMsg('第二轮问题'),
+    assistantMsg(2, '第二轮回答'),
+    ...Array.from({ length: 500 }, (_, i) => chunk(`chunk-${i}`)),
+    { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+  ]
+  const digest = buildDigest(sessionWith(events), { maxEvents: 24 })
+  assert.ok(digest.includes('第一轮问题'))
+  assert.ok(digest.includes('第一轮回答'))
+  assert.ok(digest.includes('第二轮问题'))
+  assert.ok(digest.includes('第二轮回答'))
+  assert.ok(!digest.includes('chunk-')) // chunk events never enter the digest
+})
+
+test('digest keeps only the message tail and caps total chars', () => {
+  const events = Array.from({ length: 40 }, (_, i) => userMsg(`m${i}`))
   const tail = buildDigest(sessionWith(events), { maxEvents: 10 })
   assert.ok(tail.includes('m39'))
   assert.ok(!tail.includes('m0'))
@@ -54,9 +130,7 @@ test('digest handles missing session', () => {
 
 test('digest truncates long messages', () => {
   const long = 'x'.repeat(2000)
-  const session = sessionWith([
-    { type: 'user/message', data: { message: { content: [{ type: 'text', text: long }] } } },
-  ])
+  const session = sessionWith([userMsg(long)])
   const digest = buildDigest(session, {})
   assert.ok(digest.length < long.length)
   assert.ok(digest.endsWith('…'))
