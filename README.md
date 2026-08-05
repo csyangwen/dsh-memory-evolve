@@ -5,7 +5,8 @@
 ## 特性
 
 - **分层记忆（四轨）**：用户档案 · 全局事实 · 项目记忆（按工作目录隔离）· 每日日志，注入范围随层级收窄，互不污染；
-- **后台审查**：每 N 个用户回合自动回顾会话，产出记忆建议、追加项目/每日记忆，并自动创建/优化技能；支持 `/memory_now` 手动触发与会话关闭终局补审；
+- **后台审查**：每 N 个用户回合自动回顾会话（**增量转录**：每次只摘要上次审查以来的新对话），产出记忆建议、追加项目/每日记忆，并自动创建/优化技能；支持 `/memory_now` 手动触发与会话关闭终局补审；
+- **可追溯审查**（可选）：配合 [dsh-session-search](https://github.com/dsh-external/dsh-session-search) 插件安装时，审查子代理可在摘要信息不足时按需读取完整会话（不装也完全正常，仅失去深读能力）；
 - **技能自我进化**：审查子代理自动创建/优化 `~/.agents/skills` 下的技能（read-before-write 保护，DSH 与 Hermes 双向可用）；
 - **建议确认制**：全局记忆（用户档案/全局事实）写入需经 `/memory_review` 确认，杜绝无人把关的自我修改；
 - **安全设计**：防漂移备份、跨进程文件锁、原子写、字符上限、提示注入扫描、禁用技能保护；
@@ -87,10 +88,12 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 ### 后台审查
 
 - 触发：每 `reviewInterval` 个用户回合（`agent/settled` 计数，仅 message 回合）；会话关闭时未审查过的会话自动补一次终局审查；`/memory_now` 可随时手动触发；
-- 执行：派生一个受限子代理（工具白名单：`memory` / `memory_suggest` / `skill_manage`），从会话日志尾部重建只读转录，同时产出：
+- 转录：**增量**——每次从上次审查的水位线之后重建只读对话转录（只含用户输入与助手文本回复，不含工具调用/思考/系统注入），并附【会话信息】追溯头（会话 ID、工作目录、覆盖事件区间）；
+- 执行：派生一个受限子代理（工具白名单：`memory` / `memory_suggest` / `skill_manage`，若已安装 dsh-session-search 则再加 `agent_session_read`），同时产出：
   - 全局记忆建议 → `memory_suggest` → 建议队列（等用户确认）；
-  - 项目/每日记忆 → `memory` 工具直接写入（隔离层自动沉淀）；
+  - 项目/每日记忆 → `memory` 工具直接写入（隔离层自动沉淀，宽松：每个会话至少 1 条，纯寒暄除外）；
   - 技能 → `skill_manage` 自动创建/优化 `~/.agents/skills` 下的技能；
+  - 深读（可选）：摘要信息不足时，用 `agent_session_read` 读取完整会话，或 `memory target=project/daily` 按需查阅；
 - 并发：同时最多一个审查；异步执行不阻塞主流程；`origin: 'subagent'` 的会话永不触发（防递归）。
 
 ## 配置
@@ -102,7 +105,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `userCharLimit` | 1375 | 用户档案字符上限 |
 | `dailyCharLimit` | 8000 | 每日日志字符上限 |
 | `projectCharLimit` | 2200 | 项目记忆字符上限 |
-| `entryDatePrefix` | `true` | 记忆条目自动加 `[YYYY-MM-DD]` 日期前缀（每日日志为 `[HH:MM]`） |
+| `entryDatePrefix` | `true` | 记忆条目自动加时间前缀：全局轨 `[YYYY-MM-DD]`、项目轨 `[YYYY-MM-DD HH:MM]`、每日日志 `[HH:MM]` |
 | `hermesMemoriesDir` | `null` | Hermes 记忆只读注入（可选开启，默认关闭） |
 | `injectMemory` | `true` | 记忆快照注入开关 |
 | `injectProjectMemory` | `true` | 快照注入当前项目记忆 |
@@ -115,9 +118,8 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `skillReviewEnabled` | `true` | 审查子代理的技能轨开关 |
 | `reviewEnabled` | `false` | 后台审查总开关 |
 | `reviewInterval` | 5 | 每 N 个用户回合审查一次 |
-| `reviewDigestEvents` | 24 | 回放日志尾部事件数 |
-| `reviewDigestMaxChars` | 12000 | 回放转录长度上限 |
-| `reviewDigestIncludeToolOutput` | `false` | 转录是否含工具输出（隐私） |
+| `reviewDigestEvents` | 40 | 转录尾部**消息**条数（≈20 轮对话，不含流式 chunk） |
+| `reviewDigestMaxChars` | 40000 | 转录长度上限（单条消息超长时头尾保留，中间标注省略字符数） |
 | `reviewProvider` / `reviewModel` | 空（主模型） | 审查用模型 |
 | `reviewMode` | `suggest` | `suggest`=全局记忆只产建议；`auto`=直接写（每次写前请求批准） |
 | `reviewFinalOnDispose` | `true` | 会话关闭时未审查会话自动补审 |
@@ -141,13 +143,18 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 ```
 用户会话进行中
   └─ 每 reviewInterval 个用户回合（agent/settled 计数）或会话关闭补审或 /memory_now
-       └─ 从会话日志尾部重建只读转录（最多 reviewDigestEvents 条事件）
-            └─ 派生受限子代理（白名单：memory / memory_suggest / skill_manage；origin=subagent 不触发审查）
+       └─ 从上次审查水位线起重建只读对话转录（最多 reviewDigestEvents 条消息 + 【会话信息】追溯头）
+            └─ 派生受限子代理（白名单：memory / memory_suggest / skill_manage / [agent_session_read]；origin=subagent 不触发审查）
                  ├─ 全局记忆建议 → SUGGESTIONS.jsonl → 用户 /memory_review 确认 → 写入
-                 ├─ 项目/每日记忆 → memory 工具直接写入（隔离层）
+                 ├─ 项目/每日记忆 → memory 工具直接写入（隔离层自动沉淀）
+                 ├─ 深读（可选）→ agent_session_read 读取完整会话 / memory 按需查阅
                  └─ 技能 → skill_manage 自动创建/优化 ~/.agents/skills
                       └─ 快照注入（全局 + 当前项目 + 今日摘要）随上下文刷新，模型可见
 ```
+
+## 可选增强：dsh-session-search
+
+后台审查的「深读」能力依赖 [dsh-session-search](https://github.com/dsh-external/dsh-session-search)（跨会话全文搜索 + 会话读取工具，私有仓库，需 SSH 凭证安装）。**未安装时本插件完全正常运行**——仅审查子代理无法按需读取完整会话，摘要式审查不受影响。插件会在该工具已注册时自动把 `agent_session_read` 加入审查子代理白名单。安装方法见该仓库 README。
 
 ## 测试
 

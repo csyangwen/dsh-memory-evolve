@@ -202,6 +202,23 @@ test('add is idempotent for content that already carries a date stamp', () => {
   clean(dir)
 })
 
+test('project entries carry a date AND time stamp', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  const result = store.add('project', '完成了模块重构', agent)
+  assert.equal(result.ok, true)
+  const entry = store.entriesOf('project', agent)[0]
+  assert.match(entry, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 完成了模块重构$/)
+  // a bare dated project entry is upgraded to the dated-time form
+  store.add('project', '[2026-08-05] 旧格式条目', agent)
+  const upgraded = store.replace('project', '旧格式条目', '旧格式条目升级', agent)
+  assert.equal(upgraded.ok, true)
+  const upgradedEntry = store.entriesOf('project', agent).find((e) => e.includes('升级'))
+  assert.match(upgradedEntry, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 旧格式条目升级$/)
+  clean(dir)
+})
+
 test('entryDatePrefix can be disabled', () => {
   const dir = tempDir()
   const store = new MemoryStore(dir, { entryDatePrefix: false })
