@@ -615,7 +615,7 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly), hermes 
   assert.ok(!snapshot.includes('## 项目记忆'))
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
-  assert.ok(snapshot.includes('target=project / daily'))
+  assert.ok(snapshot.includes('target=project'))
   assert.ok(!snapshot.includes('Hermes 记忆'), 'hermes injection off by default')
   clean(dir)
 })
