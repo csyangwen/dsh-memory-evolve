@@ -35,6 +35,7 @@ interface RuntimeConfig {
   skillReviewEnabled: boolean
   injectProjectMemory: boolean
   injectDailySummary: boolean
+  autoApproveGlobal: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -60,6 +61,8 @@ function summarizeReport(report: { lines?: string[]; removed?: number; remaining
 export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
   const { t, refresh } = props
   const [entries, setEntries] = useState<SuggestionEntry[] | null>(null)
+  /** Edited text per 1-based suggestion index (textarea values). */
+  const [edits, setEdits] = useState<Record<number, string>>({})
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
   const [draft, setDraft] = useState<RuntimeConfig | null>(null)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
@@ -71,6 +74,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       api<{ config: RuntimeConfig }>('/api/config'),
     ]).then(([s, c]) => {
       setEntries(s.entries)
+      setEdits({})
       setConfig(c.config)
       setDraft((prev) => prev ?? c.config)
     }).catch((error: Error) => {
@@ -85,10 +89,16 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
 
   const runSuggestions = (op: 'approve' | 'reject' | 'approve-all' | 'reject-all', indices?: number[]): void => {
     setBusy(true)
-    const body = indices !== undefined ? { indices } : undefined
+    const body: { indices?: number[]; contents?: string[] } = {}
+    if (indices !== undefined) {
+      body.indices = indices
+      if (op === 'approve') {
+        body.contents = indices.map((index) => edits[index] ?? '')
+      }
+    }
     void api<{ lines?: string[]; removed?: number; remaining: number }>(`/api/suggestions/${op}`, {
       method: 'POST',
-      body: JSON.stringify(body ?? {}),
+      body: JSON.stringify(body),
     }).then((report) => {
       setNotice({ kind: 'ok', text: summarizeReport(report) })
       load()
@@ -115,6 +125,22 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
 
   const patchDraft = (patch: Partial<RuntimeConfig>): void => {
     setDraft((prev) => (prev === null ? prev : { ...prev, ...patch }))
+  }
+
+  const revealTargets: Array<[string, string]> = [
+    ['memoryDir', t('panel.reveal.memoryDir')],
+    ['memoryFile', t('panel.reveal.memoryFile')],
+    ['userFile', t('panel.reveal.userFile')],
+    ['dailyFile', t('panel.reveal.dailyFile')],
+    ['dailyDir', t('panel.reveal.dailyDir')],
+    ['projectsDir', t('panel.reveal.projectsDir')],
+    ['skillDir', t('panel.reveal.skillDir')],
+  ]
+  const reveal = (target: string): void => {
+    void api<{ ok: boolean }>('/api/reveal', { method: 'POST', body: JSON.stringify({ target }) })
+      .catch((error: Error) => {
+        setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+      })
   }
 
   return (
@@ -156,10 +182,15 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                       </button>
                     </span>
                   </div>
-                  <p className="me-item-content">{entry.content}</p>
-                  {entry.reason !== undefined && entry.reason !== '' && (
-                    <p className="me-item-reason">{entry.reason}</p>
-                  )}
+                  <textarea
+                    className="me-item-edit"
+                    rows={3}
+                    value={edits[index + 1] ?? entry.content}
+                    onChange={(event) => setEdits((prev) => ({ ...prev, [index + 1]: event.target.value }))}
+                  />
+                  <p className="me-item-reason">
+                    {entry.reason !== undefined && entry.reason !== '' ? entry.reason : t('panel.suggestions.editHint')}
+                  </p>
                 </li>
               ))}
             </ul>
@@ -224,6 +255,17 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
               />
             </label>
             <label className="me-field">
+              <span className="me-field-label">
+                {t('panel.config.autoApproveGlobal')}
+                <em className="me-field-hint">{t('panel.config.autoApproveGlobal.hint')}</em>
+              </span>
+              <input
+                type="checkbox"
+                checked={draft.autoApproveGlobal}
+                onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
+              />
+            </label>
+            <label className="me-field">
               <span className="me-field-label">{t('panel.config.injectProjectMemory')}</span>
               <input
                 type="checkbox"
@@ -246,6 +288,18 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="me-block">
+        <h3 className="me-heading">{t('panel.reveal.title')}</h3>
+        <p className="me-help">{t('panel.reveal.help')}</p>
+        <div className="me-actions me-reveal-actions">
+          {revealTargets.map(([target, label]) => (
+            <button key={target} type="button" className="me-btn" onClick={() => reveal(target)}>
+              {label}
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   )

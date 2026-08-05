@@ -430,3 +430,35 @@ test('renderSnapshot layers project and daily blocks and defaults hermes off', a
   assert.ok(!other.includes('## 项目记忆'))
   clean(dir)
 })
+
+test('autoApproveGlobal lets subagents write global tracks directly', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir, reviewMode: 'suggest', autoApproveGlobal: true })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  const subExec = {
+    agent: { id: 'child', session: { header: { origin: 'subagent', cwd: '/tmp/x' } } },
+    callId: 'c20',
+    signal: new AbortController().signal,
+  }
+  const result = await tool.execute({ action: 'add', target: 'memory', content: '自动沉淀的全局事实' }, subExec)
+  assert.equal(result.ok, true)
+  assert.ok(readFileSync(join(dir, 'MEMORY.md'), 'utf8').includes('自动沉淀的全局事实'))
+  clean(dir)
+})
+
+test('autoApproveGlobal off still refuses subagent global writes in suggest mode', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir, reviewMode: 'suggest', autoApproveGlobal: false })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  const subExec = {
+    agent: { id: 'child', session: { header: { origin: 'subagent', cwd: '/tmp/x' } } },
+    callId: 'c21',
+    signal: new AbortController().signal,
+  }
+  const result = await tool.execute({ action: 'add', target: 'user', content: 'x' }, subExec)
+  assert.equal(result.ok, false)
+  assert.ok(result.message.includes('memory_suggest'))
+  clean(dir)
+})

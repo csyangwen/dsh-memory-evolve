@@ -68,8 +68,9 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 `dsh web` 左下角设置 → **记忆管理**：
 
-- **待确认建议**：列出全部待确认建议，逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
-- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `injectProjectMemory` / `injectDailySummary` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）。
+- **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` / `injectProjectMemory` / `injectDailySummary` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
+- **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
 
 ### 用户侧命令
 
@@ -121,6 +122,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `reviewMode` | `suggest` | `suggest`=全局记忆只产建议；`auto`=直接写（每次写前请求批准） |
 | `reviewFinalOnDispose` | `true` | 会话关闭时未审查会话自动补审 |
 | `reviewNowCommandName` | `memory_now` | 手动触发审查的命令名 |
+| `autoApproveGlobal` | `false` | 全局轨（user/memory）自动沉淀：开启后审查子代理直接写入，无需确认（注意提示注入风险） |
 | `reviewProviderName` | `spawn` | 审查子代理提供者 |
 
 ## 安全设计

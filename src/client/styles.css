@@ -181,3 +181,21 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+.me-item-edit {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-strong, transparent);
+  background: var(--dsw-alias-surface-raised, transparent);
+  color: var(--dsw-alias-text-primary, inherit);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: var(--dsw-font-family, inherit);
+}
+
+.me-reveal-actions {
+  flex-wrap: wrap;
+}

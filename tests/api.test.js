@@ -32,7 +32,15 @@ async function bootApi(overrides = {}) {
       },
     },
   }
-  installApi(ctx, { store, queue, getRuntime, updateRuntime })
+  const revealTargets = {
+    memoryDir: dir,
+    nope: undefined,
+  }
+  installApi(ctx, {
+    store, queue, getRuntime, updateRuntime,
+    resolveRevealTarget: (target) => revealTargets[target],
+    revealPath: () => {},
+  })
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
@@ -115,6 +123,47 @@ test('api 404 for unknown routes', async () => {
   try {
     const res = await api.request('GET', '/memory-evolve/api/nope')
     assert.equal(res.status, 404)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api approve supports edited contents', async () => {
+  const api = await bootApi()
+  try {
+    api.queue.append({ time: 't', target: 'user', content: '原始建议文本', reason: 'r', cwd: null })
+    const res = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      contents: ['修改后的入库文本'],
+    })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('user')[0].includes('修改后的入库文本'), true)
+    assert.equal(api.store.entriesOf('user')[0].includes('原始建议文本'), false)
+    // contents/indices length mismatch → 400
+    api.queue.append({ time: 't2', target: 'memory', content: 'x', reason: 'r', cwd: null })
+    const bad = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      contents: ['a', 'b'],
+    })
+    assert.equal(bad.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api reveal resolves whitelisted targets and rejects unknown ones', async () => {
+  const api = await bootApi()
+  try {
+    const res = await api.request('POST', '/memory-evolve/api/reveal', { target: 'memoryDir' })
+    assert.equal(res.status, 200)
+    assert.equal(res.data.ok, true)
+    assert.equal(res.data.path, api.dir)
+    const bad = await api.request('POST', '/memory-evolve/api/reveal', { target: '/etc' })
+    assert.equal(bad.status, 400)
+    const missing = await api.request('POST', '/memory-evolve/api/reveal', { target: 'nope' })
+    assert.equal(missing.status, 400)
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })
