@@ -119,6 +119,8 @@ const BADGE_POLL_MS = 30_000
  * the badge poller.
  * @param ctx - the client plugin context (`slots`, `locale` injected).
  */
+export const inject = ['slots', 'locale']
+
 export function apply(ctx: Context): void {
   const t = ctx.locale.bind(NS) as unknown as Translate
 

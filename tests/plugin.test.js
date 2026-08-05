@@ -93,7 +93,7 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.memoryCharLimit, 2200)
   assert.equal(config.reviewEnabled, false)
   assert.equal(config.reviewMode, 'suggest')
-  assert.equal(config.reviewInterval, 10)
+  assert.equal(config.reviewInterval, 5)
   assert.equal(config.entryDatePrefix, true)
   assert.equal(config.skillReviewEnabled, true)
   assert.equal(config.skillManageToolName, 'skill_manage')

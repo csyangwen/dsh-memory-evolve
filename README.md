@@ -114,7 +114,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `skillMaxBytes` | 65536 | SKILL.md 大小上限 |
 | `skillReviewEnabled` | `true` | 审查子代理的技能轨开关 |
 | `reviewEnabled` | `false` | 后台审查总开关 |
-| `reviewInterval` | 10 | 每 N 个用户回合审查一次 |
+| `reviewInterval` | 5 | 每 N 个用户回合审查一次 |
 | `reviewDigestEvents` | 24 | 回放日志尾部事件数 |
 | `reviewDigestMaxChars` | 12000 | 回放转录长度上限 |
 | `reviewDigestIncludeToolOutput` | `false` | 转录是否含工具输出（隐私） |
