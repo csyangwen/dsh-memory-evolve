@@ -1,6 +1,6 @@
 # dsh-memory-evolve
 
-为 DeepSeek Harness 带来 Hermes 式「记忆 + 自我进化」能力的纯插件实现：**零核心修改、零运行时依赖**，随装随用、卸载即净。
+为 DeepSeek Harness 带来「跨会话长期记忆 + 后台自我进化」能力的纯插件实现：**零核心修改、零运行时依赖**，随装随用、卸载即净。
 
 > **📖 记忆与审查规则（功能说明）**：[docs/rules.md](docs/rules.md) —— 四层记忆如何工作、审查何时触发与产出什么、什么该记什么不该记、哪些需要你确认。README 只讲安装与配置。
 
@@ -27,7 +27,7 @@
 
 ```
 ~/.dsh/memories/
-├── MEMORY.md                       # 全局事实（§ 分隔条目，与 Hermes 格式兼容）
+├── MEMORY.md                       # 全局事实（§ 分隔条目格式）
 ├── USER.md                         # 用户档案
 ├── SUGGESTIONS.jsonl               # 待确认建议队列
 ├── daily/YYYY-MM-DD.md             # 每日日志（按天分文件）
@@ -125,7 +125,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `injectMemory` | `true` | 记忆快照注入开关（只注入低频变化的全局轨 + 一行按需提示；项目/每日内容按需读取，不注入） |
 | `injectionScan` | `true` | 写入内容的提示注入短语扫描 |
 | `toolName` | `memory` | 记忆工具名 |
-| `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 与 Hermes 共同扫描） |
+| `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 技能库） |
 | `skillManageToolName` | `skill_manage` | 技能管理工具名 |
 | `skillMaxBytes` | 65536 | SKILL.md 大小上限 |
 | `skillReviewEnabled` | `false` | 技能自动沉淀：关（默认）= 审查创建的新技能进待确认队列；开 = 直接创建无需确认 |
