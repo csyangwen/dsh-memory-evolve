@@ -128,10 +128,12 @@ test('digest handles missing session', () => {
   assert.equal(buildDigest({}, {}), '')
 })
 
-test('digest truncates long messages', () => {
-  const long = 'x'.repeat(2000)
+test('digest truncates long messages keeping head and tail', () => {
+  const long = `${'A'.repeat(1500)}${'B'.repeat(1500)}`
   const session = sessionWith([userMsg(long)])
   const digest = buildDigest(session, {})
   assert.ok(digest.length < long.length)
-  assert.ok(digest.endsWith('…'))
+  assert.ok(digest.includes('A'.repeat(200)), 'head survives')
+  assert.ok(digest.includes('B'.repeat(200)), 'tail survives (programming errors live at the end)')
+  assert.ok(digest.includes('[中间省略'), 'omission marker present')
 })

@@ -301,6 +301,9 @@ test('buildReviewPrompt: daily/project tracks are loose, global track strict', (
   // one-off task narratives are banned for the global track only
   assert.ok(prompt.includes('仅针对全局轨'))
   assert.ok(prompt.includes('"写了篇短文"这类'))
+  // the reviewer must extract key points before judging
+  assert.ok(prompt.includes('【转录要点】'))
+  assert.ok(prompt.includes('不要脑补被省略的内容'))
 })
 
 test('final review fires on agent/disposed for unreviewed sessions', async () => {
