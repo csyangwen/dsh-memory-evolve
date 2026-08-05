@@ -10,16 +10,16 @@
 - **技能自我进化**：审查子代理自动创建/优化 `~/.agents/skills` 下的技能（read-before-write 保护，DSH 与 Hermes 双向可用）；
 - **建议确认制**：全局记忆（用户档案/全局事实）写入需经 `/memory_review` 确认，杜绝无人把关的自我修改；
 - **安全设计**：防漂移备份、跨进程文件锁、原子写、字符上限、提示注入扫描、禁用技能保护；
-- **缓存友好**：记忆快照走 user-role 尾部消息注入（变更检测），system prompt 与历史前缀保持稳定，不影响 LLM 前缀缓存。
+- **缓存友好**：记忆快照走 user-role 尾部消息注入（变更检测），system prompt 与历史前缀保持稳定。**只注入低频变化的全局轨**（用户档案/全局事实/可选的只读 Hermes）——项目记忆与每日日志每次审查都会变化，若注入会导致每轮追加新的上下文快照、前缀缓存命中率下降，因此它们**默认不注入**，改为按需读取（快照中保留一行稳定提示告知模型可随时读取）。
 
 ## 分层记忆
 
 | 层 | 内容 | 注入方式 | 写入方式 |
 |---|---|---|---|
-| 用户档案（`user`） | 用户是谁、偏好、沟通方式 | 每会话注入 | 建议确认制（`/memory_review`） |
-| 全局事实（`memory`） | 环境、工具、惯例 | 每会话注入 | 建议确认制 |
-| 项目记忆（`project`） | 当前项目的约定与进展 | 仅当前工作目录的会话注入（按 cwd 隔离，项目间互不可见） | 后台自动沉淀 |
-| 每日日志（`daily`） | 今天做了什么 | 不注入，仅一行摘要 + 按需读取 | 后台自动沉淀 |
+| 用户档案（`user`） | 用户是谁、偏好、沟通方式 | 每会话注入（低频变化，缓存友好） | 建议确认制（`/memory_review`） |
+| 全局事实（`memory`） | 环境、工具、惯例 | 每会话注入（低频变化，缓存友好） | 建议确认制 |
+| 项目记忆（`project`） | 当前项目的约定与进展 | **不注入**，按需读取（`memory` 工具，按 cwd 隔离） | 后台自动沉淀 |
+| 每日日志（`daily`） | 今天做了什么 | **不注入**，按需读取（`memory` 工具） | 后台自动沉淀 |
 
 记忆文件位置（默认 `~/.dsh/memories/`）：
 
@@ -70,7 +70,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 `dsh web` 左下角设置 → **记忆管理**：
 
 - **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
-- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` / `injectProjectMemory` / `injectDailySummary` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
 
 ### 用户侧命令
@@ -107,9 +107,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `projectCharLimit` | 2200 | 项目记忆字符上限 |
 | `entryDatePrefix` | `true` | 记忆条目自动加时间前缀：全局轨 `[YYYY-MM-DD]`、项目轨 `[YYYY-MM-DD HH:MM]`、每日日志 `[HH:MM]` |
 | `hermesMemoriesDir` | `null` | Hermes 记忆只读注入（可选开启，默认关闭） |
-| `injectMemory` | `true` | 记忆快照注入开关 |
-| `injectProjectMemory` | `true` | 快照注入当前项目记忆 |
-| `injectDailySummary` | `true` | 快照注入"今日已记录 N 条"摘要 |
+| `injectMemory` | `true` | 记忆快照注入开关（只注入低频变化的全局轨 + 一行按需提示；项目/每日内容按需读取，不注入） |
 | `injectionScan` | `true` | 写入内容的提示注入短语扫描 |
 | `toolName` | `memory` | 记忆工具名 |
 | `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 与 Hermes 共同扫描） |
@@ -129,7 +127,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 ## 安全设计
 
-- **分层隔离**：全局记忆（每会话注入）是高风险面——自动写入被拒，只走建议确认；项目记忆按 cwd 硬隔离（A 项目会话看不到 B 项目记忆）；每日日志不注入全文；
+- **分层隔离**：全局记忆（每会话注入）是高风险面——自动写入被拒，只走建议确认；项目记忆按 cwd 硬隔离（A 项目会话看不到 B 项目记忆，且内容不注入、仅按需读取）；每日日志不注入；
 - **read-before-write**：`skill_manage` 优化已有技能前，必须先在会话日志中证明 `read` 过（防凭空改写他人技能）；
 - **禁用技能保护**：写入前查 DSH 核心技能注册表的 `modelInvocable` 状态，禁用的技能不更新；
 - **防数据丢失**：文件无法被解析器往返时拒绝重写并备份 `.bak.<时间戳>`；字符上限硬拒绝；跨进程锁 + 原子写；
@@ -149,7 +147,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
                  ├─ 项目/每日记忆 → memory 工具直接写入（隔离层自动沉淀）
                  ├─ 深读（可选）→ agent_session_read 读取完整会话 / memory 按需查阅
                  └─ 技能 → skill_manage 自动创建/优化 ~/.agents/skills
-                      └─ 快照注入（全局 + 当前项目 + 今日摘要）随上下文刷新，模型可见
+                      └─ 快照注入（仅低频变化的全局轨 + 按需提示行）随上下文刷新，模型可见；项目/每日按需读取
 ```
 
 ## 可选增强：dsh-session-search

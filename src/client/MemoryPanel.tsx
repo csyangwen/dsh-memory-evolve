@@ -32,8 +32,6 @@ interface RuntimeConfig {
   reviewEnabled: boolean
   reviewInterval: number
   skillReviewEnabled: boolean
-  injectProjectMemory: boolean
-  injectDailySummary: boolean
   autoApproveGlobal: boolean
 }
 
@@ -130,8 +128,6 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       reviewInterval: draft.reviewInterval,
       skillReviewEnabled: draft.skillReviewEnabled,
       autoApproveGlobal: draft.autoApproveGlobal,
-      injectProjectMemory: draft.injectProjectMemory,
-      injectDailySummary: draft.injectDailySummary,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -291,24 +287,6 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                   className="me-switch"
                   checked={draft.autoApproveGlobal}
                   onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
-                />
-              </label>
-              <label className="me-field">
-                <span className="me-field-label">{t('panel.config.injectProjectMemory')}</span>
-                <input
-                  type="checkbox"
-                  className="me-switch"
-                  checked={draft.injectProjectMemory}
-                  onChange={(event) => patchDraft({ injectProjectMemory: event.target.checked })}
-                />
-              </label>
-              <label className="me-field">
-                <span className="me-field-label">{t('panel.config.injectDailySummary')}</span>
-                <input
-                  type="checkbox"
-                  className="me-switch"
-                  checked={draft.injectDailySummary}
-                  onChange={(event) => patchDraft({ injectDailySummary: event.target.checked })}
                 />
               </label>
             </div>

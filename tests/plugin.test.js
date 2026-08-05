@@ -595,7 +595,7 @@ test('project memory requires a session cwd and isolates projects', async () => 
   clean(dir)
 })
 
-test('renderSnapshot layers project and daily blocks and defaults hermes off', async () => {
+test('renderSnapshot keeps project and daily on-demand (cache-friendly), hermes off by default', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()
   apply(ctx, { memoryDir: dir })
@@ -606,14 +606,17 @@ test('renderSnapshot layers project and daily blocks and defaults hermes off', a
   const config = resolveConfig({ memoryDir: dir })
   const store = new MemoryStore(config.memoryDir, config)
   const snapshot = renderSnapshot(config, store, agent)
-  assert.ok(snapshot.includes('## 项目记忆（/proj/x）'))
-  assert.ok(snapshot.includes('X 项目事实'))
-  assert.ok(snapshot.includes('## 今日记忆'))
-  assert.ok(snapshot.includes('今日已记录 1 条'))
+  // Project/daily content must NOT enter the runtime-context snapshot: it
+  // changes on every review, and injecting it would append a new tail
+  // snapshot per turn and defeat LLM prefix caching. A stable hint keeps the
+  // model aware the tracks exist (content is read on demand via the tool).
+  assert.ok(!snapshot.includes('X 项目事实'))
+  assert.ok(!snapshot.includes('今天完成了 Y'))
+  assert.ok(!snapshot.includes('## 项目记忆'))
+  assert.ok(!snapshot.includes('## 今日记忆'))
+  assert.ok(snapshot.includes('## 按需记忆'))
+  assert.ok(snapshot.includes('target=project / daily'))
   assert.ok(!snapshot.includes('Hermes 记忆'), 'hermes injection off by default')
-  // other agent cwd: no project block
-  const other = renderSnapshot(config, store, { id: 'b', session: { header: { cwd: '/proj/other' } } })
-  assert.ok(!other.includes('## 项目记忆'))
   clean(dir)
 })
 
