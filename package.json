@@ -1,0 +1,16 @@
+{
+  "name": "dsh-memory-evolve",
+  "version": "0.1.0",
+  "description": "Hermes-style long-term memory and background memory review for DeepSeek Harness. 长期记忆 + 后台记忆审查（Hermes 机制复刻）。",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "license": "MIT"
+}
