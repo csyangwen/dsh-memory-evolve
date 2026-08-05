@@ -173,6 +173,11 @@
   background: var(--dsw-alias-state-business-tertiary);
 }
 
+.me-badge-hits {
+  color: var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
 .me-item-time {
   flex: 1;
   min-width: 0;

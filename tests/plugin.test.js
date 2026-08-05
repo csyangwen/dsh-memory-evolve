@@ -397,6 +397,54 @@ test('suggest tool appends to the queue; command approves/rejects', async () => 
   clean(dir)
 })
 
+test('suggest tool dedupes repeated content and accumulates hits', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir, reviewEnabled: true })
+  const suggest = ctx.state.tools.find((t) => t.name === 'memory_suggest')
+  const exec = { agent: undefined, callId: 'c5', signal: new AbortController().signal }
+
+  // First suggestion: new entry with hits=1.
+  const first = await suggest.execute({ target: 'user', content: '用户偏好平实文风', reason: '证据一' }, exec)
+  assert.equal(first.ok, true)
+  assert.equal(first.queued, 1)
+
+  // Same content again (whitespace differs): same entry, hits bumps, no stack.
+  const second = await suggest.execute({ target: 'user', content: ' 用户偏好平实文风 ', reason: '证据二' }, exec)
+  assert.equal(second.ok, true)
+  assert.equal(second.queued, 1)
+  assert.ok(second.message.includes('累计第 2 次'))
+
+  // Different track: a new entry.
+  const third = await suggest.execute({ target: 'memory', content: '用户偏好平实文风', reason: '同文本不同轨' }, exec)
+  assert.equal(third.ok, true)
+  assert.equal(third.queued, 2)
+
+  // The queue holds two entries; the deduped one carries hits=2.
+  const entries = readFileSync(join(dir, 'SUGGESTIONS.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.equal(entries.length, 2)
+  assert.equal(entries.filter((e) => e.target === 'user')[0].hits, 2)
+  assert.equal(entries.filter((e) => e.target === 'memory')[0].hits, 1)
+  clean(dir)
+})
+
+test('buildReviewPrompt embeds existing global memory for dedup', async () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  store.add('memory', '已有环境事实')
+  store.add('user', '已有用户偏好')
+  const prompt = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }), store)
+  assert.ok(prompt.includes('【当前已有全局记忆】'))
+  assert.ok(prompt.includes('已有环境事实'))
+  assert.ok(prompt.includes('已有用户偏好'))
+  assert.ok(prompt.includes('不要重复建议'))
+  // Without a store the section degrades to a placeholder.
+  const bare = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }))
+  assert.ok(bare.includes('【当前已有全局记忆】'))
+  assert.ok(bare.includes('未提供已有记忆数据'))
+  clean(dir)
+})
+
 test('renderSnapshot includes hermes read-only block when present', () => {
   const dir = tempDir()
   const hermesDir = tempDir()

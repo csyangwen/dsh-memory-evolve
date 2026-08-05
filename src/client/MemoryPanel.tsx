@@ -25,6 +25,8 @@ interface SuggestionEntry {
   target: string
   content: string
   reason?: string
+  /** How many times this fact resurfaced in reviews (deduped queue). */
+  hits?: number
 }
 
 /** Runtime config view (subset returned by /api/config). */
@@ -77,7 +79,10 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       api<{ entries: SuggestionEntry[] }>('/api/suggestions'),
       api<{ config: RuntimeConfig }>('/api/config'),
     ]).then(([s, c]) => {
-      setEntries(s.entries)
+      // Facts that resurfaced in several reviews are the most likely to be
+      // worth confirming — show them first.
+      const entries = [...s.entries].sort((a, b) => (b.hits ?? 1) - (a.hits ?? 1))
+      setEntries(entries)
       setEdits({})
       setConfig(c.config)
       setDraft((prev) => prev ?? c.config)
@@ -187,6 +192,11 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                 <li key={`${entry.time}-${index}`} className="me-item">
                   <div className="me-item-head">
                     <span className="me-badge me-badge-target">{entry.target}</span>
+                    {(entry.hits ?? 1) > 1 && (
+                      <span className="me-badge me-badge-hits" title={t('panel.suggestions.hitsHint')}>
+                        {t('panel.suggestions.hits', { count: entry.hits ?? 1 })}
+                      </span>
+                    )}
                     <span className="me-item-time" title={entry.time}>{formatTime(entry.time)}</span>
                     <span className="me-item-actions">
                       <button
