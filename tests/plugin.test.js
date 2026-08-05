@@ -270,6 +270,53 @@ test('reviews are incremental: later reviews only see new turns', async () => {
   clean(dir)
 })
 
+test('review watermarks survive a process restart', async () => {
+  const dir = tempDir()
+  const makeHarness = () => {
+    const started = []
+    const fakeSubagents = {
+      getProvider: (name) => ({ name }),
+      start: async (name, request) => {
+        started.push({ name, request })
+        return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
+      },
+    }
+    const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
+    apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
+    const agent = (turns) => ({
+      id: 's1',
+      session: {
+        header: { origin: undefined },
+        events: turns.flatMap((turn) => [
+          { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
+          { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
+        ]).map((event, seq) => ({ ...event, seq })),
+      },
+    })
+    return { ctx, started, agent }
+  }
+
+  // First process: review after turn 2 advances the watermark to seq 4.
+  const first = makeHarness()
+  first.ctx.state.listeners['agent/settled'][0](first.agent([1]), 1, { kind: 'completed' })
+  first.ctx.state.listeners['agent/settled'][0](first.agent([1, 2]), 2, { kind: 'completed' })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(first.started.length, 1)
+
+  // Second process (restart): the persisted watermark means the next review
+  // still only sees turns 3-4, never re-reads the whole session.
+  const second = makeHarness()
+  second.ctx.state.listeners['agent/settled'][0](second.agent([1, 2, 3]), 3, { kind: 'completed' })
+  second.ctx.state.listeners['agent/settled'][0](second.agent([1, 2, 3, 4]), 4, { kind: 'completed' })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(second.started.length, 1)
+  const prompt = second.started[0].request.prompt[0].text
+  assert.ok(prompt.includes('问题3'), 'restarted review sees turn 3')
+  assert.ok(prompt.includes('问题4'), 'restarted review sees turn 4')
+  assert.ok(!prompt.includes('问题1'), 'restarted review skips already-reviewed turns')
+  clean(dir)
+})
+
 test('review whitelist includes agent_session_read when the tool exists', async () => {
   const dir = tempDir()
   const started = []
