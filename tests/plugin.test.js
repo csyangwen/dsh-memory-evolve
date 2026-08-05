@@ -284,6 +284,25 @@ test('buildReviewPrompt covers both tracks and honors skillReviewEnabled', () =>
   assert.ok(auto.includes('memory 工具直接写入'))
 })
 
+test('buildReviewPrompt: daily/project tracks are loose, global track strict', () => {
+  const prompt = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }))
+  // daily: at least one entry per session
+  assert.ok(prompt.includes('每个会话至少写 1 条'))
+  assert.ok(prompt.includes('target: "daily"'))
+  // project: loose when real work happened, skip for small talk
+  assert.ok(prompt.includes('至少 1 条（做了什么、关键决策/进展）'))
+  assert.ok(prompt.includes('纯寒暄'))
+  // global: strict, max 2, via suggest tool
+  assert.ok(prompt.includes('最多 2 条'))
+  assert.ok(prompt.includes('写全局会被拒绝'))
+  // nothing-to-save only for pure small talk
+  assert.ok(prompt.includes('Nothing to save'))
+  assert.ok(prompt.includes('纯属寒暄'))
+  // one-off task narratives are banned for the global track only
+  assert.ok(prompt.includes('仅针对全局轨'))
+  assert.ok(prompt.includes('"写了篇短文"这类'))
+})
+
 test('final review fires on agent/disposed for unreviewed sessions', async () => {
   const dir = tempDir()
   const started = []
