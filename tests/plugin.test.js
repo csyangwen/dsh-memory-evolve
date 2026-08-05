@@ -445,18 +445,6 @@ test('buildReviewPrompt embeds existing global memory for dedup', async () => {
   clean(dir)
 })
 
-test('renderSnapshot includes hermes read-only block when present', () => {
-  const dir = tempDir()
-  const hermesDir = tempDir()
-  writeFileSync(join(hermesDir, 'MEMORY.md'), 'Hermes 事实一\n§\nHermes 事实二\n')
-  const config = resolveConfig({ memoryDir: dir, hermesMemoriesDir: hermesDir })
-  const store = new MemoryStore(config.memoryDir, config)
-  const snapshot = renderSnapshot(config, store)
-  assert.ok(snapshot.includes('Hermes 记忆（只读'))
-  assert.ok(snapshot.includes('Hermes 事实一'))
-  clean(dir)
-  clean(hermesDir)
-})
 
 test('buildReviewPrompt covers both tracks and honors skillReviewEnabled', () => {
   const on = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest', skillReviewEnabled: true }))
@@ -643,7 +631,7 @@ test('project memory requires a session cwd and isolates projects', async () => 
   clean(dir)
 })
 
-test('renderSnapshot keeps project and daily on-demand (cache-friendly), hermes off by default', async () => {
+test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()
   apply(ctx, { memoryDir: dir })
@@ -664,7 +652,6 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly), hermes 
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
   assert.ok(snapshot.includes('target=project'))
-  assert.ok(!snapshot.includes('Hermes 记忆'), 'hermes injection off by default')
   clean(dir)
 })
 
