@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { apply, resolveConfig, renderSnapshot, resolveRevealTarget } from '../lib/index.js'
@@ -637,6 +637,27 @@ test('resolveRevealTarget falls back to containing directories for missing files
     assert.equal(resolveRevealTarget(config, '/etc'), undefined)
   } finally {
     process.env.DSH_HOME = prevHome
+    clean(dir)
+  }
+})
+
+test('resolveRevealTarget creates plugin-owned storage dirs on demand', () => {
+  const dir = tempDir()
+  // A fresh install: the memory dir itself does not exist yet (no memory
+  // was ever written). Revealing any storage target must create it, not
+  // fail with an unknown-target error.
+  const fresh = join(dir, 'memories')
+  const config = resolveConfig({ memoryDir: fresh })
+  assert.equal(existsSync(fresh), false)
+  try {
+    assert.equal(resolveRevealTarget(config, 'memoryDir'), fresh)
+    assert.ok(existsSync(fresh), 'memory dir created')
+    const daily = resolveRevealTarget(config, 'dailyDir')
+    assert.ok(existsSync(daily), 'daily dir created')
+    const projects = resolveRevealTarget(config, 'projectsDir')
+    assert.ok(existsSync(projects), 'projects dir created')
+    assert.equal(resolveRevealTarget(config, 'userFile'), fresh)
+  } finally {
     clean(dir)
   }
 })
