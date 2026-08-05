@@ -556,11 +556,6 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
-.mt-badge-edit {
-  color: var(--dsw-alias-state-business-primary);
-  background: var(--dsw-alias-state-business-tertiary);
-}
-
 .mt-card-path {
   flex: 1;
   min-width: 0;
@@ -592,20 +587,6 @@
   cursor: default;
 }
 
-.mt-btn-primary {
-  border-color: transparent;
-  color: var(--dsw-alias-label-primary-inverted);
-  background: var(--dsw-alias-button-primary-fill);
-}
-
-.mt-btn-primary:disabled {
-  background: var(--dsw-alias-button-primary-dimmed);
-}
-
-.mt-btn-primary:not(:disabled):hover {
-  background: var(--dsw-alias-button-primary-hover);
-}
-
 .mt-content {
   margin: 0;
   padding: 10px;
@@ -621,39 +602,3 @@
   overflow-y: auto;
 }
 
-.mt-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mt-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 120px;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l3);
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  resize: vertical;
-  transition: border-color 120ms ease;
-}
-
-.mt-textarea:hover {
-  border-color: var(--dsw-alias-border-l4);
-}
-
-.mt-textarea:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-state-business-primary);
-}
-
-.mt-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}

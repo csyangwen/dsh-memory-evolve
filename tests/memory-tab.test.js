@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MemoryStore } from '../lib/store.js'
-import { buildMemoryFiles, saveMemoryFile } from '../lib/memory-tab.js'
+import { buildMemoryFiles } from '../lib/memory-tab.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-tab-test-'))
@@ -36,14 +36,10 @@ test('buildMemoryFiles lists all five tracks with content', () => {
     assert.equal(files.length, 5)
     const byKey = Object.fromEntries(files.map((f) => [f.key, f]))
     assert.equal(byKey.agents.content, '全局规则')
-    assert.equal(byKey.agents.editable, false)
     assert.equal(byKey.memory.content.includes('环境事实'), true)
-    assert.equal(byKey.memory.editable, false)
     assert.equal(byKey.user.content.includes('用户偏好'), true)
     assert.equal(byKey.project.content.includes('项目约定'), true)
-    assert.equal(byKey.project.editable, true)
     assert.equal(byKey.daily.content.includes('今天做了事'), true)
-    assert.equal(byKey.daily.editable, true)
   } finally {
     process.env.DSH_HOME = prevHome
     rmSync(dir, { recursive: true, force: true })
@@ -69,21 +65,3 @@ test('buildMemoryFiles handles missing files and missing cwd', () => {
   }
 })
 
-test('saveMemoryFile only allows project and daily', () => {
-  const { dir, config, store } = setup()
-  assert.equal(saveMemoryFile(config, store, 'memory', 'x', '/w').ok, false)
-  assert.equal(saveMemoryFile(config, store, 'user', 'x', '/w').ok, false)
-  assert.equal(saveMemoryFile(config, store, 'agents', 'x', '/w').ok, false)
-  // project requires a cwd
-  assert.equal(saveMemoryFile(config, store, 'project', 'x', undefined).ok, false)
-  const daily = saveMemoryFile(config, store, 'daily', '今天改了一版\n', '/w')
-  assert.equal(daily.ok, true)
-  assert.equal(readFileSync(daily.path, 'utf8'), '今天改了一版\n')
-  const project = saveMemoryFile(config, store, 'project', '项目新约定', '/work/p')
-  assert.equal(project.ok, true)
-  assert.equal(readFileSync(project.path, 'utf8'), '项目新约定')
-  // oversized content refused
-  const huge = saveMemoryFile(config, store, 'daily', 'x'.repeat(70 * 1024), '/w')
-  assert.equal(huge.ok, false)
-  rmSync(dir, { recursive: true, force: true })
-})
