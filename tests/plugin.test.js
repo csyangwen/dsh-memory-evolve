@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { apply, resolveConfig, renderSnapshot, resolveRevealTarget } from '../lib/index.js'
+import { apply, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
 import { buildReviewPrompt } from '../lib/review.js'
 
@@ -694,6 +694,17 @@ test('resolveRevealTarget creates plugin-owned storage dirs on demand', () => {
     assert.equal(resolveRevealTarget(config, 'userFile'), fresh)
   } finally {
     clean(dir)
+  }
+})
+
+test('toWindowsPath falls back to the input when wslpath is unavailable', () => {
+  // On macOS (and other non-WSL platforms) wslpath does not exist; the
+  // helper must return the original path untouched, never throw.
+  const result = toWindowsPath('/home/user/.dsh/memories')
+  assert.equal(typeof result, 'string')
+  assert.ok(result.length > 0)
+  if (process.platform !== 'linux') {
+    assert.equal(result, '/home/user/.dsh/memories')
   }
 })
 
