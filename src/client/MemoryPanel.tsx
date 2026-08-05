@@ -31,7 +31,6 @@ interface SuggestionEntry {
 interface RuntimeConfig {
   reviewEnabled: boolean
   reviewInterval: number
-  reviewMode: string
   skillReviewEnabled: boolean
   injectProjectMemory: boolean
   injectDailySummary: boolean
@@ -55,6 +54,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 function summarizeReport(report: { lines?: string[]; removed?: number; remaining: number }): string {
   const head = report.lines?.join('；') ?? `已处理 ${report.removed ?? 0} 条`
   return `${head}（剩余 ${report.remaining} 条）`
+}
+
+/** Display-side formatting of the ISO timestamp; falls back to the raw string. */
+function formatTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString()
 }
 
 /** The settings section component. */
@@ -135,6 +141,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
     ['dailyDir', t('panel.reveal.dailyDir')],
     ['projectsDir', t('panel.reveal.projectsDir')],
     ['skillDir', t('panel.reveal.skillDir')],
+    ['agentsFile', t('panel.reveal.agentsFile')],
   ]
   const reveal = (target: string): void => {
     void api<{ ok: boolean }>('/api/reveal', { method: 'POST', body: JSON.stringify({ target }) })
@@ -150,12 +157,17 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       )}
 
       <section className="me-block">
-        <h3 className="me-heading">{t('panel.suggestions.title')}</h3>
+        <div className="me-block-head">
+          <h3 className="me-heading">{t('panel.suggestions.title')}</h3>
+          {entries !== null && entries.length > 0 && (
+            <span className="me-count">{entries.length}</span>
+          )}
+        </div>
         <p className="me-help">{t('panel.suggestions.help')}</p>
         {entries === null ? (
           <p className="me-muted">{t('panel.loading')}</p>
         ) : entries.length === 0 ? (
-          <p className="me-muted">{t('panel.suggestions.empty')}</p>
+          <p className="me-empty">{t('panel.suggestions.empty')}</p>
         ) : (
           <>
             <ul className="me-list">
@@ -163,6 +175,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                 <li key={`${entry.time}-${index}`} className="me-item">
                   <div className="me-item-head">
                     <span className="me-badge me-badge-target">{entry.target}</span>
+                    <span className="me-item-time" title={entry.time}>{formatTime(entry.time)}</span>
                     <span className="me-item-actions">
                       <button
                         type="button"
@@ -174,7 +187,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                       </button>
                       <button
                         type="button"
-                        className="me-btn"
+                        className="me-btn me-btn-danger"
                         disabled={busy}
                         onClick={() => runSuggestions('reject', [index + 1])}
                       >
@@ -194,11 +207,11 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                 </li>
               ))}
             </ul>
-            <div className="me-item-actions me-actions-bulk">
+            <div className="me-bulk">
               <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => runSuggestions('approve-all')}>
                 {t('panel.suggestions.approveAll')}
               </button>
-              <button type="button" className="me-btn" disabled={busy} onClick={() => runSuggestions('reject-all')}>
+              <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => runSuggestions('reject-all')}>
                 {t('panel.suggestions.rejectAll')}
               </button>
             </div>
@@ -207,80 +220,82 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       </section>
 
       <section className="me-block">
-        <h3 className="me-heading">{t('panel.config.title')}</h3>
+        <div className="me-block-head">
+          <h3 className="me-heading">{t('panel.config.title')}</h3>
+        </div>
         <p className="me-help">{t('panel.config.help')}</p>
         {draft === null ? (
           <p className="me-muted">{t('panel.loading')}</p>
         ) : (
           <div className="me-form">
-            <label className="me-field">
-              <span className="me-field-label">
-                {t('panel.config.reviewEnabled')}
-                <em className="me-field-hint">{t('panel.config.reviewEnabled.hint')}</em>
-              </span>
-              <input
-                type="checkbox"
-                checked={draft.reviewEnabled}
-                onChange={(event) => patchDraft({ reviewEnabled: event.target.checked })}
-              />
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">
-                {t('panel.config.reviewInterval')}
-                <em className="me-field-hint">{t('panel.config.reviewInterval.hint')}</em>
-              </span>
-              <input
-                type="number"
-                min={1}
-                value={draft.reviewInterval}
-                onChange={(event) => patchDraft({ reviewInterval: Number(event.target.value) })}
-              />
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">{t('panel.config.reviewMode')}</span>
-              <select
-                value={draft.reviewMode}
-                onChange={(event) => patchDraft({ reviewMode: event.target.value })}
-              >
-                <option value="suggest">{t('panel.config.reviewMode.suggest')}</option>
-                <option value="auto">{t('panel.config.reviewMode.auto')}</option>
-              </select>
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">{t('panel.config.skillReviewEnabled')}</span>
-              <input
-                type="checkbox"
-                checked={draft.skillReviewEnabled}
-                onChange={(event) => patchDraft({ skillReviewEnabled: event.target.checked })}
-              />
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">
-                {t('panel.config.autoApproveGlobal')}
-                <em className="me-field-hint">{t('panel.config.autoApproveGlobal.hint')}</em>
-              </span>
-              <input
-                type="checkbox"
-                checked={draft.autoApproveGlobal}
-                onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
-              />
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">{t('panel.config.injectProjectMemory')}</span>
-              <input
-                type="checkbox"
-                checked={draft.injectProjectMemory}
-                onChange={(event) => patchDraft({ injectProjectMemory: event.target.checked })}
-              />
-            </label>
-            <label className="me-field">
-              <span className="me-field-label">{t('panel.config.injectDailySummary')}</span>
-              <input
-                type="checkbox"
-                checked={draft.injectDailySummary}
-                onChange={(event) => patchDraft({ injectDailySummary: event.target.checked })}
-              />
-            </label>
+            <div className="me-group">
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.reviewEnabled')}
+                  <em className="me-field-hint">{t('panel.config.reviewEnabled.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.reviewEnabled}
+                  onChange={(event) => patchDraft({ reviewEnabled: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.reviewInterval')}
+                  <em className="me-field-hint">{t('panel.config.reviewInterval.hint')}</em>
+                </span>
+                <input
+                  type="number"
+                  className="me-input"
+                  min={1}
+                  value={draft.reviewInterval}
+                  onChange={(event) => patchDraft({ reviewInterval: Number(event.target.value) })}
+                />
+              </label>
+            </div>
+            <div className="me-group">
+              <label className="me-field">
+                <span className="me-field-label">{t('panel.config.skillReviewEnabled')}</span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.skillReviewEnabled}
+                  onChange={(event) => patchDraft({ skillReviewEnabled: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.autoApproveGlobal')}
+                  <em className="me-field-hint">{t('panel.config.autoApproveGlobal.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.autoApproveGlobal}
+                  onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">{t('panel.config.injectProjectMemory')}</span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.injectProjectMemory}
+                  onChange={(event) => patchDraft({ injectProjectMemory: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">{t('panel.config.injectDailySummary')}</span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.injectDailySummary}
+                  onChange={(event) => patchDraft({ injectDailySummary: event.target.checked })}
+                />
+              </label>
+            </div>
             <div className="me-actions">
               <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={saveConfig}>
                 {t('panel.config.save')}
@@ -291,11 +306,13 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       </section>
 
       <section className="me-block">
-        <h3 className="me-heading">{t('panel.reveal.title')}</h3>
+        <div className="me-block-head">
+          <h3 className="me-heading">{t('panel.reveal.title')}</h3>
+        </div>
         <p className="me-help">{t('panel.reveal.help')}</p>
-        <div className="me-actions me-reveal-actions">
+        <div className="me-reveal-grid">
           {revealTargets.map(([target, label]) => (
-            <button key={target} type="button" className="me-btn" onClick={() => reveal(target)}>
+            <button key={target} type="button" className="me-btn me-btn-reveal" onClick={() => reveal(target)}>
               {label}
             </button>
           ))}
