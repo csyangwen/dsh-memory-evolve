@@ -35,6 +35,7 @@ interface RuntimeConfig {
   reviewInterval: number
   skillReviewEnabled: boolean
   autoApproveGlobal: boolean
+  memoryTabEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -133,6 +134,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       reviewInterval: draft.reviewInterval,
       skillReviewEnabled: draft.skillReviewEnabled,
       autoApproveGlobal: draft.autoApproveGlobal,
+      memoryTabEnabled: draft.memoryTabEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -297,6 +299,18 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                   className="me-switch"
                   checked={draft.autoApproveGlobal}
                   onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.memoryTabEnabled')}
+                  <em className="me-field-hint">{t('panel.config.memoryTabEnabled.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.memoryTabEnabled}
+                  onChange={(event) => patchDraft({ memoryTabEnabled: event.target.checked })}
                 />
               </label>
             </div>

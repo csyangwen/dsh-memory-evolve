@@ -40,6 +40,8 @@ async function bootApi(overrides = {}) {
     store, queue, getRuntime, updateRuntime,
     resolveRevealTarget: (target) => revealTargets[target],
     revealPath: overrides.revealPath ?? (() => {}),
+    config: overrides.config ?? { memoryDir: dir, skillDir: join(dir, 'skills') },
+    resolveCwd: overrides.resolveCwd ?? (() => undefined),
   })
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -200,6 +202,33 @@ test('api reveal resolves whitelisted targets and rejects unknown ones', async (
     assert.equal(bad.status, 400)
     const missing = await api.request('POST', '/memory-evolve/api/reveal', { target: 'nope' })
     assert.equal(missing.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api memory-files lists tracks and save refuses read-only keys', async () => {
+  const api = await bootApi()
+  try {
+    api.store.add('memory', '环境事实')
+    const list = await api.request('GET', '/memory-evolve/api/memory-files?sessionId=abc')
+    assert.equal(list.status, 200)
+    const byKey = Object.fromEntries(list.data.files.map((f) => [f.key, f]))
+    assert.equal(byKey.memory.content.includes('环境事实'), true)
+    assert.equal(byKey.memory.editable, false)
+    assert.equal(byKey.project.available, false) // no cwd resolved
+    // saving a read-only track is refused by the host
+    const bad = await api.request('POST', '/memory-evolve/api/memory-files/save', {
+      key: 'memory', content: 'x', sessionId: 'abc',
+    })
+    assert.equal(bad.status, 400)
+    // daily save works
+    const ok = await api.request('POST', '/memory-evolve/api/memory-files/save', {
+      key: 'daily', content: '今天记录', sessionId: 'abc',
+    })
+    assert.equal(ok.status, 200)
+    assert.equal(api.store.entriesOf('daily').includes('今天记录'), true)
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })

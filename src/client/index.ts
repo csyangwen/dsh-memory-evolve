@@ -11,8 +11,11 @@
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: the 'conversation.view' SlotMap row lives in ui-conversation.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { deferRegistration, type Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryPanel, type MemoryPanelProps } from './MemoryPanel.tsx'
+import { MemoryTabView } from './MemoryTabView.tsx'
 import styles from './styles.css'
 
 /** Locale namespace owned by this plugin. */
@@ -31,6 +34,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const zh = {
   'tab.label': '记忆管理',
   'tab.label.count': '记忆管理 ({count})',
+  'memoryTab.label': '记忆',
+  'memoryTab.cwd': '当前会话工作目录',
+  'memoryTab.loading': '加载中…',
+  'memoryTab.readonly': '只读',
+  'memoryTab.editable': '可编辑',
+  'memoryTab.open': '打开文件',
+  'memoryTab.opened': '已用系统工具打开',
+  'memoryTab.save': '保存',
+  'memoryTab.saving': '保存中…',
+  'memoryTab.saved': '已保存',
+  'memoryTab.empty': '（文件不存在或为空）',
+  'memoryTab.noCwd': '（当前会话无工作目录，无法定位项目记忆）',
+  'memoryTab.truncated': '（内容过长，已截断显示）',
   'panel.suggestions.title': '待确认记忆建议',
   'panel.suggestions.empty': '没有待确认的建议。',
   'panel.suggestions.help': '后台审查产出的全局记忆建议，采纳后写入记忆文件并随快照注入。',
@@ -51,6 +67,8 @@ export const zh = {
   'panel.config.autoApproveGlobal': '全局记忆自动沉淀',
   'panel.config.autoApproveGlobal.hint': '开启后，审查发现值得记住的全局事实（用户档案/全局记忆）会直接写入，不再需要逐条确认（注意提示注入风险）',
   'panel.config.skillReviewEnabled': '技能自动沉淀',
+  'panel.config.memoryTabEnabled': '会话页记忆 Tab',
+  'panel.config.memoryTabEnabled.hint': '在会话页顶部显示「记忆」Tab（展示 AGENTS.md 与四轨记忆文件，project/daily 可编辑）；默认关闭，开启后需刷新页面生效',
   'panel.config.save': '保存配置',
   'panel.reveal.title': '打开文件',
   'panel.reveal.help': '用系统工具打开记忆目录与记忆文件，便于直接查看/编辑。',
@@ -71,6 +89,19 @@ export const zh = {
 export const en: Record<MemoryEvolveKey, string> = {
   'tab.label': 'Memory',
   'tab.label.count': 'Memory ({count})',
+  'memoryTab.label': 'Memory',
+  'memoryTab.cwd': 'Session working directory',
+  'memoryTab.loading': 'Loading…',
+  'memoryTab.readonly': 'Read-only',
+  'memoryTab.editable': 'Editable',
+  'memoryTab.open': 'Open file',
+  'memoryTab.opened': 'Opened with the system tool',
+  'memoryTab.save': 'Save',
+  'memoryTab.saving': 'Saving…',
+  'memoryTab.saved': 'Saved',
+  'memoryTab.empty': '(missing or empty)',
+  'memoryTab.noCwd': '(no working directory for this session — project memory unavailable)',
+  'memoryTab.truncated': '(content truncated for display)',
   'panel.suggestions.title': 'Pending memory suggestions',
   'panel.suggestions.empty': 'No pending suggestions.',
   'panel.suggestions.help': 'Global-track suggestions produced by the background review. Approving writes them into the memory files, injected with the snapshot.',
@@ -91,6 +122,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.autoApproveGlobal': 'Auto-harvest global memory',
   'panel.config.autoApproveGlobal.hint': 'When on, global-track facts (user profile / global memory) found by the review are written directly without per-item confirmation (note the prompt-injection risk)',
   'panel.config.skillReviewEnabled': 'Skill auto-harvest',
+  'panel.config.memoryTabEnabled': 'Session memory tab',
+  'panel.config.memoryTabEnabled.hint': 'Show the 记忆 tab in the session view ring (AGENTS.md + the four memory tracks; project/daily editable); off by default, takes effect after a page reload',
   'panel.config.save': 'Save config',
   'panel.reveal.title': 'Open files',
   'panel.reveal.help': 'Open the memory directories and files with your system tools.',
@@ -117,6 +150,13 @@ const BADGE_POLL_MS = 30_000
  */
 export const inject = ['slots', 'locale']
 
+export const inject = ['slots', 'locale', 'conversation']
+
+/**
+ * Client plugin body: register the settings section (badge-refreshed) and —
+ * when the host switch is on — the session memory tab.
+ * @param ctx - client root context.
+ */
 export function apply(ctx: Context): void {
   const t = ctx.locale.bind(NS) as unknown as Translate
 
@@ -161,4 +201,22 @@ export function apply(ctx: Context): void {
     clearInterval(timer)
     deferral.dispose()
   }, 'memory-evolve: badge poller')
+
+  // Session memory tab (conversation.view), shown only when the host switch
+  // is on (settings panel, default off). The switch is read asynchronously at
+  // boot; flipping it takes effect after a page reload.
+  let tabCancelled = false
+  void fetch('/memory-evolve/api/config')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then((data: { config?: { memoryTabEnabled?: boolean } }) => {
+      if (tabCancelled || data.config?.memoryTabEnabled !== true) return
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'memory-files',
+        order: 20,
+        label: () => t('memoryTab.label'),
+      }, (props) => MemoryTabView({ ...props, t }))
+    })
+    .catch(() => { /* the tab is optional; a failure just leaves it hidden */ })
+  ctx.effect(() => () => { tabCancelled = true }, 'memory-evolve: memory tab')
 }
