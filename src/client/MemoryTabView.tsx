@@ -89,6 +89,7 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       {notice !== null && (
         <div className={`mt-notice mt-notice-${notice.kind}`}>{notice.text}</div>
       )}
+      <p className="mt-warning">⚠️ {t('memoryTab.warning')}</p>
       {cwd !== null && <p className="mt-cwd">{t('memoryTab.cwd')}: {cwd}</p>}
       {files === null ? (
         <p className="mt-muted">{t('memoryTab.loading')}</p>

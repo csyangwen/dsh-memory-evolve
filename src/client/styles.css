@@ -602,3 +602,10 @@
   overflow-y: auto;
 }
 
+
+.mt-warning {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-state-warn-primary);
+}
