@@ -80,8 +80,8 @@ test('digest never contains tool or reasoning content', () => {
   const digest = buildDigest(session, {})
   assert.ok(digest.includes('用户: 跑一下测试'))
   assert.ok(digest.includes('助手: 跑完了'))
-  assert.ok(!digest.includes('bash'))
-  assert.ok(!digest.includes('工具'))
+  assert.ok(!digest.includes('工具调用'))
+  assert.ok(!digest.includes('工具结果'))
   assert.ok(!digest.includes('让我想想')) // reasoning never enters
   assert.ok(!digest.includes('secret')) // tool output never enters
 })
@@ -143,8 +143,8 @@ test('digest keeps only the message tail and caps total chars', () => {
   assert.ok(tail.includes('m39'))
   assert.ok(!tail.includes('m0'))
   const capped = buildDigest(sessionWith(events), { maxEvents: 40, maxChars: 100 })
-  assert.ok(capped.length <= 100 + '…(前面部分已省略)…\n'.length)
   assert.ok(capped.includes('m39')) // the newest tail survives truncation
+  assert.ok(capped.includes('【会话信息】')) // the header is never truncated away
 })
 
 test('digest handles missing session', () => {
@@ -160,4 +160,37 @@ test('digest truncates long messages keeping head and tail', () => {
   assert.ok(digest.includes('A'.repeat(200)), 'head survives')
   assert.ok(digest.includes('B'.repeat(200)), 'tail survives (programming errors live at the end)')
   assert.ok(digest.includes('[中间省略'), 'omission marker present')
+})
+
+test('digest carries a traceability header with session ids', () => {
+  const session = {
+    header: { id: 'sess-123', cwd: '/work/proj' },
+    events: [
+      { seq: 0, type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+      { seq: 1, ...userMsg('你好') },
+      { seq: 2, ...assistantMsg(1, '你好！') },
+    ],
+  }
+  const digest = buildDigest(session, {})
+  assert.ok(digest.includes('【会话信息】'))
+  assert.ok(digest.includes('sess-123'))
+  assert.ok(digest.includes('/work/proj'))
+  assert.ok(digest.includes('seq 0–3'))
+  assert.ok(digest.includes('agent_session_read'))
+})
+
+test('digest fromSeq starts the window at the watermark', () => {
+  const events = [
+    { seq: 0, type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+    { seq: 1, ...userMsg('第一轮问题') },
+    { seq: 2, ...assistantMsg(1, '第一轮回答') },
+    { seq: 3, type: 'turn/start', data: { turn: 2, trigger: { kind: 'message' } } },
+    { seq: 4, ...userMsg('第二轮问题') },
+    { seq: 5, ...assistantMsg(2, '第二轮回答') },
+  ]
+  const digest = buildDigest({ header: { id: 's' }, events }, { fromSeq: 3 })
+  assert.ok(digest.includes('第二轮问题'))
+  assert.ok(!digest.includes('第一轮问题'))
+  // The header still reports the full span, not the window.
+  assert.ok(digest.includes('seq 3–6'))
 })

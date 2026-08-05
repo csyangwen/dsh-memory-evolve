@@ -21,7 +21,10 @@ function clean(dir) {
 function fakeCtx(overrides = {}) {
   const state = { tools: [], contexts: [], commands: [], listeners: [], routes: [] }
   const services = {
-    tools: { register: (def) => { state.tools.push(def); return () => {} } },
+    tools: {
+      register: (def) => { state.tools.push(def); return () => {} },
+      get: () => undefined, // no extra tools (e.g. agent_session_read) by default
+    },
     systemPrompt: { context: (def) => { state.contexts.push(def); return () => {} } },
     commands: { register: (def) => { state.commands.push(def); return () => {} } },
     httpServer: { register: (route) => { state.routes.push(route); return () => {} } },
@@ -189,11 +192,12 @@ test('review enabled registers suggest tool and trigger; counting gates on messa
     session: {
       header: { origin: undefined },
       // A real turn always carries a user message with source.kind 'user';
-      // the review digest skips sessions without human input rows.
+      // the review digest skips sessions without human input rows. Events
+      // carry contiguous seqs (the digest's incremental window keys on them).
       events: turns.flatMap((turn) => [
         { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
         { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
-      ]),
+      ]).map((event, seq) => ({ ...event, seq })),
     },
   })
 
@@ -240,7 +244,7 @@ test('reviews are incremental: later reviews only see new turns', async () => {
       events: turns.flatMap((turn) => [
         { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
         { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
-      ]),
+      ]).map((event, seq) => ({ ...event, seq })),
     },
   })
 
@@ -263,6 +267,50 @@ test('reviews are incremental: later reviews only see new turns', async () => {
   assert.ok(second.includes('问题4'), 'second review sees turn 4')
   assert.ok(!second.includes('问题1'), 'second review skips already-reviewed turns')
   assert.ok(!second.includes('问题2'), 'second review skips already-reviewed turns')
+  clean(dir)
+})
+
+test('review whitelist includes agent_session_read when the tool exists', async () => {
+  const dir = tempDir()
+  const started = []
+  const fakeSubagents = {
+    getProvider: (name) => ({ name }),
+    start: async (name, request) => {
+      started.push({ name, request })
+      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
+    },
+  }
+  const ctx = fakeCtx({
+    get: (key) => (key === 'subagents'
+      ? fakeSubagents
+      : key === 'tools'
+        ? { get: (name) => (name === 'agent_session_read' ? { name } : undefined) }
+        : undefined),
+    services: {
+      tools: {
+        register: (def) => { ctx.state.tools.push(def); return () => {} },
+        get: (name) => (name === 'agent_session_read' ? { name } : undefined),
+      },
+    },
+  })
+  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 1 })
+  const settled = ctx.state.listeners['agent/settled'][0]
+  const agent = {
+    id: 's1',
+    session: {
+      header: { origin: undefined, id: 'sess-x', cwd: '/work' },
+      events: [
+        { seq: 0, type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
+        { seq: 1, type: 'user/message', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '问题1' }] } },
+      ],
+    },
+  }
+  settled(agent, 1, { kind: 'completed' })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal(started.length, 1)
+  assert.deepEqual(started[0].request.toolFilter.allow, ['memory', 'memory_suggest', 'skill_manage', 'agent_session_read'])
+  // The digest header carries the session id for tracing.
+  assert.ok(started[0].request.prompt[0].text.includes('sess-x'))
   clean(dir)
 })
 
@@ -350,6 +398,11 @@ test('buildReviewPrompt: daily/project tracks are loose, global track strict', (
   // the reviewer must extract key points before judging
   assert.ok(prompt.includes('【转录要点】'))
   assert.ok(prompt.includes('不要脑补被省略的内容'))
+  // traceability: the reviewer may read the full session when needed
+  assert.ok(prompt.includes('agent_session_read'))
+  assert.ok(prompt.includes('【会话信息】'))
+  assert.ok(prompt.includes('target=project'))
+  assert.ok(prompt.includes('target=daily'))
 })
 
 test('final review fires on agent/disposed for unreviewed sessions', async () => {
