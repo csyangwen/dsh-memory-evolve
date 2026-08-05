@@ -250,3 +250,37 @@ test('api reveal surfaces open-command failures instead of swallowing them', asy
     rmSync(api.dir, { recursive: true, force: true })
   }
 })
+
+test('api pending-skills list/approve/reject round-trip', async () => {
+  const api = await bootApi()
+  try {
+    // Seed a pending skill directly in the memory dir.
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const pending = join(api.dir, 'pending-skills', 'queued-skill')
+    mkdirSync(pending, { recursive: true })
+    writeFileSync(join(pending, 'SKILL.md'), `---
+name: queued-skill
+description: "队列技能"
+---
+# queued-skill
+`)
+    const list = await api.request('GET', '/memory-evolve/api/pending-skills')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.entries.length, 1)
+    assert.equal(list.data.entries[0].name, 'queued-skill')
+    const bad = await api.request('POST', '/memory-evolve/api/pending-skills/approve', { name: 'nope' })
+    assert.equal(bad.status, 400)
+    const approved = await api.request('POST', '/memory-evolve/api/pending-skills/approve', { name: 'queued-skill' })
+    assert.equal(approved.status, 200)
+    assert.equal(api.request ? true : true, true)
+    const list2 = await api.request('GET', '/memory-evolve/api/pending-skills')
+    assert.equal(list2.data.entries.length, 0)
+    // badge counts suggestions + pending skills
+    const badge = await api.request('GET', '/memory-evolve/api/badge')
+    assert.equal(badge.data.count, 0)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})

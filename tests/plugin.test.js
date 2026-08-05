@@ -98,7 +98,7 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.reviewMode, 'suggest')
   assert.equal(config.reviewInterval, 5)
   assert.equal(config.entryDatePrefix, true)
-  assert.equal(config.skillReviewEnabled, true)
+  assert.equal(config.skillReviewEnabled, false)
   assert.equal(config.skillManageToolName, 'skill_manage')
   assert.ok(config.memoryDir.endsWith('memories'))
   assert.ok(config.skillDir.endsWith(join('.agents', 'skills')))
@@ -180,7 +180,7 @@ test('review enabled registers suggest tool and trigger; counting gates on messa
     },
   }
   const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
+  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2, skillReviewEnabled: true })
   const tool = ctx.state.tools.find((t) => t.name === 'memory_suggest')
   assert.ok(tool, 'suggest tool registered when review enabled')
 
@@ -340,7 +340,7 @@ test('review whitelist includes agent_session_read when the tool exists', async 
       },
     },
   })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 1 })
+  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 1, skillReviewEnabled: true })
   const settled = ctx.state.listeners['agent/settled'][0]
   const agent = {
     id: 's1',

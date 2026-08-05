@@ -64,10 +64,18 @@ function formatTime(iso: string): string {
   return date.toLocaleString()
 }
 
+/** One pending skill awaiting user confirmation. */
+interface PendingSkill {
+  name: string
+  description: string
+  content: string
+}
+
 /** The settings section component. */
 export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
   const { t, refresh } = props
   const [entries, setEntries] = useState<SuggestionEntry[] | null>(null)
+  const [skills, setSkills] = useState<PendingSkill[] | null>(null)
   /** Edited text per 1-based suggestion index (textarea values). */
   const [edits, setEdits] = useState<Record<number, string>>({})
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
@@ -78,12 +86,14 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
   const load = (): void => {
     void Promise.all([
       api<{ entries: SuggestionEntry[] }>('/api/suggestions'),
+      api<{ entries: PendingSkill[] }>('/api/pending-skills'),
       api<{ config: RuntimeConfig }>('/api/config'),
-    ]).then(([s, c]) => {
+    ]).then(([s, sk, c]) => {
       // Facts that resurfaced in several reviews are the most likely to be
       // worth confirming — show them first.
       const entries = [...s.entries].sort((a, b) => (b.hits ?? 1) - (a.hits ?? 1))
       setEntries(entries)
+      setSkills(sk.entries)
       setEdits({})
       setConfig(c.config)
       setDraft((prev) => prev ?? c.config)
@@ -115,6 +125,20 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       body: JSON.stringify(body),
     }).then((report) => {
       setNotice({ kind: 'ok', text: summarizeReport(report) })
+      load()
+      refresh()
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    }).finally(() => setBusy(false))
+  }
+
+  const runSkill = (op: 'approve' | 'reject', name: string): void => {
+    setBusy(true)
+    void api<{ ok: boolean }>(`/api/pending-skills/${op}`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }).then(() => {
+      setNotice({ kind: 'ok', text: t('panel.skills.done', { op: op === 'approve' ? t('panel.skills.approve') : t('panel.skills.reject') }) })
       load()
       refresh()
     }).catch((error: Error) => {
@@ -240,6 +264,51 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
               </button>
             </div>
           </>
+        )}
+      </section>
+
+      <section className="me-block">
+        <div className="me-block-head">
+          <h3 className="me-heading">{t('panel.skills.title')}</h3>
+          {skills !== null && skills.length > 0 && (
+            <span className="me-count">{skills.length}</span>
+          )}
+        </div>
+        <p className="me-help">{t('panel.skills.help')}</p>
+        {skills === null ? (
+          <p className="me-muted">{t('panel.loading')}</p>
+        ) : skills.length === 0 ? (
+          <p className="me-empty">{t('panel.skills.empty')}</p>
+        ) : (
+          <ul className="me-list">
+            {skills.map((skill) => (
+              <li key={skill.name} className="me-item">
+                <div className="me-item-head">
+                  <span className="me-badge me-badge-target">{skill.name}</span>
+                  <span className="me-item-time">{t('panel.skills.pending')}</span>
+                  <span className="me-item-actions">
+                    <button
+                      type="button"
+                      className="me-btn me-btn-ok"
+                      disabled={busy}
+                      onClick={() => runSkill('approve', skill.name)}
+                    >
+                      {t('panel.skills.approve')}
+                    </button>
+                    <button
+                      type="button"
+                      className="me-btn me-btn-danger"
+                      disabled={busy}
+                      onClick={() => runSkill('reject', skill.name)}
+                    >
+                      {t('panel.skills.reject')}
+                    </button>
+                  </span>
+                </div>
+                <p className="me-item-reason">{skill.description}</p>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

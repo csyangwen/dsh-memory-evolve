@@ -1,10 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   isSkillName, parseFrontmatter, listSkills, readSkill, hasReadSkill, skillManageTool,
+  approvePendingSkill, listPendingSkills, rejectPendingSkill,
 } from '../lib/skills.js'
 
 function tempDir() {
@@ -81,7 +82,7 @@ test('listSkills and readSkill', () => {
 
 test('skillManageTool create/list/read round-trip', async () => {
   const dir = tempDir()
-  const tool = skillManageTool(fakeCtx(), { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
 
   const listed = await tool.execute({ action: 'list' }, FAKE_EXEC())
   assert.equal(listed.ok, true)
@@ -106,7 +107,7 @@ test('skillManageTool create/list/read round-trip', async () => {
 
 test('create validates name, body, description, and rejects existing skills', async () => {
   const dir = tempDir()
-  const tool = skillManageTool(fakeCtx(), { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
 
   const badName = await tool.execute({ action: 'create', name: 'Bad Name', description: 'x', body: GOOD_BODY('Bad Name', 'x') }, FAKE_EXEC())
   assert.equal(badName.ok, false)
@@ -151,7 +152,7 @@ test('create validates name, body, description, and rejects existing skills', as
 
 test('patch requires read-before-write and replaces the whole SKILL.md', async () => {
   const dir = tempDir()
-  const tool = skillManageTool(fakeCtx(), { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
   await tool.execute({ action: 'create', name: 'demo-skill', description: '演示', body: GOOD_BODY('demo-skill', '演示') }, FAKE_EXEC())
 
   const agent = (events) => ({ id: 'child', session: { header: { origin: 'subagent' }, events } })
@@ -215,7 +216,7 @@ test('disabled skills are skipped through the ctx.skills registry', async () => 
   const ctx = fakeCtx({
     get: (key) => (key === 'skills' ? { list: async () => disabled } : undefined),
   })
-  const tool = skillManageTool(ctx, { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(ctx, { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
   const result = await tool.execute(
     { action: 'create', name: 'disabled-skill', description: 'x', body: GOOD_BODY('disabled-skill', 'x') },
     FAKE_EXEC(),
@@ -228,7 +229,7 @@ test('disabled skills are skipped through the ctx.skills registry', async () => 
 
 test('missing skills service degrades to "not disabled"', async () => {
   const dir = tempDir()
-  const tool = skillManageTool(fakeCtx(), { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
   const result = await tool.execute(
     { action: 'create', name: 'plain-skill', description: 'x', body: GOOD_BODY('plain-skill', 'x') },
     FAKE_EXEC(),
@@ -239,7 +240,7 @@ test('missing skills service degrades to "not disabled"', async () => {
 
 test('frontmatter values with colon+space must be quoted (YAML compatibility)', async () => {
   const dir = tempDir()
-  const tool = skillManageTool(fakeCtx(), { skillDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
   // unquoted description with `: ` is rejected (DSH skill-local parses with
   // strict YAML and would silently skip the skill)
   const unquoted = await tool.execute(
@@ -257,5 +258,62 @@ test('frontmatter values with colon+space must be quoted (YAML compatibility)', 
   // parseFrontmatter round-trips the quoted value
   const parsed = parseFrontmatter(readFileSync(join(dir, 'colon-skill', 'SKILL.md'), 'utf8'))
   assert.equal(parsed.description, 'Verify a tool: build a matrix')
+  clean(dir)
+})
+
+test('review subagent creations go to the pending queue and approve moves them', async () => {
+  const dir = tempDir()
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillReviewEnabled: false, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const subExec = () => ({
+    agent: { id: 'child', session: { header: { origin: 'subagent' } } },
+    callId: 'c2',
+    signal: new AbortController().signal,
+  })
+  const body = GOOD_BODY('pending-skill', '待确认技能')
+
+  // Default (skillReviewEnabled false): the review subagent's create lands in
+  // pending-skills, NOT the live skills dir.
+  const created = await tool.execute({ action: 'create', name: 'pending-skill', description: '待确认技能', body }, subExec())
+  assert.equal(created.ok, true)
+  assert.ok(created.message.includes('待确认队列'))
+  assert.equal(existsSync(join(dir, 'pending-skill')), false, 'not installed into the live dir')
+  assert.equal(readFileSync(join(dir, 'pending-skills', 'pending-skill', 'SKILL.md'), 'utf8'), body)
+
+  // Duplicate in the pending queue is refused.
+  const dup = await tool.execute({ action: 'create', name: 'pending-skill', description: '待确认技能', body }, subExec())
+  assert.equal(dup.ok, false)
+  assert.ok(dup.message.includes('待确认队列已有'))
+
+  // Approving moves the directory into the live skills dir.
+  const approved = approvePendingSkill(join(dir, 'pending-skills'), dir, 'pending-skill')
+  assert.equal(approved.ok, true)
+  assert.equal(existsSync(join(dir, 'pending-skills', 'pending-skill')), false)
+  assert.equal(readFileSync(join(dir, 'pending-skill', 'SKILL.md'), 'utf8'), body)
+
+  // Approving again (now live) is refused to avoid overwrites.
+  const again = approvePendingSkill(join(dir, 'pending-skills'), dir, 'pending-skill')
+  assert.equal(again.ok, false)
+
+  // Reject removes the pending entry.
+  const tool2 = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillReviewEnabled: false, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  await tool2.execute({ action: 'create', name: 'reject-me', description: 'x', body: GOOD_BODY('reject-me', 'x') }, subExec())
+  assert.equal(listPendingSkills(join(dir, 'pending-skills')).length, 1)
+  const rejected = rejectPendingSkill(join(dir, 'pending-skills'), 'reject-me')
+  assert.equal(rejected.ok, true)
+  assert.equal(listPendingSkills(join(dir, 'pending-skills')).length, 0)
+  clean(dir)
+})
+
+test('skillReviewEnabled true lets the review subagent create directly', async () => {
+  const dir = tempDir()
+  const tool = skillManageTool(fakeCtx(), { skillDir: dir, memoryDir: dir, skillReviewEnabled: true, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 })
+  const subExec = () => ({
+    agent: { id: 'child', session: { header: { origin: 'subagent' } } },
+    callId: 'c3',
+    signal: new AbortController().signal,
+  })
+  const created = await tool.execute({ action: 'create', name: 'direct-skill', description: '直接创建', body: GOOD_BODY('direct-skill', '直接创建') }, subExec())
+  assert.equal(created.ok, true)
+  assert.equal(readFileSync(join(dir, 'direct-skill', 'SKILL.md'), 'utf8'), GOOD_BODY('direct-skill', '直接创建'))
   clean(dir)
 })
