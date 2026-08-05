@@ -219,6 +219,23 @@ test('project entries carry a date AND time stamp', () => {
   clean(dir)
 })
 
+test('daily and project strip hand-written date-like prefixes before stamping', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  // A review subagent writes "[2026-08-05 深夜]" — wrong date, guessed by
+  // the model. The program must strip it and stamp the real time instead.
+  store.add('daily', '[2026-08-05 深夜] 完成了三件事', undefined)
+  const daily = store.entriesOf('daily')[0]
+  assert.match(daily, /^\[\d{2}:\d{2}\] 完成了三件事$/, 'daily gets the canonical [HH:MM] stamp, no date prefix')
+  assert.ok(!daily.includes('2026-08-05'), 'guessed date prefix is stripped')
+  store.add('project', '[2026-08-05] 项目新约定', agent)
+  const project = store.entriesOf('project', agent)[0]
+  assert.match(project, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 项目新约定$/, 'project gets the canonical dated-time stamp')
+  assert.ok(!project.includes('[2026-08-05]'), 'bare date prefix is stripped')
+  clean(dir)
+})
+
 test('entryDatePrefix can be disabled', () => {
   const dir = tempDir()
   const store = new MemoryStore(dir, { entryDatePrefix: false })

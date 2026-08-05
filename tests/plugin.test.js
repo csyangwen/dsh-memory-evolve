@@ -472,6 +472,9 @@ test('buildReviewPrompt: daily/project tracks are loose, global track strict', (
   // global: strict, max 2, via suggest tool
   assert.ok(prompt.includes('最多 2 条'))
   assert.ok(prompt.includes('写全局会被拒绝'))
+  // no hand-written date/time prefixes — the program stamps accurately
+  assert.ok(prompt.includes('不要在内容中自行添加任何时间/日期前缀'))
+  assert.ok(prompt.includes('你无法确知当前日期'))
   // nothing-to-save only for pure small talk
   assert.ok(prompt.includes('Nothing to save'))
   assert.ok(prompt.includes('纯属寒暄'))
