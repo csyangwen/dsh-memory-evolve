@@ -371,10 +371,11 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
   assert.ok(snapshot.includes('target=project'))
-  // per-turn write duty: final-step timing, explicit tool call,
-  // must-write on any output, first-write insurance, format discipline
-  assert.ok(snapshot.includes('这是回合的最后一步'))
-  assert.ok(snapshot.includes('严禁提前执行'))
+  // per-turn write duty: final-step timing (text first, tools after),
+  // explicit tool call, must-write on any output, first-write insurance
+  assert.ok(snapshot.includes('回合的最后一步'))
+  assert.ok(snapshot.includes('先写出完整的回复文本，然后在同一条消息的文本之后附带工具调用'))
+  assert.ok(snapshot.includes('严禁先调用工具再写回复'))
   assert.ok(snapshot.includes('必须写入 1 条'))
   assert.ok(snapshot.includes('首写保险'))
   assert.ok(snapshot.includes('不要为写而写'))
@@ -383,7 +384,7 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
-  assert.ok(!subSnapshot.includes('这是回合的最后一步'))
+  assert.ok(!subSnapshot.includes('先写出完整的回复文本，然后在同一条消息的文本之后附带工具调用'))
   clean(dir)
 })
 
