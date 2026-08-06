@@ -367,15 +367,18 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
   assert.ok(snapshot.includes('target=project'))
-  // per-turn proactive write duty + format discipline (no guessed dates)
-  assert.ok(snapshot.includes('每个回合结束前主动检查一次'))
+  // per-turn write duty: explicit tool call, must-write on any output,
+  // first-write insurance, format discipline (no guessed dates)
+  assert.ok(snapshot.includes('每个回合结束前、输出最终回复之前，调用一次 memory 工具'))
+  assert.ok(snapshot.includes('必须写入 1 条'))
+  assert.ok(snapshot.includes('首写保险'))
   assert.ok(snapshot.includes('不要为写而写'))
   assert.ok(snapshot.includes('不要在内容中自行添加任何时间/日期前缀'))
   assert.ok(snapshot.includes('你无法确知当前日期'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
-  assert.ok(!subSnapshot.includes('每个回合结束前主动检查一次'))
+  assert.ok(!subSnapshot.includes('每个回合结束前、输出最终回复之前，调用一次 memory 工具'))
   clean(dir)
 })
 
