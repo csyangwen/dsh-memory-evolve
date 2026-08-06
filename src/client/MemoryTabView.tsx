@@ -20,6 +20,10 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryQueueView, type MemoryFeature } from './MemoryQueueView.tsx'
+import { SkillsBrowser } from './skills-browser/SkillsBrowser.tsx'
+
+/** 功能子 tab：待确认记忆/技能/运行时配置 + 技能管理（合并自 dsh-skill-browser）。 */
+type TabFeature = MemoryFeature | 'skill-browser'
 
 /** One memory-file row from the host. */
 interface MemoryFileRow {
@@ -136,7 +140,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** 跨重挂持久化的 tab 选择（模块级：badge 刷新导致的组件重挂后恢复）。 */
-let persistedFeature: MemoryFeature | null = null
+let persistedFeature: TabFeature | null = null
 let persistedFileKey: string | null = null
 
 /** The conversation view tab component. */
@@ -166,8 +170,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [scopeSaving, setScopeSaving] = useState(false)
   /** 删除条目进行中（防止连点并发删除）。 */
   const [deleting, setDeleting] = useState(false)
-  /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置面板。 */
-  const [feature, setFeature] = useState<MemoryFeature | null>(persistedFeature)
+  /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置/技能管理面板。 */
+  const [feature, setFeature] = useState<TabFeature | null>(persistedFeature)
   /** 待确认计数（来自 /api/badge，用于功能 tab 的徽标文本）。 */
   const [badge, setBadge] = useState<{ suggestions: number; skills: number }>({ suggestions: 0, skills: 0 })
 
@@ -395,6 +399,15 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
         >
           {t('memoryTab.feature.config')}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'skill-browser'}
+          className={feature === 'skill-browser' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature(feature === 'skill-browser' ? null : 'skill-browser')}
+        >
+          {t('memoryTab.feature.skillBrowser')}
+        </button>
         <span className="mt-tab-sep" role="presentation" />
         {files !== null && (files ?? []).map((row) => (
           <button
@@ -414,16 +427,20 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
         ))}
       </div>
       {feature !== null ? (
-        <MemoryQueueView
-          t={t}
-          feature={feature}
-          onChanged={() => {
-            // 队列/技能/配置变更后：刷新本组件计数，并通知宿主层（index.ts）
-            // 立即重查 badge，让会话页标签的小红点即时更新（不等 30s 轮询）。
-            pollBadge()
-            window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
-          }}
-        />
+        feature === 'skill-browser' ? (
+          <SkillsBrowser t={t} />
+        ) : (
+          <MemoryQueueView
+            t={t}
+            feature={feature}
+            onChanged={() => {
+              // 队列/技能/配置变更后：刷新本组件计数，并通知宿主层（index.ts）
+              // 立即重查 badge，让会话页标签的小红点即时更新（不等 30s 轮询）。
+              pollBadge()
+              window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
+            }}
+          />
+        )
       ) : files === null ? (
         <p className="mt-muted">{t('memoryTab.loading')}</p>
       ) : (
