@@ -92,7 +92,6 @@ test('tool output schemas are valid DSH JSON Schema (no property-level required 
 
 test('resolveConfig defaults and validation', () => {
   const config = resolveConfig({})
-  assert.equal(config.memoryCharLimit, 2200)
   assert.equal(config.reviewEnabled, false)
   assert.equal(config.reviewMode, 'suggest')
   assert.equal(config.reviewInterval, 5)
@@ -137,7 +136,6 @@ test('memory tool end-to-end add/list/replace/remove', async () => {
   assert.equal('entries' in added, false)
   const listed = await tool.execute({ action: 'list', target: 'user' }, fakeExec())
   assert.equal(listed.entries.length, 1)
-  assert.equal(listed.limit, 1375)
 
   const replaced = await tool.execute({ action: 'replace', target: 'user', content: '用户喜欢中文简洁回答', match: '简洁回答' }, fakeExec())
   assert.equal(replaced.ok, true)
@@ -217,6 +215,14 @@ test('review status tool counts message turns and stays due until complete', asy
   check = await tool.execute({ action: 'check' }, exec('s1'))
   assert.equal(check.due, false)
   assert.equal(check.turnsSinceReview, 0)
+
+  // complete before due does NOT reset — due=false must not silently delay the review
+  settled(agent('s3', [1]), 1, { kind: 'completed' })
+  const premature = await tool.execute({ action: 'complete' }, exec('s3'))
+  assert.equal(premature.ok, true)
+  assert.ok(premature.message.includes('未到期'))
+  check = await tool.execute({ action: 'check' }, exec('s3'))
+  assert.equal(check.turnsSinceReview, 1)
 
   // non-message turns and subagent origins never count
   const retryAgent = { id: 's2', session: { header: { origin: undefined }, events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'retry' } } }] } }
@@ -369,22 +375,20 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(!snapshot.includes('今天完成了 Y'))
   assert.ok(!snapshot.includes('## 项目记忆'))
   assert.ok(!snapshot.includes('## 今日记忆'))
-  assert.ok(snapshot.includes('## 按需记忆'))
+  assert.ok(snapshot.includes('## 记忆'))
   assert.ok(snapshot.includes('target=project'))
-  // per-turn write duty: final-step timing (text first, tools after),
-  // explicit tool call, must-write on any output, first-write insurance
-  assert.ok(snapshot.includes('回合的最后一步'))
-  assert.ok(snapshot.includes('先写出完整的回复文本，然后在同一条消息的文本之后附带工具调用'))
-  assert.ok(snapshot.includes('严禁先调用工具再写回复'))
-  assert.ok(snapshot.includes('必须写入 1 条'))
-  assert.ok(snapshot.includes('首写保险'))
-  assert.ok(snapshot.includes('不要为写而写'))
-  assert.ok(snapshot.includes('不要在内容中自行添加任何时间/日期前缀'))
-  assert.ok(snapshot.includes('你无法确知当前日期'))
+  // per-turn duties: one minimal checklist, text-first tool-after pattern
+  assert.ok(snapshot.includes('每轮收尾'))
+  assert.ok(snapshot.includes('先输出完整回复文本，再在文本之后附带工具调用'))
+  assert.ok(snapshot.includes('严禁先调工具'))
+  assert.ok(snapshot.includes('各写 1 条'))
+  assert.ok(snapshot.includes('内容不要自带时间/日期前缀'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
-  assert.ok(!subSnapshot.includes('先写出完整的回复文本，然后在同一条消息的文本之后附带工具调用'))
+  assert.ok(subSnapshot.includes('不要为写而写'))
+  assert.ok(!subSnapshot.includes('每轮收尾'))
+  assert.ok(!subSnapshot.includes('各写 1 条'))
   clean(dir)
 })
 
@@ -395,20 +399,19 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
   // default: both tracks carry the write duty
   const both = renderSnapshot(config, store, agent)
-  assert.ok(both.includes('- 项目相关 → target=project'))
-  assert.ok(both.includes('- 当天进展 → target=daily'))
+  assert.ok(both.includes('向 target=daily 与 target=project'))
   // project off: only daily keeps the write duty; reads stay for both
   const noProject = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false }), store, agent)
-  assert.ok(!noProject.includes('- 项目相关 → target=project'))
-  assert.ok(noProject.includes('- 当天进展 → target=daily'))
+  assert.ok(!noProject.includes('向 target=project'))
+  assert.ok(noProject.includes('向 target=daily'))
   assert.ok(noProject.includes('target=project'), 'read hint for project stays')
   // daily off: only project keeps the write duty
   const noDaily = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnDailyWrites: false }), store, agent)
-  assert.ok(noDaily.includes('- 项目相关 → target=project'))
-  assert.ok(!noDaily.includes('- 当天进展 → target=daily'))
+  assert.ok(noDaily.includes('向 target=project'))
+  assert.ok(!noDaily.includes('向 target=daily'))
   // both off: no write duty at all, hint degrades to on-demand reads
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
-  assert.ok(!none.includes('写入要求'))
+  assert.ok(!none.includes('每轮收尾'))
   assert.ok(none.includes('target=project'))
   assert.ok(none.includes('target=daily'))
   clean(dir)
@@ -421,21 +424,22 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
   // review enabled → main session gets the in-turn review section
   const on = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, agent)
-  assert.ok(on.includes('## 记忆审查'))
+  assert.ok(on.includes('每轮收尾'))
   assert.ok(on.includes('memory_review_status'))
+  assert.ok(on.includes('action=check'))
   assert.ok(on.includes('action=complete'))
-  assert.ok(on.includes('不要自行数回合'), 'due comes from the tool, never counted by hand')
-  assert.ok(on.includes('回合的最后一步'), 'review runs as the final step of the turn')
-  assert.ok(on.includes('不要调用 complete'), 'complete is only for resetting after a finished review')
-  assert.ok(on.includes('最多 2 条'))
+  assert.ok(on.includes('due=false 直接结束'), 'no complete when not due')
+  assert.ok(on.includes('memory_suggest'))
   assert.ok(on.includes('skill_manage'))
-  assert.ok(on.includes('待确认队列'))
+  assert.ok(on.includes('memory-evolve 本轮执行完毕'))
   // review disabled → no section
   const off = renderSnapshot(config, store, agent)
-  assert.ok(!off.includes('## 记忆审查'))
+  assert.ok(!off.includes('memory_review_status'), 'no review steps without reviewEnabled')
+  assert.ok(off.includes('写入：用 memory 工具'), 'write duty stays without review')
   // subagent sessions never get the review duty
   const sub = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, { id: 's', session: { header: { origin: 'subagent' } } })
-  assert.ok(!sub.includes('## 记忆审查'))
+  assert.ok(!sub.includes('memory_review_status'))
+  assert.ok(sub.includes('独立成果'))
   clean(dir)
 })
 

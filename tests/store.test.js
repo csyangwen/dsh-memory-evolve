@@ -42,18 +42,14 @@ test('add appends and writes the file', () => {
   clean(dir)
 })
 
-test('add rejects empty, duplicate, over-limit', () => {
+test('add rejects empty and duplicate', () => {
   const dir = tempDir()
-  const store = new MemoryStore(dir, { memoryCharLimit: 20 })
+  const store = new MemoryStore(dir)
   assert.equal(store.add('memory', '   ').ok, false)
   store.add('memory', 'abc')
   const dup = store.add('memory', 'abc')
   assert.equal(dup.ok, true)
   assert.ok(dup.message.includes('已存在'))
-  const over = store.add('memory', 'this is a very long entry that will exceed the limit')
-  assert.equal(over.ok, false)
-  assert.ok(over.message.includes('超限'))
-  assert.ok(over.entries.length === 1) // current entries returned for consolidation
   clean(dir)
 })
 
@@ -128,15 +124,6 @@ test('remove deletes the matched entry', () => {
   clean(dir)
 })
 
-test('per-target limits', () => {
-  const dir = tempDir()
-  const store = new MemoryStore(dir, { memoryCharLimit: 100, userCharLimit: 10 })
-  assert.equal(store.limitOf('memory'), 100)
-  assert.equal(store.limitOf('user'), 10)
-  assert.equal(store.add('user', '这已经超过十个字符了啊').ok, false)
-  assert.equal(store.add('memory', '短条目').ok, true)
-  clean(dir)
-})
 
 test('threat scan blocks injection phrasing', () => {
   const dir = tempDir()
@@ -216,6 +203,21 @@ test('project entries carry a date AND time stamp', () => {
   assert.equal(upgraded.ok, true)
   const upgradedEntry = store.entriesOf('project', agent).find((e) => e.includes('升级'))
   assert.match(upgradedEntry, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 旧格式条目升级$/)
+  clean(dir)
+})
+
+test('daily entries are tagged with the originating project by the program', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  // numeric/short basenames fall back to the last two path segments
+  store.add('daily', '完成名片页', { session: { header: { cwd: '/Volumes/data/260805/1' } } })
+  assert.match(store.entriesOf('daily')[0], /^\[\d{2}:\d{2}\] \[260805\/1\] 完成名片页$/)
+  // meaningful basenames stand alone
+  store.add('daily', '改提示词', { session: { header: { cwd: '/Users/edgar/.dsh/plugins/dsh-memory-evolve' } } })
+  assert.match(store.entriesOf('daily')[1], /^\[\d{2}:\d{2}\] \[dsh-memory-evolve\] 改提示词$/)
+  // no cwd → no project tag, plain [HH:MM] stamp
+  store.add('daily', '无目录会话')
+  assert.match(store.entriesOf('daily')[2], /^\[\d{2}:\d{2}\] 无目录会话$/)
   clean(dir)
 })
 
