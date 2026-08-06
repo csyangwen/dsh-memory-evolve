@@ -53,6 +53,25 @@ test('add rejects empty and duplicate', () => {
   clean(dir)
 })
 
+test('whitespace-only files are writable (not treated as read failures)', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  // A 1-byte newline placeholder file must not block writes: it parses to an
+  // empty store, so appending cannot wipe history.
+  writeFileSync(join(dir, 'MEMORY.md'), '\n')
+  const result = store.add('memory', '新条目')
+  assert.equal(result.ok, true)
+  const entries = store.entriesOf('memory')
+  assert.equal(entries.length, 1)
+  assert.ok(entries[0].includes('新条目'))
+  // replace/remove on an empty whitespace file report "no match" instead of
+  // a bogus read failure
+  const replaced = store.replace('memory', '不存在', '不会发生', undefined)
+  assert.equal(replaced.ok, false)
+  assert.ok(replaced.message.includes('没有条目'))
+  clean(dir)
+})
+
 test('add works on a drifted file (append-only semantics)', () => {
   const dir = tempDir()
   const store = new MemoryStore(dir)
