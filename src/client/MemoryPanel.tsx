@@ -34,7 +34,6 @@ interface RuntimeConfig {
   reviewEnabled: boolean
   reviewInterval: number
   skillReviewEnabled: boolean
-  autoApproveGlobal: boolean
   memoryTabEnabled: boolean
   perTurnProjectWrites: boolean
   perTurnDailyWrites: boolean
@@ -159,7 +158,6 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       reviewEnabled: draft.reviewEnabled,
       reviewInterval: draft.reviewInterval,
       skillReviewEnabled: draft.skillReviewEnabled,
-      autoApproveGlobal: draft.autoApproveGlobal,
       memoryTabEnabled: draft.memoryTabEnabled,
       perTurnProjectWrites: draft.perTurnProjectWrites,
       perTurnDailyWrites: draft.perTurnDailyWrites,
@@ -363,18 +361,6 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                   className="me-switch"
                   checked={draft.skillReviewEnabled}
                   onChange={(event) => patchDraft({ skillReviewEnabled: event.target.checked })}
-                />
-              </label>
-              <label className="me-field">
-                <span className="me-field-label">
-                  {t('panel.config.autoApproveGlobal')}
-                  <em className="me-field-hint">{t('panel.config.autoApproveGlobal.hint')}</em>
-                </span>
-                <input
-                  type="checkbox"
-                  className="me-switch"
-                  checked={draft.autoApproveGlobal}
-                  onChange={(event) => patchDraft({ autoApproveGlobal: event.target.checked })}
                 />
               </label>
               <label className="me-field">

@@ -8,9 +8,9 @@
 
 - **分层记忆（四轨）**：用户档案 · 全局事实 · 项目记忆（按工作目录隔离）· 每日日志，注入范围随层级收窄，互不污染；
 - **每回合实时记录**：快照内固定提示行要求模型**每个回合结束前主动检查**并写入项目记忆/每日日志（同主题 replace 合并、程序盖准确时间戳），当天进展与项目脉络随时落盘、无需等待审查回合；可在设置面板分别关闭「每回合写入项目记忆 / 每日日志」；
-- **后台审查**：每 N 个用户回合自动回顾会话（**增量转录**：每次只摘要上次审查以来的新对话），产出全局记忆建议并创建/优化技能；支持 `/memory_now` 手动触发与会话关闭终局补审；
-- **可追溯审查**（可选）：配合 [dsh-session-search](https://github.com/dsh-external/dsh-session-search) 插件安装时，审查子代理可在摘要信息不足时按需读取完整会话（不装也完全正常，仅失去深读能力）；
-- **技能自我进化（创建需确认）**：审查子代理优化 `~/.agents/skills` 下已有技能（read-before-write 保护）；**新技能默认进入待确认队列**，设置面板采纳后才移入技能库（创建门槛严格：多次踩坑、难度大、后续会复用才创建）——技能注入所有会话，必须克制；
+- **回合内自我审查**：每 N 个用户回合，插件把一次记忆审查标记为到期，**主 LLM 在自己回合内静默执行**（提示词驱动 + `memory_review_status` 工具计数）——不再派生子代理、不重建转录，模型直接基于完整上下文审查：产出全局记忆建议（`memory_suggest`，用户确认后入库）并创建/优化技能；
+- **可追溯审查**：审查在主会话内进行，天然拥有全部上下文（工具输出、推理过程、对话细节零损耗），无需摘要重建、无需深读接口；
+- **技能自我进化（创建需确认）**：审查优化 `~/.agents/skills` 下已有技能（read-before-write 保护）；**新技能默认进入待确认队列**，设置面板采纳后才移入技能库（创建门槛严格：多次踩坑、难度大、后续会复用才创建）——技能注入所有会话，必须克制；
 - **建议确认制**：全局记忆（用户档案/全局事实）写入需经设置面板或 `/memory_review` 确认；新技能同样需确认，杜绝无人把关的自我修改；
 - **安全设计**：防漂移备份、跨进程文件锁、原子写、字符上限、提示注入扫描、禁用技能保护；
 - **缓存友好**：记忆快照走 user-role 尾部消息注入（变更检测），system prompt 与历史前缀保持稳定。**只注入低频变化的全局轨**（用户档案/全局事实）——项目记忆与每日日志随每回合主动写入而变化，若注入会导致每轮追加新的上下文快照、前缀缓存命中率下降，因此它们**默认不注入**，改为按需读取 + 快照中一行**固定提示**要求模型每回合主动检查写入（提示文本固定不变，不产生新快照）。
@@ -50,7 +50,7 @@ ln -s ~/.dsh/plugins/dsh-memory-evolve ~/node_modules/@dsh-local/dsh-memory-evol
     - id: dsh-memory-evolve
       name: '@dsh-local/dsh-memory-evolve'
       config:
-        reviewEnabled: true      # 开启后台审查（默认关）
+        reviewEnabled: true      # 开启回合内记忆审查（默认关）
         reviewInterval: 10       # 每 10 个用户回合审查一次
 ```
 
@@ -74,7 +74,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 - **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
 - **待确认技能**：审查创建的新技能在此「采纳」（移入技能库，立即生效）或「拒绝」；
-- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `autoApproveGlobal` / `memoryTabEnabled` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `reviewMode` / `skillReviewEnabled` / `memoryTabEnabled` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
 
 ![设置 → 记忆管理](docs/images/设置-记忆管理.png)
@@ -94,24 +94,20 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 /memory_review reject 2         # 拒绝第 2 条
 /memory_review approve-all      # 全部采纳
 /memory_review reject-all       # 全部拒绝
-/memory_now                     # 立即对当前会话触发一次后台审查
 ```
 
-### 后台审查
+### 回合内记忆审查
 
-- 触发：每 `reviewInterval` 个用户回合（`agent/settled` 计数，仅 message 回合）；会话关闭时未审查过的会话自动补一次终局审查；`/memory_now` 可随时手动触发；
-- 转录：**增量**——每次从上次审查的水位线之后重建只读对话转录（只含用户输入与助手文本回复，不含工具调用/思考/系统注入），并附【会话信息】追溯头（会话 ID、工作目录、覆盖事件区间）；
-- 执行：派生一个受限子代理（工具白名单：suggest 模式为 `memory_suggest` / `skill_manage`，auto 模式为 `memory` / `skill_manage`，若已安装 dsh-session-search 则再加 `agent_session_read`），同时产出：
-  - 全局记忆建议 → `memory_suggest` → 建议队列（等用户确认）；auto 模式直接写全局轨（每次写前请求批准）；
-  - 技能 → `skill_manage` 自动创建/优化 `~/.agents/skills` 下的技能；
-  - 深读（可选）：摘要信息不足时，用 `agent_session_read` 读取完整会话；
-- 职责边界：project/daily 的写入由**主会话每回合主动完成**（见「分层记忆」表），审查回合**不再处理**它们；
-- 并发：同时最多一个审查；异步执行不阻塞主流程；`origin: 'subagent'` 的会话永不触发（防递归）。
+- **触发**：插件统计每个会话的用户回合数（`agent/settled` 计数，仅 message 回合；子代理会话不计数）；达到 `reviewInterval` 后，一次审查被标记为**到期**；
+- **执行**：快照携带固定提示段，要求模型每个回合结束前调用 `memory_review_status` 查询是否到期；**到期判断以工具返回的 `due` 为准**（间隔不写死在提示里）。到期时模型在自己的回合内**静默执行审查**（工具操作，不写进最终回复）：
+  - 全局记忆（memory/user）：对照快照中已注入的全局记忆**查重**，仅建议**稳定、可跨会话复用**的新事实 → `memory_suggest` 提出（最多 2 条，宁缺毋滥）；`reviewMode=auto` 时直接用 `memory` 工具写入；
+  - 技能：确有可复用经验 → `skill_manage` 先 list 查重 → read → create/patch（每轮最多 1 次操作；create 默认进待确认队列）；
+  - 完成后调用 `memory_review_status complete` **复位计数**；
+- **到期不清零**：计数只增不清——若某回合模型未执行（弱遵循/被打断），下回合仍是到期状态，审查不会静默丢失；只有 `complete` 才复位；
+- **职责边界**：project/daily 由主会话**每回合主动写入**（见「分层记忆」表），审查只处理全局轨建议与技能；
+- **依赖**：审查由**提示词驱动**，依赖模型的指令遵循能力——弱遵循模型可能不查/不执行（见「已知局限」）。
 
-每次审查会派生一个「memory-review」子代理，在会话列表中可见（子代理详情可查看它读取的转录与产出的建议/技能）：
-
-![审查子代理 · 会话列表](docs/images/记忆子代理列表.png)
-![审查子代理 · 详情](docs/images/记忆子代理-详情.png)
+审查产出（建议与技能）在会话列表中不可见（没有子代理），但建议队列与技能库可在设置面板查看/确认。
 
 ## 配置
 
@@ -131,55 +127,54 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 技能库） |
 | `skillManageToolName` | `skill_manage` | 技能管理工具名 |
 | `skillMaxBytes` | 65536 | SKILL.md 大小上限 |
-| `skillReviewEnabled` | `false` | 技能自动沉淀：关（默认）= 审查创建的新技能进待确认队列；开 = 直接创建无需确认 |
-| `reviewEnabled` | `false` | 后台审查总开关 |
-| `reviewInterval` | 5 | 每 N 个用户回合审查一次 |
-| `reviewDigestEvents` | 40 | 转录尾部**消息**条数（≈20 轮对话，不含流式 chunk） |
-| `reviewDigestMaxChars` | 40000 | 转录长度上限（单条消息超长时头尾保留，中间标注省略字符数） |
-| `reviewProvider` / `reviewModel` | 空（主模型） | 审查用模型 |
-| `reviewMode` | `suggest` | `suggest`=全局记忆只产建议；`auto`=直接写（每次写前请求批准） |
-| `reviewFinalOnDispose` | `true` | 会话关闭时未审查会话自动补审 |
-| `reviewNowCommandName` | `memory_now` | 手动触发审查的命令名 |
-| `autoApproveGlobal` | `false` | 全局轨（user/memory）自动沉淀：开启后审查子代理直接写入，无需确认（注意提示注入风险） |
+| `skillReviewEnabled` | `false` | 技能自动沉淀：关（默认）= 所有新技能（含审查创建）进待确认队列；开 = 直接创建无需确认 |
+| `reviewEnabled` | `false` | 回合内审查总开关（提示段 + 回合计数） |
+| `reviewInterval` | 5 | 每 N 个用户回合将一次审查标记为到期 |
+| `reviewMode` | `suggest` | `suggest`（推荐）= 全局事实只产建议，经你确认后入库；`auto` = 审查直接写入全局轨，无需确认（注意提示注入风险） |
 | `memoryTabEnabled` | `false` | 会话页「记忆」Tab 开关：开启后会话页顶部可查看记忆文件（全部只读）；默认关，开启后刷新页面生效 |
-| `reviewProviderName` | `spawn` | 审查子代理提供者 |
 
 ## 安全设计
 
-- **分层隔离**：全局记忆（每会话注入）是高风险面——自动写入被拒，只走建议确认；项目记忆按 cwd 硬隔离（A 项目会话看不到 B 项目记忆，且内容不注入、仅按需读取）；每日日志不注入；
+- **分层隔离**：全局记忆（每会话注入）是高风险面——suggest 模式下自动写入被拒（含子代理），只走建议确认；项目记忆按 cwd 硬隔离（A 项目会话看不到 B 项目记忆，且内容不注入、仅按需读取）；每日日志不注入；
 - **read-before-write**：`skill_manage` 优化已有技能前，必须先在会话日志中证明 `read` 过（防凭空改写他人技能）；
 - **禁用技能保护**：写入前查 DSH 核心技能注册表的 `modelInvocable` 状态，禁用的技能不更新；
 - **防数据丢失**：文件无法被解析器往返时拒绝重写并备份 `.bak.<时间戳>`；字符上限硬拒绝；跨进程锁 + 原子写；
 - **提示注入防护**：写入内容扫描"忽略指令"类短语；技能 frontmatter 做 YAML 兼容性校验（description 需双引号，防 DSH 解析器静默跳过）；
-- **防递归**：审查子代理（subagent 会话）永不触发审查；
+- **审查不递归**：子代理会话不计入审查回合数（审查只发生在主会话）；
 - **缓存友好**：快照变更走尾部追加，不破坏 system prompt 前缀缓存；
 - **可关停**：全部注册都是 fiber effect，卸载插件即完全恢复原状。
 
 ## 工作原理
 
 ```
-用户会话进行中
-  ├─ 每回合结束前：模型主动检查并写入 project/daily（memory 工具；无新事实则跳过）
-  └─ 每 reviewInterval 个用户回合（agent/settled 计数）或会话关闭补审或 /memory_now
-       └─ 从上次审查水位线起重建只读对话转录（最多 reviewDigestEvents 条消息 + 【会话信息】追溯头）
-            └─ 派生受限子代理（白名单：suggest 模式 memory_suggest / auto 模式 memory / skill_manage / [agent_session_read]；origin=subagent 不触发审查）
-                 ├─ 全局记忆建议 → SUGGESTIONS.jsonl → 用户 /memory_review 确认 → 写入
-                 ├─ 深读（可选）→ agent_session_read 读取完整会话
-                 └─ 技能 → skill_manage 自动创建/优化 ~/.agents/skills
-                      └─ 快照注入（仅低频变化的全局轨 + 每回合主动写入提示行）随上下文刷新，模型可见；项目/每日按需读取
+用户会话进行中（每回合）
+  ├─ 结束前：模型主动检查并写入 project/daily（memory 工具；无新事实则跳过）
+  └─ 结束前：模型调用 memory_review_status check 查询审查是否到期
+       ├─ 未到期（due=false）→ 正常结束回合
+       └─ 到期（due=true）→ 回合内静默审查（不写进回复）：
+            ├─ 全局记忆建议 → memory_suggest → SUGGESTIONS.jsonl → 用户 /memory_review 或面板确认 → 写入
+            ├─ 技能 → skill_manage 创建/优化 ~/.agents/skills（create 默认进待确认队列）
+            └─ memory_review_status complete 复位计数
+  快照注入：仅低频变化的全局轨 + 每回合主动写入提示行 + 审查提示段（均为静态文本）；项目/每日按需读取
 ```
 
-## 已知局限：缓存命中
+## 已知局限
+
+### 缓存命中
 
 本插件对 LLM 前缀缓存的优化是**尽力而为，并未彻底解决**：
 
-- **已做**：快照只注入低频变化的轨（全局记忆/用户档案），项目记忆与每日日志内容不注入——它们随每回合主动写入而变化，若注入会导致请求结尾频繁出现新内容；
+- **已做**：快照只注入低频变化的轨（全局记忆/用户档案）与静态提示段，项目记忆与每日日志内容不注入——它们随每回合主动写入而变化，若注入会导致请求结尾频繁出现新内容；
 - **未解决**：DSH 的运行时上下文是 **append-only 的 user-role 尾部快照**（`Current runtime context…`），无法原地更新。因此**任何**快照内容变化——例如用户确认一条新建议、直接 `memory add` 写入全局轨——都会向请求历史**追加一条新的尾部消息**：该新增尾部无法命中缓存，且历史中的旧快照会持续占位、随写入次数增多而堆积。**前缀部分（system 指令、工具说明、AGENTS.md、此前对话）不受影响、照常命中缓存**——代价只在新尾部本身；
 - 这是 DSH 核心 context 机制的固有设计，插件层面无法替换历史快照；若未来 DSH 支持可原地更新的上下文（或 system-role 稳定注入），本插件可直接受益。
 
-## 可选增强：dsh-session-search
+### 指令遵循依赖
 
-后台审查的「深读」能力依赖 [dsh-session-search](https://github.com/dsh-external/dsh-session-search)（跨会话全文搜索 + 会话读取工具，私有仓库，需 SSH 凭证安装）。**未安装时本插件完全正常运行**——仅审查子代理无法按需读取完整会话，摘要式审查不受影响。插件会在该工具已注册时自动把 `agent_session_read` 加入审查子代理白名单。安装方法见该仓库 README。
+「每回合写入 project/daily」与「回合内自我审查」都由**快照提示段驱动**——插件只负责计数与到期标记，执行依赖模型的指令遵循能力：
+
+- 弱遵循模型可能跳过每回合检查、到期后不查询或不执行审查；
+- **到期不清零**缓解"漏一轮"（下回合仍到期），但救不了"从不查"；
+- 若发现模型不执行，可调低 `reviewInterval` 提高到期频率，或检查是否使用了弱遵循模型。
 
 ## 测试
 

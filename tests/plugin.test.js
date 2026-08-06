@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { apply, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
-import { buildReviewPrompt } from '../lib/review.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-plugin-test-'))
@@ -105,7 +104,7 @@ test('resolveConfig defaults and validation', () => {
   assert.throws(() => resolveConfig({ nope: 1 }), /未知配置项/)
   assert.throws(() => resolveConfig({ reviewInterval: 0 }), /正数/)
   assert.throws(() => resolveConfig({ reviewMode: 'x' }), /suggest/)
-  assert.throws(() => resolveConfig({ reviewTools: [] }), /非空/)
+  assert.throws(() => resolveConfig({ reviewTools: [] }), /未知配置项/)
   assert.throws(() => resolveConfig({ skillMaxBytes: -1 }), /正数/)
   assert.throws(() => resolveConfig({ entryDatePrefix: 'yes' }), /布尔/)
   assert.throws(() => resolveConfig('x'), /对象/)
@@ -166,200 +165,67 @@ test('memory tool rejects unknown action and subagent-origin writes in suggest m
   clean(dir)
 })
 
-test('review enabled registers suggest tool and trigger; counting gates on message turns', async () => {
+test('review status tool counts message turns and stays due until complete', async () => {
   const dir = tempDir()
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return {
-        result: Promise.resolve({ stopReason: 'completed', output: [] }),
-        dispose: async () => {},
-      }
-    },
-  }
-  const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2, skillReviewEnabled: true })
-  const tool = ctx.state.tools.find((t) => t.name === 'memory_suggest')
-  assert.ok(tool, 'suggest tool registered when review enabled')
-
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory_review_status')
+  assert.ok(tool, 'review status tool registered when review enabled')
+  assert.ok(ctx.state.tools.some((t) => t.name === 'memory_suggest'), 'suggest tool registered when review enabled')
   const settled = ctx.state.listeners['agent/settled'][0]
-  assert.ok(settled, 'settled listener installed')
-
   const agent = (id, turns) => ({
     id,
     session: {
       header: { origin: undefined },
       // A real turn always carries a user message with source.kind 'user';
-      // the review digest skips sessions without human input rows. Events
-      // carry contiguous seqs (the digest's incremental window keys on them).
+      // events carry contiguous seqs.
       events: turns.flatMap((turn) => [
         { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
         { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
       ]).map((event, seq) => ({ ...event, seq })),
     },
   })
+  const exec = (id) => ({ agent: { id }, callId: 'c1', signal: new AbortController().signal })
 
-  // turn 1: count 1, no trigger
+  // turn 1: count 1, below the interval → not due
   settled(agent('s1', [1]), 1, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 0)
+  let check = await tool.execute({ action: 'check' }, exec('s1'))
+  assert.equal(check.due, false)
+  assert.equal(check.turnsSinceReview, 1)
+  assert.equal(check.interval, 2)
+  assert.equal(check.mode, 'suggest')
 
-  // turn 2: count 2 → trigger (scheduled via microtask)
+  // turn 2: count 2 → due
   settled(agent('s1', [1, 2]), 2, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
-  assert.deepEqual(started[0].request.toolFilter, { allow: ['memory_suggest', 'skill_manage'] })
-  assert.equal(started[0].request.label, 'memory-review')
-  assert.ok(started[0].request.prompt[0].text.includes('技能审查'), 'prompt covers the skill track')
+  check = await tool.execute({ action: 'check' }, exec('s1'))
+  assert.equal(check.due, true)
 
-  // non-message turns and subagent origins never trigger
-  const retryAgent = { id: 's2', session: { header: { origin: undefined }, events: [{ type: 'turn/start', data: { turn: 3, trigger: { kind: 'retry' } } }] } }
-  settled(retryAgent, 3, { kind: 'completed' })
-  const childAgent = { id: 'child', session: { header: { origin: 'subagent' }, events: [{ type: 'turn/start', data: { turn: 4, trigger: { kind: 'message' } } }] } }
-  settled(childAgent, 4, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
+  // Due is sticky: another turn without complete keeps it due — a missed or
+  // interrupted review is never silently dropped.
+  settled(agent('s1', [1, 2, 3]), 3, { kind: 'completed' })
+  check = await tool.execute({ action: 'check' }, exec('s1'))
+  assert.equal(check.due, true)
+  assert.equal(check.turnsSinceReview, 3)
+
+  // complete resets the counter (the model calls it after a finished review)
+  const done = await tool.execute({ action: 'complete' }, exec('s1'))
+  assert.equal(done.ok, true)
+  check = await tool.execute({ action: 'check' }, exec('s1'))
+  assert.equal(check.due, false)
+  assert.equal(check.turnsSinceReview, 0)
+
+  // non-message turns and subagent origins never count
+  const retryAgent = { id: 's2', session: { header: { origin: undefined }, events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'retry' } } }] } }
+  settled(retryAgent, 1, { kind: 'completed' })
+  const childAgent = { id: 'child', session: { header: { origin: 'subagent' }, events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } }] } }
+  settled(childAgent, 1, { kind: 'completed' })
+  check = await tool.execute({ action: 'check' }, exec('s2'))
+  assert.equal(check.turnsSinceReview, 0)
+  check = await tool.execute({ action: 'check' }, exec('child'))
+  assert.equal(check.turnsSinceReview, 0)
   clean(dir)
 })
 
-test('reviews are incremental: later reviews only see new turns', async () => {
-  const dir = tempDir()
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-    },
-  }
-  const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
-  const settled = ctx.state.listeners['agent/settled'][0]
-  const agent = (turns) => ({
-    id: 's1',
-    session: {
-      header: { origin: undefined },
-      events: turns.flatMap((turn) => [
-        { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
-        { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
-      ]).map((event, seq) => ({ ...event, seq })),
-    },
-  })
-
-  // First review after turn 2: sees turns 1-2.
-  settled(agent([1]), 1, { kind: 'completed' })
-  settled(agent([1, 2]), 2, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
-  const first = started[0].request.prompt[0].text
-  assert.ok(first.includes('问题1'), 'first review sees turn 1')
-  assert.ok(first.includes('问题2'), 'first review sees turn 2')
-
-  // Second review after turn 4: only turns 3-4, never re-reads the past.
-  settled(agent([1, 2, 3]), 3, { kind: 'completed' })
-  settled(agent([1, 2, 3, 4]), 4, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 2)
-  const second = started[1].request.prompt[0].text
-  assert.ok(second.includes('问题3'), 'second review sees turn 3')
-  assert.ok(second.includes('问题4'), 'second review sees turn 4')
-  assert.ok(!second.includes('问题1'), 'second review skips already-reviewed turns')
-  assert.ok(!second.includes('问题2'), 'second review skips already-reviewed turns')
-  clean(dir)
-})
-
-test('review watermarks survive a process restart', async () => {
-  const dir = tempDir()
-  const makeHarness = () => {
-    const started = []
-    const fakeSubagents = {
-      getProvider: (name) => ({ name }),
-      start: async (name, request) => {
-        started.push({ name, request })
-        return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-      },
-    }
-    const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-    apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 2 })
-    const agent = (turns) => ({
-      id: 's1',
-      session: {
-        header: { origin: undefined },
-        events: turns.flatMap((turn) => [
-          { type: 'turn/start', data: { turn, trigger: { kind: 'message' } } },
-          { type: 'user/message', data: { id: `u${turn}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `问题${turn}` }] } },
-        ]).map((event, seq) => ({ ...event, seq })),
-      },
-    })
-    return { ctx, started, agent }
-  }
-
-  // First process: review after turn 2 advances the watermark to seq 4.
-  const first = makeHarness()
-  first.ctx.state.listeners['agent/settled'][0](first.agent([1]), 1, { kind: 'completed' })
-  first.ctx.state.listeners['agent/settled'][0](first.agent([1, 2]), 2, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(first.started.length, 1)
-
-  // Second process (restart): the persisted watermark means the next review
-  // still only sees turns 3-4, never re-reads the whole session.
-  const second = makeHarness()
-  second.ctx.state.listeners['agent/settled'][0](second.agent([1, 2, 3]), 3, { kind: 'completed' })
-  second.ctx.state.listeners['agent/settled'][0](second.agent([1, 2, 3, 4]), 4, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(second.started.length, 1)
-  const prompt = second.started[0].request.prompt[0].text
-  assert.ok(prompt.includes('问题3'), 'restarted review sees turn 3')
-  assert.ok(prompt.includes('问题4'), 'restarted review sees turn 4')
-  assert.ok(!prompt.includes('问题1'), 'restarted review skips already-reviewed turns')
-  clean(dir)
-})
-
-test('review whitelist includes agent_session_read when the tool exists', async () => {
-  const dir = tempDir()
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-    },
-  }
-  const ctx = fakeCtx({
-    get: (key) => (key === 'subagents'
-      ? fakeSubagents
-      : key === 'tools'
-        ? { get: (name) => (name === 'agent_session_read' ? { name } : undefined) }
-        : undefined),
-    services: {
-      tools: {
-        register: (def) => { ctx.state.tools.push(def); return () => {} },
-        get: (name) => (name === 'agent_session_read' ? { name } : undefined),
-      },
-    },
-  })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 1, skillReviewEnabled: true })
-  const settled = ctx.state.listeners['agent/settled'][0]
-  const agent = {
-    id: 's1',
-    session: {
-      header: { origin: undefined, id: 'sess-x', cwd: '/work' },
-      events: [
-        { seq: 0, type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
-        { seq: 1, type: 'user/message', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '问题1' }] } },
-      ],
-    },
-  }
-  settled(agent, 1, { kind: 'completed' })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
-  assert.deepEqual(started[0].request.toolFilter.allow, ['memory_suggest', 'skill_manage', 'agent_session_read'])
-  // The digest header carries the session id for tracing.
-  assert.ok(started[0].request.prompt[0].text.includes('sess-x'))
-  clean(dir)
-})
 
 test('suggest tool appends to the queue; command approves/rejects', async () => {
   const dir = tempDir()
@@ -428,160 +294,6 @@ test('suggest tool dedupes repeated content and accumulates hits', async () => {
   clean(dir)
 })
 
-test('buildReviewPrompt embeds existing global memory for dedup', async () => {
-  const dir = tempDir()
-  const store = new MemoryStore(dir)
-  store.add('memory', '已有环境事实')
-  store.add('user', '已有用户偏好')
-  const prompt = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }), store)
-  assert.ok(prompt.includes('【当前已有全局记忆】'))
-  assert.ok(prompt.includes('已有环境事实'))
-  assert.ok(prompt.includes('已有用户偏好'))
-  assert.ok(prompt.includes('不要重复建议'))
-  // Without a store the section degrades to a placeholder.
-  const bare = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }))
-  assert.ok(bare.includes('【当前已有全局记忆】'))
-  assert.ok(bare.includes('未提供已有记忆数据'))
-  clean(dir)
-})
-
-
-test('buildReviewPrompt covers both tracks and honors skillReviewEnabled', () => {
-  const on = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest', skillReviewEnabled: true }))
-  assert.ok(on.includes('技能审查'))
-  assert.ok(on.includes('skill_manage'))
-  assert.ok(on.includes('memory_suggest'))
-  assert.ok(on.includes('类级名称'))
-
-  const off = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest', skillReviewEnabled: false }))
-  assert.ok(!off.includes('技能审查'))
-  assert.ok(off.includes('memory_suggest'))
-
-  const auto = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'auto' }))
-  assert.ok(auto.includes('memory 工具直接写入'))
-})
-
-test('buildReviewPrompt: global track only — daily/project moved to per-turn writes', () => {
-  const prompt = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }))
-  // daily/project writes are no longer part of the review round (the main
-  // session performs them every turn via the snapshot hint)
-  assert.ok(!prompt.includes('target: "daily"'))
-  assert.ok(!prompt.includes('每个会话至少写 1 条'))
-  assert.ok(!prompt.includes('target: "project"'))
-  assert.ok(!prompt.includes('target=project'))
-  assert.ok(!prompt.includes('target=daily'))
-  // global: strict, max 2, via suggest tool
-  assert.ok(prompt.includes('最多 2 条'))
-  assert.ok(prompt.includes('写全局会被拒绝'))
-  // no hand-written date/time prefixes — the program stamps accurately
-  assert.ok(prompt.includes('不要在内容中自行添加任何时间/日期前缀'))
-  assert.ok(prompt.includes('你无法确知当前日期'))
-  // nothing-to-save only for pure small talk
-  assert.ok(prompt.includes('Nothing to save'))
-  assert.ok(prompt.includes('纯属寒暄'))
-  // one-off task narratives are banned for the global track only
-  assert.ok(prompt.includes('仅针对全局轨'))
-  assert.ok(prompt.includes('"写了篇短文"这类'))
-  // the reviewer must extract key points before judging
-  assert.ok(prompt.includes('【转录要点】'))
-  assert.ok(prompt.includes('不要脑补被省略的内容'))
-  // traceability: the reviewer may read the full session when needed
-  assert.ok(prompt.includes('agent_session_read'))
-  assert.ok(prompt.includes('【会话信息】'))
-})
-
-test('final review fires on agent/disposed for unreviewed sessions', async () => {
-  const dir = tempDir()
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-    },
-  }
-  const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 10, reviewFinalOnDispose: true })
-  const settled = ctx.state.listeners['agent/settled'][0]
-  const disposed = ctx.state.listeners['agent/disposed'][0]
-  const agent = {
-    id: 's1',
-    session: {
-      header: { origin: undefined },
-      events: [
-        { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } },
-        { type: 'user/message', data: { id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '问题1' }] } },
-      ],
-    },
-  }
-
-  // one user turn, session ends before the interval → final review fires
-  settled(agent, 1, { kind: 'completed' })
-  disposed(agent)
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
-  assert.equal(started[0].request.label, 'memory-review')
-  clean(dir)
-})
-
-test('final review skips sessions without user turns and subagent origins', async () => {
-  const dir = tempDir()
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-    },
-  }
-  const ctx = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx, { memoryDir: dir, reviewEnabled: true, reviewInterval: 10 })
-  const disposed = ctx.state.listeners['agent/disposed'][0]
-
-  // no turns at all
-  disposed({ id: 's1', session: { header: { origin: undefined }, events: [] } })
-  // subagent origin
-  disposed({ id: 'child', session: { header: { origin: 'subagent' }, events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } }] } })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 0)
-  clean(dir)
-})
-
-test('memory_now command triggers a review through the review api', async () => {
-  const dir = tempDir()
-  let triggerCalled = null
-  const ctx = fakeCtx()
-  const realApply = (await import('../lib/index.js')).apply
-  // capture the review api by patching installReview via a spy: simpler to
-  // exercise the command through the real plugin with a fake subagents
-  const started = []
-  const fakeSubagents = {
-    getProvider: (name) => ({ name }),
-    start: async (name, request) => {
-      started.push({ name, request })
-      return { result: Promise.resolve({ stopReason: 'completed', output: [] }), dispose: async () => {} }
-    },
-  }
-  const ctx2 = fakeCtx({ get: (key) => (key === 'subagents' ? fakeSubagents : undefined) })
-  apply(ctx2, { memoryDir: dir, reviewEnabled: true })
-  const command = ctx2.state.commands.find((c) => c.name === 'memory_now')
-  assert.ok(command, 'memory_now command registered')
-
-  // trigger via command: returns success and schedules a review
-  const agent = {
-    id: 's1',
-    session: {
-      header: { origin: undefined },
-      events: [{ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '你好' }] } }],
-    },
-  }
-  const result = command.handler({ rawInput: '', agent })
-  assert.equal(result.kind, 'success')
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal(started.length, 1)
-  assert.equal(started[0].request.parent, agent)
-  clean(dir)
-})
 
 test('memory tool layered gate: subagent project/daily writes allowed, global refused', async () => {
   const dir = tempDir()
@@ -693,6 +405,29 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   clean(dir)
 })
 
+test('renderSnapshot review section: main sessions only, when enabled, static text', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir })
+  const store = new MemoryStore(config.memoryDir, config)
+  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
+  // review enabled → main session gets the in-turn review section
+  const on = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, agent)
+  assert.ok(on.includes('## 记忆审查'))
+  assert.ok(on.includes('memory_review_status'))
+  assert.ok(on.includes('action=complete'))
+  assert.ok(on.includes('不要自行数回合'), 'due comes from the tool, never counted by hand')
+  assert.ok(on.includes('最多 2 条'))
+  assert.ok(on.includes('skill_manage'))
+  assert.ok(on.includes('待确认队列'))
+  // review disabled → no section
+  const off = renderSnapshot(config, store, agent)
+  assert.ok(!off.includes('## 记忆审查'))
+  // subagent sessions never get the review duty
+  const sub = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, { id: 's', session: { header: { origin: 'subagent' } } })
+  assert.ok(!sub.includes('## 记忆审查'))
+  clean(dir)
+})
+
 test('resolveRevealTarget falls back to containing directories for missing files', () => {
   const dir = tempDir()
   const config = resolveConfig({ memoryDir: dir, skillDir: join(dir, 'no-skills') })
@@ -746,34 +481,35 @@ test('toWindowsPath falls back to the input when wslpath is unavailable', () => 
   }
 })
 
-test('autoApproveGlobal lets subagents write global tracks directly', async () => {
+test('reviewMode gates subagent global writes: suggest refuses, auto approves', async () => {
   const dir = tempDir()
-  const ctx = fakeCtx()
-  apply(ctx, { memoryDir: dir, reviewMode: 'suggest', autoApproveGlobal: true })
-  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  // suggest mode: subagent global writes are refused (use memory_suggest)
+  const suggestCtx = fakeCtx()
+  apply(suggestCtx, { memoryDir: dir, reviewMode: 'suggest' })
+  const suggestTool = suggestCtx.state.tools.find((t) => t.name === 'memory')
   const subExec = {
     agent: { id: 'child', session: { header: { origin: 'subagent', cwd: '/tmp/x' } } },
     callId: 'c20',
     signal: new AbortController().signal,
   }
-  const result = await tool.execute({ action: 'add', target: 'memory', content: '自动沉淀的全局事实' }, subExec)
-  assert.equal(result.ok, true)
-  assert.ok(readFileSync(join(dir, 'MEMORY.md'), 'utf8').includes('自动沉淀的全局事实'))
-  clean(dir)
-})
+  const denied = await suggestTool.execute({ action: 'add', target: 'user', content: 'x' }, subExec)
+  assert.equal(denied.ok, false)
+  assert.ok(denied.message.includes('memory_suggest'))
 
-test('autoApproveGlobal off still refuses subagent global writes in suggest mode', async () => {
-  const dir = tempDir()
-  const ctx = fakeCtx()
-  apply(ctx, { memoryDir: dir, reviewMode: 'suggest', autoApproveGlobal: false })
-  const tool = ctx.state.tools.find((t) => t.name === 'memory')
-  const subExec = {
-    agent: { id: 'child', session: { header: { origin: 'subagent', cwd: '/tmp/x' } } },
-    callId: 'c21',
-    signal: new AbortController().signal,
-  }
-  const result = await tool.execute({ action: 'add', target: 'user', content: 'x' }, subExec)
-  assert.equal(result.ok, false)
-  assert.ok(result.message.includes('memory_suggest'))
+  // auto mode with an approval channel: allowed-once writes through
+  const approvals = []
+  const autoCtx = fakeCtx({
+    services: {
+      approval: {
+        request: async (req) => { approvals.push(req); return 'allowed-once' },
+      },
+    },
+  })
+  apply(autoCtx, { memoryDir: dir, reviewMode: 'auto' })
+  const autoTool = autoCtx.state.tools.find((t) => t.name === 'memory')
+  const result = await autoTool.execute({ action: 'add', target: 'memory', content: '自动模式的全局事实' }, subExec)
+  assert.equal(result.ok, true)
+  assert.ok(readFileSync(join(dir, 'MEMORY.md'), 'utf8').includes('自动模式的全局事实'))
+  assert.equal(approvals.length, 1)
   clean(dir)
 })
