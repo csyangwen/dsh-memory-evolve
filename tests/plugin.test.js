@@ -3,8 +3,27 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { apply, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { spawnSync } from 'node:child_process'
+import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
+
+/** Whether `git` is available in this environment (skip git tests otherwise). */
+function gitAvailable() {
+  try {
+    return spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0
+  } catch {
+    return false
+  }
+}
+
+/** Create a real git worktree with one commit on `test-main` (null on failure). */
+function initGitRepo(dir) {
+  const init = spawnSync('git', ['init', '-q', '-b', 'test-main'], { cwd: dir, stdio: 'ignore' })
+  if (init.status !== 0) return null
+  // A commit materializes refs/heads/test-main so `git branch` lists it.
+  const commit = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--allow-empty', '-q', '-m', 'init'], { cwd: dir, stdio: 'ignore' })
+  return commit.status === 0 ? 'test-main' : null
+}
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-plugin-test-'))
@@ -97,6 +116,7 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.reviewInterval, 5)
   assert.equal(config.entryDatePrefix, true)
   assert.equal(config.perTurnKeyWrites, true)
+  assert.equal(config.memoryTabEnabled, true)
   assert.equal(config.skillReviewEnabled, false)
   assert.equal(config.skillManageToolName, 'skill_manage')
   assert.ok(config.memoryDir.endsWith('memories'))
@@ -324,11 +344,17 @@ test('memory tool layered gate: subagent project/daily writes allowed, global re
   assert.equal(projectOk.ok, true)
   const projectFile = join(dir, 'projects', projectHash('/tmp/proj-a'), 'MEMORY.md')
   assert.ok(readFileSync(projectFile, 'utf8').includes('项目 A 的重要约定'))
-  // key write allowed too (project-scoped, same boundary as project)
+  // key write queues for confirmation (key is an injected track, so it gets
+  // the same confirmation treatment as memory/user — nothing lands in KEY.md
+  // until the user approves the suggestion)
   const keyOk = await tool.execute({ action: 'add', target: 'key', content: '项目 A 的架构约定' }, subExec)
   assert.equal(keyOk.ok, true)
+  assert.ok(keyOk.message.includes('待确认'))
   const keyFile = join(dir, 'projects', projectHash('/tmp/proj-a'), 'KEY.md')
-  assert.ok(readFileSync(keyFile, 'utf8').includes('项目 A 的架构约定'))
+  assert.equal(existsSync(keyFile), false)
+  const queued = readFileSync(join(dir, 'SUGGESTIONS.jsonl'), 'utf8')
+  assert.ok(queued.includes('项目 A 的架构约定'))
+  assert.ok(queued.includes('"target":"key"'))
   // daily write allowed
   const dailyOk = await tool.execute({ action: 'add', target: 'daily', content: '完成了模块重构' }, subExec)
   assert.equal(dailyOk.ok, true)
@@ -363,16 +389,12 @@ test('project memory requires a session cwd and isolates projects', async () => 
 
 test('renderSnapshot injects key facts but keeps project and daily on-demand', async () => {
   const dir = tempDir()
-  const ctx = fakeCtx()
-  apply(ctx, { memoryDir: dir })
-  const tool = ctx.state.tools.find((t) => t.name === 'memory')
-  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
-  const exec = (callId) => ({ agent, callId, signal: new AbortController().signal })
-  await tool.execute({ action: 'add', target: 'project', content: 'X 项目流水事实' }, exec('c11'))
-  await tool.execute({ action: 'add', target: 'daily', content: '今天完成了 Y' }, exec('c12'))
-  await tool.execute({ action: 'add', target: 'key', content: 'X 项目的长期约定' }, exec('c13'))
   const config = resolveConfig({ memoryDir: dir })
   const store = new MemoryStore(config.memoryDir, config)
+  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
+  store.add('project', 'X 项目流水事实', agent)
+  store.add('daily', '今天完成了 Y')
+  store.add('key', 'X 项目的长期约定', agent)
   const snapshot = renderSnapshot(config, store, agent)
   // Project log/daily content must NOT enter the runtime-context snapshot:
   // they change on every write, and injecting them would append a new tail
@@ -399,9 +421,10 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   assert.ok(snapshot.includes('严禁先调工具'))
   assert.ok(snapshot.includes('各写 1 条'))
   assert.ok(snapshot.includes('内容不要自带时间/日期前缀'))
-  // key duty: importance-gated, never a per-turn mandate
+  // key duty: importance-gated, never a per-turn mandate — and it goes
+  // through user confirmation now (提交建议)
   assert.ok(snapshot.includes('重要项目事实'))
-  assert.ok(snapshot.includes('target=key 写 1 条'))
+  assert.ok(snapshot.includes('target=key 提交 1 条建议'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
@@ -431,17 +454,17 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   // both off: the key duty (default on) keeps the checklist alive
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
   assert.ok(none.includes('每轮收尾'))
-  assert.ok(none.includes('target=key 写 1 条'))
+  assert.ok(none.includes('target=key 提交 1 条建议'))
   assert.ok(none.includes('target=project'))
   assert.ok(none.includes('target=daily'))
   // all three off: no write duty at all, hint degrades to on-demand reads
   const allOff = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false, perTurnKeyWrites: false }), store, agent)
-  assert.ok(!allOff.includes('target=key 写 1 条'))
+  assert.ok(!allOff.includes('target=key 提交 1 条建议'))
   assert.ok(!allOff.includes('每轮收尾'))
   // key off: only daily/project keep their write duties
   const noKey = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnKeyWrites: false }), store, agent)
   assert.ok(noKey.includes('向 target=daily 与 target=project'))
-  assert.ok(!noKey.includes('target=key 写 1 条'))
+  assert.ok(!noKey.includes('target=key 提交 1 条建议'))
   clean(dir)
 })
 
@@ -475,6 +498,97 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(sub.includes('独立成果'))
   clean(dir)
 })
+
+test('gitBranch resolves the current branch; gitBranchList lists branches', () => {
+  if (!gitAvailable()) return
+  const dir = tempDir()
+  try {
+    // outside git → undefined / []
+    assert.equal(gitBranch(dir), undefined)
+    assert.deepEqual(gitBranchList(dir), [])
+    // inside a git worktree → the branch name
+    const branch = initGitRepo(dir)
+    if (branch === null) return // git too old for `git init -b`
+    assert.equal(gitBranch(dir), branch)
+    assert.deepEqual(gitBranchList(dir), [branch])
+  } finally {
+    clean(dir)
+  }
+})
+
+test('renderSnapshot injects only KEY entries covering the current branch', () => {
+  if (!gitAvailable()) return
+  const dir = tempDir()
+  try {
+    const branch = initGitRepo(dir)
+    if (branch === null) return
+    const config = resolveConfig({ memoryDir: join(dir, 'memories') })
+    const store = new MemoryStore(config.memoryDir, config)
+    const agent = { id: 'a', session: { header: { cwd: dir } } }
+    store.add('key', '适用于所有分支的事实', agent)
+    store.add('key', `[branch:${branch}] 仅当前分支`, agent)
+    store.add('key', '[branch:other-branch] 其他分支的约定', agent)
+    const snapshot = renderSnapshot(config, store, agent)
+    // 无标记（全部）+ 当前分支 → 注入；其他分支 → 不注入
+    assert.ok(snapshot.includes('适用于所有分支的事实'))
+    assert.ok(snapshot.includes('仅当前分支'))
+    assert.ok(!snapshot.includes('其他分支的约定'))
+    // 分支信息随 key 一起注入：小节标题 + 提示行
+    assert.ok(snapshot.includes(`当前分支：${branch}`))
+    assert.ok(snapshot.includes(`**${branch}**`))
+    // keyBranchFilter: false → 不过滤（全部注入，无分支信息）
+    const off = renderSnapshot(resolveConfig({ memoryDir: config.memoryDir, keyBranchFilter: false }), store, agent)
+    assert.ok(off.includes('其他分支的约定'))
+    assert.ok(!off.includes('当前分支：'))
+  } finally {
+    clean(dir)
+  }
+})
+
+test('memory tool key writes queue for confirmation; branches param survives the round-trip', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  const agent = { id: 'a', session: { header: { cwd: '/proj/g' } } }
+  const exec = (callId) => ({ agent, callId, signal: new AbortController().signal })
+  // add with branches → queued (KEY.md untouched until confirmation), the
+  // [branch:…] tag is part of the queued content
+  const added = await tool.execute({ action: 'add', target: 'key', content: 'main 分支的构建约定', branches: 'main' }, exec('k1'))
+  assert.equal(added.ok, true)
+  assert.ok(added.message.includes('待确认'))
+  assert.equal('queued' in added, false, 'queued must not leak into the output schema')
+  const keyFile = join(dir, 'projects', projectHash('/proj/g'), 'KEY.md')
+  assert.equal(existsSync(keyFile), false, 'key write must not land before confirmation')
+  const queuedText = readFileSync(join(dir, 'SUGGESTIONS.jsonl'), 'utf8')
+  assert.ok(queuedText.includes('main 分支的构建约定'))
+  assert.ok(queuedText.includes('[branch:main]'))
+  // add without branches → untagged suggestion
+  await tool.execute({ action: 'add', target: 'key', content: '通用约定' }, exec('k2'))
+  // user confirms both → they land in KEY.md (with the branch tag intact)
+  const { approveSuggestions } = await import('../lib/review.js')
+  const { SuggestionQueue } = await import('../lib/store.js')
+  const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+  const report = approveSuggestions(new MemoryStore(dir), queue, [1, 2], undefined)
+  assert.equal(report.remaining, 0)
+  const entry = storeEntries(keyFile)
+  assert.match(entry[0], /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] main 分支的构建约定$/)
+  assert.match(entry[1], /^\[\d{4}-\d{2}-\d{2}\] 通用约定$/)
+  // list with branch filter: untagged + matching tag
+  const listed = await tool.execute({ action: 'list', target: 'key', branch: 'main' }, exec('k3'))
+  assert.equal(listed.entries.length, 2)
+  assert.ok(listed.entries.some((e) => e.includes('main 分支的构建约定')))
+  assert.ok(listed.entries.some((e) => e.includes('通用约定')))
+  // list with a different branch: only the untagged entry
+  const other = await tool.execute({ action: 'list', target: 'key', branch: 'dev' }, exec('k4'))
+  assert.equal(other.entries.length, 1)
+  assert.ok(other.entries[0].includes('通用约定'))
+  clean(dir)
+})
+
+function storeEntries(path) {
+  return readFileSync(path, 'utf8').split('\n§\n').map((e) => e.trim()).filter(Boolean)
+}
 
 test('resolveRevealTarget falls back to containing directories for missing files', () => {
   const dir = tempDir()

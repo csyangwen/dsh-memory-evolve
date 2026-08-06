@@ -18,6 +18,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Inside the session memory tab: the panel is a sub-view, not a full-height
+   settings column — cap its height so the tab never grows the page. */
+.mt-panel .me-panel {
+  height: auto;
+  max-height: 62vh;
+}
+
 /* ---------- Notice bar (success / error) ---------- */
 
 .me-notice {
@@ -565,6 +572,14 @@
   min-width: 0;
 }
 
+/* 每个文件页签顶部的一行小字说明（作用与机制） */
+.mt-card-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .mt-card-title {
   flex: none;
   font-size: 13px;
@@ -617,6 +632,98 @@
 }
 
 /* ---- manual project KEY add box ---- */
+
+/* Branch-scope line in the KEY add box and in the per-entry scope editor. */
+.mt-key-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.mt-key-scope-label {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mt-scope-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mt-scope-opt input {
+  margin: 0;
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+
+.mt-scope-all-hint {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* Per-entry branch-scope badge (click to edit). */
+.mt-entry-branch {
+  flex: none;
+  max-width: 45%;
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 9px;
+  background: transparent;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-state-business-primary);
+  cursor: pointer;
+}
+
+.mt-entry-branch:hover {
+  border-color: var(--dsw-alias-interactive-fg-default);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.mt-entry-branch-all {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+/* Static source-branch tag on daily/project log entries (not clickable). */
+.mt-entry-branch-tag {
+  color: var(--dsw-alias-state-success-primary);
+  cursor: default;
+  border-style: dashed;
+}
+
+/* Inline scope editor panel under a KEY entry. */
+.mt-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.mt-scope-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* Current-branch suffix on the KEY tab description line. */
+.mt-card-desc-branch {
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 600;
+}
 
 .mt-key-add {
   display: flex;
@@ -738,6 +845,31 @@
   border-color: var(--dsw-alias-interactive-fg-default);
   color: var(--dsw-alias-label-primary);
   font-weight: 600;
+}
+
+/* Vertical divider between the feature tabs and the file tabs. */
+.mt-tab-sep {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--dsw-alias-border-l3);
+}
+
+/* Pending-count badge inside a feature tab (e.g. 待确认记忆建议 (2)). */
+.mt-feature-count {
+  display: inline-block;
+  min-width: 14px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--dsw-alias-label-on-primary, #fff);
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .mt-toolbar {
@@ -889,10 +1021,33 @@
   background: var(--dsw-alias-state-business-tertiary);
 }
 
-/* Per-entry delete button (pretty view): right-aligned, danger tint. */
-.mt-entry-del {
+/* Per-entry action buttons (pretty view): right-aligned group. */
+.mt-entry-ops {
   flex: none;
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Neutral action (archive / promote back). */
+.mt-entry-op {
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  border-color: transparent;
+  color: var(--dsw-alias-label-secondary);
+  opacity: 0.8;
+}
+
+.mt-entry-op:hover:not(:disabled) {
+  opacity: 1;
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Per-entry delete button (pretty view): danger tint. */
+.mt-entry-del {
   padding: 1px 8px;
   font-size: 11px;
   line-height: 16px;

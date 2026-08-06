@@ -1,20 +1,20 @@
 /**
  * dsh-memory-evolve — client entry.
  *
- * Registers the "记忆管理" (Memory) section into the settings panel
- * ('settings.section'). The section shows the pending memory-suggestion
- * queue with approve/reject actions and a runtime-config form backed by the
- * node half's /memory-evolve/api routes. The settings nav row label carries
- * a numeric badge of pending suggestions, refreshed by polling the badge
- * endpoint and re-registering through the deferral handle's refresh().
+ * Registers the session memory tab ('conversation.view') — the ONLY
+ * memory-management surface (the former settings-panel section was
+ * removed). The tab hosts the memory files, the pending suggestion/skill
+ * queues and the runtime-config form as sub-tabs, all backed by the node
+ * half's /memory-evolve/api routes. The tab label carries a red-dot pending
+ * count (🔴 记忆 (N)) while suggestions/skills await confirmation, refreshed
+ * by polling the badge endpoint and re-registering through the deferral
+ * handle's refresh().
  */
 import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the 'conversation.view' SlotMap row lives in ui-conversation.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { deferRegistration, type Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import { MemoryPanel, type MemoryPanelProps } from './MemoryPanel.tsx'
+import { deferRegistration, type DeferredRegistration, type Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
 import styles from './styles.css'
 
@@ -32,9 +32,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Simplified-Chinese dictionary (key-set source of truth). */
 export const zh = {
-  'tab.label': '记忆管理',
-  'tab.label.count': '记忆管理 ({count})',
   'memoryTab.label': '记忆',
+  'memoryTab.label.pending': '🔴 记忆 ({count})',
+  'memoryTab.feature.suggestions': '待确认记忆建议',
+  'memoryTab.feature.skills': '待确认技能建议',
+  'memoryTab.feature.config': '运行时配置',
   'memoryTab.cwd': '当前会话工作目录',
   'memoryTab.loading': '加载中…',
   'memoryTab.warning': '以下文件为 § 分隔的结构化记忆，用系统工具打开后请谨慎编辑，随意修改可能破坏格式、导致记忆读取错乱。',
@@ -57,6 +59,31 @@ export const zh = {
   'memoryTab.delete': '删除',
   'memoryTab.deleteConfirm': '确定删除这条记忆？删除后不可恢复。\n\n{snippet}',
   'memoryTab.deleted': '已删除该条目',
+  'memoryTab.archive': '归档',
+  'memoryTab.archiveConfirm': '归档这条记忆？将从主记忆移入归档文件，不再注入会话；需要时可随时移回。\n\n{snippet}',
+  'memoryTab.archived': '已归档（不再注入，可随时移回）',
+  'memoryTab.promote': '移回主记忆',
+  'memoryTab.promoted': '已移回主记忆（重新注入会话）',
+  'memoryTab.keyScope': '分支范围',
+  'memoryTab.keyScopeLabel': '分支',
+  'memoryTab.keyScopeAll': '全部',
+  'memoryTab.keyScopeAllHint': '全部 = 所有分支可见',
+  'memoryTab.keyScopeAllWeight': '（勾选后清空分支选择）',
+  'memoryTab.keyScopeHint': '点击修改分支范围',
+  'memoryTab.keyScopeSaved': '分支范围已更新',
+  'memoryTab.keyScopeSave': '保存',
+  'memoryTab.keyScopeCancel': '取消',
+  'memoryTab.keyBranchInfo': '当前分支：{branch}，仅注入无标记或含该分支的条目',
+  'memoryTab.gitBranch': '该条记录所属的 git 分支',
+  'memoryTab.desc.project': '项目日志：每回合收尾自动记录本回合进展；不注入上下文，模型按需读取。',
+  'memoryTab.desc.key': '项目关键记忆：长期约定/决策/踩坑，自动注入当前项目会话；按重要性写入，可手动添加或删除。',
+  'memoryTab.desc.daily': '今日日志：按天分文件的流水记录，程序自动标注项目标签；不注入上下文，模型按需读取。',
+  'memoryTab.desc.user': '用户档案：用户偏好与习惯，注入所有会话；写入需审查建议并经确认。',
+  'memoryTab.desc.memory': '长期记忆：全局环境与项目事实，注入所有会话；写入需审查建议并经确认。',
+  'memoryTab.desc.archive-user': '归档用户：不够格进主记忆的用户事实，不注入任何会话；可移回主记忆或删除。',
+  'memoryTab.desc.archive-memory': '归档记忆：不够格进主记忆的全局事实，不注入任何会话；可移回主记忆或删除。',
+  'memoryTab.desc.archive-key': '项目关键记忆归档：不够格进主记忆（或需暂停注入）的项目事实，不注入任何会话；可移回主记忆或删除。',
+  'memoryTab.desc.agents': '全局规则：跨会话生效的用户规则（AGENTS.md），随系统提示词注入。',
   'panel.suggestions.title': '待确认记忆建议',
   'panel.suggestions.empty': '没有待确认的建议。',
   'panel.suggestions.help': '后台审查产出的全局记忆建议：采纳后写入记忆文件并随快照注入；归档保留备查（不注入）；拒绝丢弃。',
@@ -92,8 +119,6 @@ export const zh = {
   'panel.config.reviewInterval.hint': '每 N 个用户回合自动审查一次',
   'panel.config.skillReviewEnabled': '技能自动沉淀',
   'panel.config.skillReviewEnabled.hint': '关（默认）：审查创建的新技能进入待确认队列，采纳后才进入技能库；开：审查直接创建技能，无需确认（技能注入所有会话，请谨慎开启）',
-  'panel.config.memoryTabEnabled': '会话页记忆 Tab',
-  'panel.config.memoryTabEnabled.hint': '在会话页顶部显示「记忆」Tab（展示 AGENTS.md 与五轨记忆文件，全部只读，项目关键记忆支持手动添加）；默认关闭，开启后需刷新页面生效',
   'panel.config.perTurnProjectWrites': '每回合写入项目记忆',
   'panel.config.perTurnProjectWrites.hint': '要求模型每个回合结束前主动检查并记录项目相关新事实（关键决策/进展/踩坑）；关闭后项目记忆仅按需读取。⚠️ 依赖 LLM 指令遵循，弱遵循的模型不一定会执行',
   'panel.config.perTurnDailyWrites': '每回合写入每日日志',
@@ -120,9 +145,11 @@ export const zh = {
 
 /** English dictionary (same key set). */
 export const en: Record<MemoryEvolveKey, string> = {
-  'tab.label': 'Memory',
-  'tab.label.count': 'Memory ({count})',
   'memoryTab.label': 'Memory',
+  'memoryTab.label.pending': '🔴 Memory ({count})',
+  'memoryTab.feature.suggestions': 'Memory suggestions',
+  'memoryTab.feature.skills': 'Skill suggestions',
+  'memoryTab.feature.config': 'Runtime config',
   'memoryTab.cwd': 'Session working directory',
   'memoryTab.loading': 'Loading…',
   'memoryTab.warning': 'These files are §-delimited structured memory. If you open them with a system tool, edit with caution — careless changes can break the format and corrupt memory reads.',
@@ -145,6 +172,31 @@ export const en: Record<MemoryEvolveKey, string> = {
   'memoryTab.delete': 'Delete',
   'memoryTab.deleteConfirm': 'Delete this memory entry? This cannot be undone.\n\n{snippet}',
   'memoryTab.deleted': 'Entry deleted',
+  'memoryTab.archive': 'Archive',
+  'memoryTab.archiveConfirm': 'Archive this entry? It leaves the main memory (no longer injected) and can be promoted back any time.\n\n{snippet}',
+  'memoryTab.archived': 'Archived (no longer injected; can be promoted back)',
+  'memoryTab.promote': 'Promote to memory',
+  'memoryTab.promoted': 'Promoted back into the main memory',
+  'memoryTab.keyScope': 'Branch scope',
+  'memoryTab.keyScopeLabel': 'Branch',
+  'memoryTab.keyScopeAll': 'All branches',
+  'memoryTab.keyScopeAllHint': 'All branches = visible everywhere',
+  'memoryTab.keyScopeAllWeight': '(checking it clears branch picks)',
+  'memoryTab.keyScopeHint': 'Click to change the branch scope',
+  'memoryTab.keyScopeSaved': 'Branch scope updated',
+  'memoryTab.keyScopeSave': 'Save',
+  'memoryTab.keyScopeCancel': 'Cancel',
+  'memoryTab.keyBranchInfo': 'current branch: {branch} — only untagged entries or entries covering this branch are injected',
+  'memoryTab.gitBranch': 'The git branch this record belongs to',
+  'memoryTab.desc.project': 'Project log: auto-recorded per turn; never injected, read on demand by the model.',
+  'memoryTab.desc.key': 'Key project facts: conventions/decisions/pitfalls, injected into this project\'s sessions; written when important, addable/deletable manually.',
+  'memoryTab.desc.daily': 'Daily log: per-day progress records with program-tagged project labels; never injected, read on demand.',
+  'memoryTab.desc.user': 'User profile: preferences and habits, injected into every session; writes need review + confirmation.',
+  'memoryTab.desc.memory': 'Long-term memory: global environment/project facts, injected into every session; writes need review + confirmation.',
+  'memoryTab.desc.archive-user': 'Archived user facts: not good enough for the main track, never injected; can be promoted back or deleted.',
+  'memoryTab.desc.archive-memory': 'Archived memory facts: not good enough for the main track, never injected; can be promoted back or deleted.',
+  'memoryTab.desc.archive-key': 'Archived key project facts: not good enough for the main track (or paused from injection), never injected; can be promoted back or deleted.',
+  'memoryTab.desc.agents': 'Global rules: cross-session user rules (AGENTS.md), injected with the system prompt.',
   'panel.suggestions.title': 'Pending memory suggestions',
   'panel.suggestions.empty': 'No pending suggestions.',
   'panel.suggestions.help': 'Global-track suggestions produced by the background review: approve writes them into the memory files (injected with the snapshot); archive keeps them aside (never injected); reject drops them.',
@@ -180,8 +232,6 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.reviewInterval.hint': 'One automatic review per N user turns',
   'panel.config.skillReviewEnabled': 'Skill auto-harvest',
   'panel.config.skillReviewEnabled.hint': 'Off (default): new skills from review go to the pending queue and only install when approved; On: review creates skills directly without confirmation (skills are injected into every session — enable with care)',
-  'panel.config.memoryTabEnabled': 'Session memory tab',
-  'panel.config.memoryTabEnabled.hint': 'Show the 记忆 tab in the session view ring (AGENTS.md + the five memory tracks, read-only except the KEY track\'s manual-add box); off by default, takes effect after a page reload',
   'panel.config.perTurnProjectWrites': 'Per-turn project writes',
   'panel.config.perTurnProjectWrites.hint': 'Require the model to check at the end of every turn and record project-related facts (decisions/progress/pitfalls); when off, project memory is read on demand only. ⚠️ Relies on LLM instruction following — weaker models may not comply',
   'panel.config.perTurnDailyWrites': 'Per-turn daily writes',
@@ -210,16 +260,20 @@ export const en: Record<MemoryEvolveKey, string> = {
 const BADGE_POLL_MS = 30_000
 
 /**
- * The plugin entry: register locale, stylesheet, the settings section, and
- * the badge poller. 'conversation' is an ordering edge for the session
- * memory tab (its 'conversation.view' slot is declared by ui-conversation).
+ * The plugin entry: register locale and stylesheet, then the session memory
+ * tab (default ON) with a red-dot pending count on its label. The former
+ * settings-panel section (MemoryPanel) is gone — the tab now hosts the
+ * suggestion/skill queues and the runtime config as sub-tabs. 'conversation'
+ * is an ordering edge for the session memory tab (its 'conversation.view'
+ * slot is declared by ui-conversation).
  * @param ctx - the client plugin context (`slots`, `locale` injected).
  */
 export const inject = ['slots', 'locale', 'conversation']
 
 /**
- * Client plugin body: register the settings section (badge-refreshed) and —
- * when the host switch is on — the session memory tab.
+ * Client plugin body: register the session memory tab when the host switch
+ * is on (default ON; flipping it in the tab's runtime-config sub-tab takes
+ * effect after a page reload).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
@@ -238,50 +292,54 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: stylesheet')
 
+  // Session memory tab (conversation.view): the ONLY memory-management
+  // surface now (the settings-panel section was removed). The label carries
+  // a red-dot pending count (🔴 记忆 (N)) while suggestions/skills await
+  // confirmation; label thunks re-read on every deferral refresh.
+  let tabCancelled = false
   let badgeCount = 0
-  const deferral = deferRegistration(ctx.slots, 'settings.section', MemoryPanel, () =>
-    ctx.slots.register({
-      name: 'settings.section',
-      id: 'memory-evolve',
-      order: 30,
-      label: () => (badgeCount > 0 ? t('tab.label.count', { count: badgeCount }) : t('tab.label')),
-      inject: () => ({ t, refresh: () => pollBadge(true) }),
-    }, (props: MemoryPanelProps) => MemoryPanel(props)))
-
-  const pollBadge = (force = false): void => {
+  let deferral: DeferredRegistration | null = null
+  const pollBadge = (): void => {
+    if (tabCancelled || deferral === null) return
     void fetch('/memory-evolve/api/badge')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((data: { count?: number }) => {
         const count = data.count ?? 0
-        if (force || count !== badgeCount) {
+        if (count !== badgeCount) {
           badgeCount = count
-          deferral.refresh()
+          deferral?.refresh()
         }
       })
-      .catch(() => { /* badge is best-effort; the section still works */ })
+      .catch(() => { /* badge is best-effort; the tab still works */ })
   }
-  pollBadge()
-  const timer = setInterval(() => pollBadge(), BADGE_POLL_MS)
-  ctx.effect(() => () => {
-    clearInterval(timer)
-    deferral.dispose()
-  }, 'memory-evolve: badge poller')
 
-  // Session memory tab (conversation.view), shown only when the host switch
-  // is on (settings panel, default off). The switch is read asynchronously at
-  // boot; flipping it takes effect after a page reload.
-  let tabCancelled = false
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { config?: { memoryTabEnabled?: boolean } }) => {
+      // memoryTabEnabled is a read-only field of /api/config (default true;
+      // only config.yaml can turn it off — deliberately NOT a runtime key,
+      // since switching it off from inside the tab would hide the tab itself).
       if (tabCancelled || data.config?.memoryTabEnabled !== true) return
-      ctx.slots.register({
-        name: 'conversation.view',
-        id: 'memory-files',
-        order: 20,
-        label: () => t('memoryTab.label'),
-      }, (props) => MemoryTabView({ ...props, t }))
+      deferral = deferRegistration(ctx.slots, 'conversation.view', MemoryTabView, () =>
+        ctx.slots.register({
+          name: 'conversation.view',
+          id: 'memory-files',
+          order: 20,
+          label: () => (badgeCount > 0 ? t('memoryTab.label.pending', { count: badgeCount }) : t('memoryTab.label')),
+        }, (props) => MemoryTabView({ ...props, t })))
+      pollBadge()
+      const timer = setInterval(pollBadge, BADGE_POLL_MS)
+      ctx.effect(() => () => clearInterval(timer), 'memory-evolve: memory tab badge poller')
+      // The tab's own queue actions (approve/archive/reject skills too) fire
+      // this event after a mutation — re-poll immediately so the red-dot
+      // label updates without waiting for the next 30s poll.
+      const onTabChanged = (): void => pollBadge()
+      window.addEventListener('dsh-memory-evolve:badge-change', onTabChanged)
+      ctx.effect(() => () => window.removeEventListener('dsh-memory-evolve:badge-change', onTabChanged), 'memory-evolve: memory tab badge listener')
     })
     .catch(() => { /* the tab is optional; a failure just leaves it hidden */ })
-  ctx.effect(() => () => { tabCancelled = true }, 'memory-evolve: memory tab')
+  ctx.effect(() => () => {
+    tabCancelled = true
+    deferral?.dispose()
+  }, 'memory-evolve: memory tab')
 }

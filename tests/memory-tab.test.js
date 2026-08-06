@@ -21,7 +21,7 @@ function setup(overrides = {}) {
   return { dir, config, store }
 }
 
-test('buildMemoryFiles lists all eight tracks with content', () => {
+test('buildMemoryFiles lists all nine tracks with content', () => {
   const { dir, config, store } = setup()
   store.add('memory', '环境事实')
   store.add('user', '用户偏好')
@@ -34,7 +34,7 @@ test('buildMemoryFiles lists all eight tracks with content', () => {
   try {
     writeFileSync(join(dir, 'AGENTS.md'), '全局规则')
     const files = buildMemoryFiles(config, store, '/work/p')
-    assert.equal(files.length, 8)
+    assert.equal(files.length, 9)
     const byKey = Object.fromEntries(files.map((f) => [f.key, f]))
     assert.equal(byKey.agents.content, '全局规则')
     assert.equal(byKey.memory.content.includes('环境事实'), true)
@@ -44,6 +44,8 @@ test('buildMemoryFiles lists all eight tracks with content', () => {
     assert.equal(byKey.daily.content.includes('今天做了事'), true)
     assert.equal(byKey['archive-memory'].exists, false)
     assert.equal(byKey['archive-user'].exists, false)
+    assert.equal(byKey['archive-key'].available, true)
+    assert.equal(byKey['archive-key'].exists, false)
   } finally {
     process.env.DSH_HOME = prevHome
     rmSync(dir, { recursive: true, force: true })

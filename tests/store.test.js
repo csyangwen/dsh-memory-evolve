@@ -3,9 +3,28 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import {
-  ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries, projectHash, serializeEntries,
+  ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries,
+  parseEntryBranches, projectHash, serializeEntries,
 } from '../lib/store.js'
+
+/** Whether `git` is available in this environment (skip git tests otherwise). */
+function gitAvailable() {
+  try {
+    return spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0
+  } catch {
+    return false
+  }
+}
+
+/** Create a real git worktree with one commit on `test-main` (null on failure). */
+function initGitRepo(dir) {
+  const init = spawnSync('git', ['init', '-q', '-b', 'test-main'], { cwd: dir, stdio: 'ignore' })
+  if (init.status !== 0) return null
+  const commit = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--allow-empty', '-q', '-m', 'init'], { cwd: dir, stdio: 'ignore' })
+  return commit.status === 0 ? 'test-main' : null
+}
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-test-'))
@@ -229,6 +248,28 @@ test('archive removeExact deletes by whole-entry equality', () => {
   clean(dir)
 })
 
+test('key archive lives in the project dir and round-trips append/remove', () => {
+  const dir = tempDir()
+  const archive = new ArchiveStore(dir)
+  const cwd = '/work/p'
+  const hash = projectHash(cwd)
+  // no cwd → locatable error
+  assert.throws(() => archive.fileOf('key'), /工作目录/)
+  assert.throws(() => archive.entriesOf('key'), /工作目录/)
+  // append with cwd → projects/<hash>/KEY-archive.md
+  archive.append('key', '[2026-08-06] [branch:main] 归档的项目事实\n（归档理由：暂时不用）', cwd)
+  const file = join(dir, 'projects', hash, 'KEY-archive.md')
+  assert.ok(readFileSync(file, 'utf8').includes('归档的项目事实'))
+  assert.deepEqual(archive.entriesOf('key', cwd), ['[2026-08-06] [branch:main] 归档的项目事实\n（归档理由：暂时不用）'])
+  // projects are isolated: another cwd sees nothing
+  assert.deepEqual(archive.entriesOf('key', '/work/q'), [])
+  // remove by substring
+  const removed = archive.remove('key', '归档的项目事实', cwd)
+  assert.equal(removed.ok, true)
+  assert.deepEqual(archive.entriesOf('key', cwd), [])
+  clean(dir)
+})
+
 
 test('threat scan blocks injection phrasing', () => {
   const dir = tempDir()
@@ -317,13 +358,38 @@ test('daily entries are tagged with the originating project by the program', () 
   // numeric/short basenames fall back to the last two path segments
   store.add('daily', '完成名片页', { session: { header: { cwd: '/Volumes/data/260805/1' } } })
   assert.match(store.entriesOf('daily')[0], /^\[\d{2}:\d{2}\] \[260805\/1\] 完成名片页$/)
-  // meaningful basenames stand alone
+  // meaningful basenames stand alone (this repo IS a git worktree, so a
+  // program-tagged [git …] prefix may appear — accept either)
   store.add('daily', '改提示词', { session: { header: { cwd: '/Users/edgar/.dsh/plugins/dsh-memory-evolve' } } })
-  assert.match(store.entriesOf('daily')[1], /^\[\d{2}:\d{2}\] \[dsh-memory-evolve\] 改提示词$/)
+  assert.match(store.entriesOf('daily')[1], /^\[\d{2}:\d{2}\] (\[git [^\]]+\] )?\[dsh-memory-evolve\] 改提示词$/)
   // no cwd → no project tag, plain [HH:MM] stamp
   store.add('daily', '无目录会话')
   assert.match(store.entriesOf('daily')[2], /^\[\d{2}:\d{2}\] 无目录会话$/)
   clean(dir)
+})
+
+test('daily and project entries carry a program-tagged git branch in a worktree', () => {
+  if (!gitAvailable()) return
+  const dir = tempDir()
+  try {
+    const branch = initGitRepo(dir)
+    if (branch === null) return
+    const store = new MemoryStore(join(dir, 'memories'))
+    const agent = { session: { header: { cwd: dir } } }
+    // daily: [HH:MM] [git branch] [project] content
+    store.add('daily', '在 main 上完成了重构', agent)
+    const daily = store.entriesOf('daily')[0]
+    assert.match(daily, /^\[\d{2}:\d{2}\] \[git test-main\] \[[^\]]+\] 在 main 上完成了重构$/)
+    // project: [YYYY-MM-DD HH:MM] [git branch] content
+    store.add('project', '分支相关的进展', agent)
+    const project = store.entriesOf('project', agent)[0]
+    assert.match(project, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] \[git test-main\] 分支相关的进展$/)
+    // entries without a cwd never get the tag
+    store.add('daily', '无目录记录')
+    assert.match(store.entriesOf('daily')[1], /^\[\d{2}:\d{2}\] 无目录记录$/)
+  } finally {
+    clean(dir)
+  }
 })
 
 test('key track: per-project long-term facts with date stamps', () => {
@@ -359,6 +425,48 @@ test('key track: per-project long-term facts with date stamps', () => {
   clean(dir)
 })
 
+test('key branch scope: parseEntryBranches and setEntryBranches', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  // untagged = all branches (null)
+  assert.equal(parseEntryBranches('[2026-08-06] 无标记条目'), null)
+  assert.deepEqual(parseEntryBranches('[2026-08-06] [branch:main] 单分支'), ['main'])
+  assert.deepEqual(parseEntryBranches('[2026-08-06] [branch:main, dev] 多分支'), ['main', 'dev'])
+  assert.deepEqual(parseEntryBranches('[branch:main] 无日期戳'), ['main'])
+  // add with a branch tag keeps it after the date stamp
+  store.add('key', '[branch:main] 只在 main 生效', agent)
+  const tagged = store.entriesOf('key', agent)[0]
+  assert.match(tagged, /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] 只在 main 生效$/)
+  assert.deepEqual(parseEntryBranches(tagged), ['main'])
+  // setEntryBranches: replace the scope (multi-branch)
+  let outcome = store.setEntryBranches('key', tagged, ['main', 'dev'], agent)
+  assert.equal(outcome.ok, true)
+  const multi = store.entriesOf('key', agent)[0]
+  assert.match(multi, /^\[\d{4}-\d{2}-\d{2}\] \[branch:main,dev\] 只在 main 生效$/)
+  assert.deepEqual(parseEntryBranches(multi), ['main', 'dev'])
+  // setEntryBranches: [] removes the tag ("全部" wins over branch picks)
+  outcome = store.setEntryBranches('key', multi, [], agent)
+  assert.equal(outcome.ok, true)
+  const untagged = store.entriesOf('key', agent)[0]
+  assert.match(untagged, /^\[\d{4}-\d{2}-\d{2}\] 只在 main 生效$/)
+  assert.equal(parseEntryBranches(untagged), null)
+  // setEntryBranches works on an untagged entry too (adds a tag)
+  store.add('key', '初始为全部', agent)
+  const plain = store.entriesOf('key', agent).find((e) => e.includes('初始为全部'))
+  outcome = store.setEntryBranches('key', plain, ['hotfix/1.0'], agent)
+  assert.equal(outcome.ok, true)
+  const scoped = store.entriesOf('key', agent).find((e) => e.includes('初始为全部'))
+  assert.match(scoped, /^\[\d{4}-\d{2}-\d{2}\] \[branch:hotfix\/1.0\] 初始为全部$/)
+  // exactness: a substring that is not a whole entry is rejected
+  outcome = store.setEntryBranches('key', '只在 main 生效', ['dev'], agent)
+  assert.equal(outcome.ok, false)
+  assert.ok(outcome.message.includes('不存在'))
+  // non-key targets are rejected
+  assert.equal(store.setEntryBranches('memory', '[2026-08-06] x', ['main']).ok, false)
+  clean(dir)
+})
+
 test('daily and project strip hand-written date-like prefixes before stamping', () => {
   const dir = tempDir()
   const store = new MemoryStore(dir)
@@ -373,6 +481,16 @@ test('daily and project strip hand-written date-like prefixes before stamping', 
   const project = store.entriesOf('project', agent)[0]
   assert.match(project, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 项目新约定$/, 'project gets the canonical dated-time stamp')
   assert.ok(!project.includes('[2026-08-05]'), 'bare date prefix is stripped')
+  // hand-written branch tags are program-owned too: stripped so the program
+  // stamp never duplicates ([git …] is the only branch source of truth)
+  store.add('daily', '[git dev] 手写分支前缀', undefined)
+  const dailyGit = store.entriesOf('daily')[1]
+  assert.ok(!dailyGit.includes('[git dev]'), 'hand-written branch tag is stripped')
+  assert.match(dailyGit, /^\[\d{2}:\d{2}\] 手写分支前缀$/)
+  store.add('project', '[git feature/x] 手写分支进展', agent)
+  const projectGit = store.entriesOf('project', agent)[1]
+  assert.ok(!projectGit.includes('[git feature/x]'), 'hand-written project branch tag is stripped')
+  assert.match(projectGit, /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 手写分支进展$/)
   clean(dir)
 })
 
