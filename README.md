@@ -68,6 +68,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 - `memory add target=project content=...`：写入当前项目的记忆；
 - `memory list target=daily`：查看今日日志；
+- `memory list target=daily filter=关键词 since=2026-08-01 until=2026-08-06 recent=true limit=10`：查询日志——关键词过滤、日期范围（**daily 支持跨文件查历史日志**）、最新在前、条数上限；**查不到匹配或存在日期无法解析的旧格式条目时，返回会提醒模型去掉过滤条件读取全文核对**；
 - replace/remove 用唯一子串片段匹配。
 
 ### Web 设置面板（推荐）
@@ -103,7 +104,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 ### 回合内记忆审查
 
 - **触发**：插件统计每个会话的用户回合数（`agent/settled` 计数，仅 message 回合；子代理会话不计数）；达到 `reviewInterval` 后，一次审查被标记为**到期**；
-- **执行**：快照携带固定提示段，要求模型每个回合结束前调用 `memory_review_status` 查询是否到期；**到期判断以工具返回的 `due` 为准**（间隔不写死在提示里）。到期时模型在自己的回合内**静默执行审查**（工具操作，不写进最终回复）：
+- **执行**：快照携带固定提示段，要求模型每个回合结束前调用 `memory_review_status` 查询是否到期；**到期判断以工具返回的 `due` 为准**（间隔不写死在提示里）。**到期时快照末尾会直接出现醒目警告**（「记忆审查已到期」），模型收尾必须执行审查并 complete——不再只依赖每回合主动查询。到期时模型在自己的回合内**静默执行审查**（工具操作，不写进最终回复）：
   - 全局记忆（memory/user）：对照快照中已注入的全局记忆**查重**，仅建议**稳定、可跨会话复用**的新事实 → `memory_suggest` 提出（最多 2 条，宁缺毋滥）；`reviewMode=auto` 时直接用 `memory` 工具写入；
   - 技能：确有可复用经验 → `skill_manage` 先 list 查重 → read → create/patch（每轮最多 1 次操作；create 默认进待确认队列）；
   - 完成后调用 `memory_review_status complete` **复位计数**；
@@ -127,7 +128,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `perTurnProjectWrites` | `true` | 每回合写入项目记忆：每轮收尾向该轨写入 1 条本回合进展；关 = 项目记忆仅按需读取 |
 | `perTurnDailyWrites` | `true` | 每回合写入每日日志：每轮收尾向该轨写入 1 条本回合进展；关 = 每日日志仅按需读取 |
 | `entryDatePrefix` | `true` | 记忆条目自动加时间前缀：全局轨 `[YYYY-MM-DD]`、项目轨 `[YYYY-MM-DD HH:MM]`、每日日志 `[HH:MM] [项目]`（项目标签由程序取自会话工作目录自动标注） |
-| `injectMemory` | `true` | 记忆快照注入开关（只注入低频变化的全局轨 + 一行按需提示；项目/每日内容按需读取，不注入） |
+| `injectMemory` | `true` | 记忆快照注入开关（只注入低频变化的全局轨 + 「记忆 memory-evolve」提示段；项目/每日内容按需读取，不注入） |
 | `injectionScan` | `true` | 写入内容的提示注入短语扫描 |
 | `toolName` | `memory` | 记忆工具名 |
 | `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 技能库） |

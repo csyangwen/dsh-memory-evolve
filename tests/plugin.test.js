@@ -375,7 +375,7 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(!snapshot.includes('今天完成了 Y'))
   assert.ok(!snapshot.includes('## 项目记忆'))
   assert.ok(!snapshot.includes('## 今日记忆'))
-  assert.ok(snapshot.includes('## 记忆'))
+  assert.ok(snapshot.includes('## 记忆 memory-evolve'))
   assert.ok(snapshot.includes('target=project'))
   // per-turn duties: one minimal checklist, text-first tool-after pattern
   assert.ok(snapshot.includes('每轮收尾'))
@@ -432,6 +432,11 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(on.includes('memory_suggest'))
   assert.ok(on.includes('skill_manage'))
   assert.ok(on.includes('memory-evolve 本轮执行完毕'))
+  // due warning: the snapshot itself announces an overdue review
+  const dueSnap = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, agent, { turnsOf: () => 99 })
+  assert.ok(dueSnap.includes('记忆审查已到期'))
+  const notDueSnap = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, agent, { turnsOf: () => 0 })
+  assert.ok(!notDueSnap.includes('记忆审查已到期'))
   // review disabled → no section
   const off = renderSnapshot(config, store, agent)
   assert.ok(!off.includes('memory_review_status'), 'no review steps without reviewEnabled')

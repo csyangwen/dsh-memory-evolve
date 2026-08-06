@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -50,6 +50,37 @@ test('add rejects empty and duplicate', () => {
   const dup = store.add('memory', 'abc')
   assert.equal(dup.ok, true)
   assert.ok(dup.message.includes('已存在'))
+  clean(dir)
+})
+
+test('query filters by keyword, date range, limit and recency; daily spans files', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/q' } } }
+  // daily across two files
+  mkdirSync(join(dir, 'daily'), { recursive: true })
+  writeFileSync(join(dir, 'daily', '2026-08-05.md'), '[10:00] 昨天完成了 A\n§\n[11:00] 昨天完成了 B\n')
+  writeFileSync(join(dir, 'daily', '2026-08-06.md'), '[09:00] 今天做了 C\n§\n[10:00] 今天做了 D\n')
+  // keyword filter
+  let hits = store.query('daily', agent, { filter: 'C' })
+  assert.deepEqual(hits, ['[09:00] 今天做了 C'])
+  // date range reads across day files
+  hits = store.query('daily', agent, { since: '2026-08-05', until: '2026-08-05' })
+  assert.deepEqual(hits, ['[10:00] 昨天完成了 A', '[11:00] 昨天完成了 B'])
+  // newest-first + limit
+  hits = store.query('daily', agent, { recent: true, limit: 2 })
+  assert.deepEqual(hits, ['[10:00] 今天做了 D', '[09:00] 今天做了 C'])
+  // single-file tracks: keyword + recency on project
+  store.add('project', '项目决策 X', agent)
+  store.add('project', '项目踩坑 Y', agent)
+  hits = store.query('project', agent, { filter: '决策' })
+  assert.equal(hits.length, 1)
+  assert.ok(hits[0].includes('项目决策 X'))
+  hits = store.query('project', agent, { recent: true })
+  assert.ok(hits[0].includes('项目踩坑 Y'))
+  // date filter on stamped tracks
+  hits = store.query('project', agent, { since: '2099-01-01' })
+  assert.equal(hits.length, 0)
   clean(dir)
 })
 
