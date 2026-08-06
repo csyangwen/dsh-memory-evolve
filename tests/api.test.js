@@ -134,6 +134,34 @@ test('api config get/update with validation', async () => {
   }
 })
 
+test('api memory/key writes a key fact for the session cwd', async () => {
+  const api = await bootApi({ resolveCwd: (sessionId) => (sessionId === 'abc' ? '/work/p' : undefined) })
+  try {
+    // no cwd → 400 with a clear reason
+    const noCwd = await api.request('POST', '/memory-evolve/api/memory/key', { sessionId: 'ghost', content: 'x' })
+    assert.equal(noCwd.status, 400)
+    assert.ok(noCwd.data.error.includes('工作目录'))
+    // empty content → 400
+    const empty = await api.request('POST', '/memory-evolve/api/memory/key', { sessionId: 'abc', content: '   ' })
+    assert.equal(empty.status, 400)
+    // happy path: appended to the project KEY.md with a program stamp
+    const ok = await api.request('POST', '/memory-evolve/api/memory/key', { sessionId: 'abc', content: '本项目约定使用 pnpm' })
+    assert.equal(ok.status, 200)
+    assert.equal(ok.data.ok, true)
+    const entries = api.store.entriesOf('key', { session: { header: { cwd: '/work/p' } } })
+    assert.equal(entries.length, 1)
+    assert.match(entries[0], /^\[\d{4}-\d{2}-\d{2}\] 本项目约定使用 pnpm$/)
+    // the memory-files listing exposes the new KEY.md row
+    const list = await api.request('GET', '/memory-evolve/api/memory-files?sessionId=abc')
+    const byKey = Object.fromEntries(list.data.files.map((f) => [f.key, f]))
+    assert.equal(byKey.key.content.includes('本项目约定使用 pnpm'), true)
+    assert.equal(list.data.cwd, '/work/p')
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
 test('api 404 for unknown routes', async () => {
   const api = await bootApi()
   try {
@@ -224,6 +252,59 @@ test('api memory-files lists tracks and save refuses read-only keys', async () =
     const byKey = Object.fromEntries(list.data.files.map((f) => [f.key, f]))
     assert.equal(byKey.memory.content.includes('环境事实'), true)
     assert.equal(byKey.project.available, false) // no cwd resolved
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api memory/delete removes entries exactly across every track', async () => {
+  const api = await bootApi({ resolveCwd: (sessionId) => (sessionId === 'abc' ? '/work/p' : undefined) })
+  try {
+    // seed: memory / user / daily / project / key entries
+    api.store.add('memory', '全局事实甲')
+    api.store.add('user', '用户偏好乙')
+    api.store.add('daily', '今日进展丙')
+    const agent = { session: { header: { cwd: '/work/p' } } }
+    api.store.add('project', '项目日志丁', agent)
+    api.store.add('key', '项目关键事实戊', agent)
+    const entry = (target, needle) => api.store.entriesOf(target, target === 'project' || target === 'key' ? agent : undefined)
+      .find((e) => e.includes(needle))
+    // memory track (no cwd needed)
+    let res = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'memory', match: entry('memory', '全局事实甲') })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('memory').length, 0)
+    // user track
+    res = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'user', match: entry('user', '用户偏好乙') })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('user').length, 0)
+    // daily track
+    res = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'daily', match: entry('daily', '今日进展丙') })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('daily').length, 0)
+    // project + key need a session cwd
+    const noCwd = await api.request('POST', '/memory-evolve/api/memory/delete', { sessionId: 'ghost', target: 'project', match: 'x' })
+    assert.equal(noCwd.status, 400)
+    assert.ok(noCwd.data.error.includes('工作目录'))
+    res = await api.request('POST', '/memory-evolve/api/memory/delete', { sessionId: 'abc', target: 'project', match: entry('project', '项目日志丁') })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('project', agent).length, 0)
+    res = await api.request('POST', '/memory-evolve/api/memory/delete', { sessionId: 'abc', target: 'key', match: entry('key', '项目关键事实戊') })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('key', agent).length, 0)
+    // archive tracks map onto memory/user
+    api.archive.append('memory', '[2026-08-06] 归档条目 A')
+    res = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'archive-memory', match: '[2026-08-06] 归档条目 A' })
+    assert.equal(res.status, 200)
+    assert.equal(api.archive.entriesOf('memory').length, 0)
+    // validation: unknown target / empty match / missing entry
+    const badTarget = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'nope', match: 'x' })
+    assert.equal(badTarget.status, 400)
+    const empty = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'memory', match: '   ' })
+    assert.equal(empty.status, 400)
+    const missing = await api.request('POST', '/memory-evolve/api/memory/delete', { target: 'memory', match: '[2026-08-06] 不存在的条目' })
+    assert.equal(missing.status, 400)
+    assert.ok(missing.data.error.includes('不存在'))
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })

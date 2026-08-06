@@ -96,6 +96,7 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.reviewMode, 'suggest')
   assert.equal(config.reviewInterval, 5)
   assert.equal(config.entryDatePrefix, true)
+  assert.equal(config.perTurnKeyWrites, true)
   assert.equal(config.skillReviewEnabled, false)
   assert.equal(config.skillManageToolName, 'skill_manage')
   assert.ok(config.memoryDir.endsWith('memories'))
@@ -323,6 +324,11 @@ test('memory tool layered gate: subagent project/daily writes allowed, global re
   assert.equal(projectOk.ok, true)
   const projectFile = join(dir, 'projects', projectHash('/tmp/proj-a'), 'MEMORY.md')
   assert.ok(readFileSync(projectFile, 'utf8').includes('项目 A 的重要约定'))
+  // key write allowed too (project-scoped, same boundary as project)
+  const keyOk = await tool.execute({ action: 'add', target: 'key', content: '项目 A 的架构约定' }, subExec)
+  assert.equal(keyOk.ok, true)
+  const keyFile = join(dir, 'projects', projectHash('/tmp/proj-a'), 'KEY.md')
+  assert.ok(readFileSync(keyFile, 'utf8').includes('项目 A 的架构约定'))
   // daily write allowed
   const dailyOk = await tool.execute({ action: 'add', target: 'daily', content: '完成了模块重构' }, subExec)
   assert.equal(dailyOk.ok, true)
@@ -355,26 +361,36 @@ test('project memory requires a session cwd and isolates projects', async () => 
   clean(dir)
 })
 
-test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async () => {
+test('renderSnapshot injects key facts but keeps project and daily on-demand', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()
   apply(ctx, { memoryDir: dir })
   const tool = ctx.state.tools.find((t) => t.name === 'memory')
   const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
-  await tool.execute({ action: 'add', target: 'project', content: 'X 项目事实' }, { agent, callId: 'c11', signal: new AbortController().signal })
-  await tool.execute({ action: 'add', target: 'daily', content: '今天完成了 Y' }, { agent, callId: 'c12', signal: new AbortController().signal })
+  const exec = (callId) => ({ agent, callId, signal: new AbortController().signal })
+  await tool.execute({ action: 'add', target: 'project', content: 'X 项目流水事实' }, exec('c11'))
+  await tool.execute({ action: 'add', target: 'daily', content: '今天完成了 Y' }, exec('c12'))
+  await tool.execute({ action: 'add', target: 'key', content: 'X 项目的长期约定' }, exec('c13'))
   const config = resolveConfig({ memoryDir: dir })
   const store = new MemoryStore(config.memoryDir, config)
   const snapshot = renderSnapshot(config, store, agent)
-  // Project/daily content must NOT enter the runtime-context snapshot: it
-  // changes on every write, and injecting it would append a new tail
+  // Project log/daily content must NOT enter the runtime-context snapshot:
+  // they change on every write, and injecting them would append a new tail
   // snapshot per turn and defeat LLM prefix caching. A stable hint keeps the
   // model aware the tracks exist (content is read on demand via the tool)
   // and requires a per-turn check for record-worthy facts.
-  assert.ok(!snapshot.includes('X 项目事实'))
+  assert.ok(!snapshot.includes('X 项目流水事实'))
   assert.ok(!snapshot.includes('今天完成了 Y'))
-  assert.ok(!snapshot.includes('## 项目记忆'))
+  assert.ok(!snapshot.includes('## 项目日志'))
   assert.ok(!snapshot.includes('## 今日记忆'))
+  // Project KEY facts ARE injected (rarely-changing long-term facts, same
+  // live-read/change-detected mechanism as the global tracks).
+  assert.ok(snapshot.includes('## 项目关键记忆'))
+  assert.ok(snapshot.includes('X 项目的长期约定'))
+  assert.ok(snapshot.includes('target=key，已注入'))
+  // without a cwd, no key section (nothing to inject)
+  const noCwd = renderSnapshot(config, store, { id: 'b', session: { header: {} } })
+  assert.ok(!noCwd.includes('## 项目关键记忆'))
   assert.ok(snapshot.includes('## 记忆 memory-evolve'))
   assert.ok(snapshot.includes('target=project'))
   // per-turn duties: one minimal checklist, text-first tool-after pattern
@@ -383,6 +399,9 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(snapshot.includes('严禁先调工具'))
   assert.ok(snapshot.includes('各写 1 条'))
   assert.ok(snapshot.includes('内容不要自带时间/日期前缀'))
+  // key duty: importance-gated, never a per-turn mandate
+  assert.ok(snapshot.includes('重要项目事实'))
+  assert.ok(snapshot.includes('target=key 写 1 条'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
@@ -409,11 +428,20 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   const noDaily = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnDailyWrites: false }), store, agent)
   assert.ok(noDaily.includes('向 target=project'))
   assert.ok(!noDaily.includes('向 target=daily'))
-  // both off: no write duty at all, hint degrades to on-demand reads
+  // both off: the key duty (default on) keeps the checklist alive
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
-  assert.ok(!none.includes('每轮收尾'))
+  assert.ok(none.includes('每轮收尾'))
+  assert.ok(none.includes('target=key 写 1 条'))
   assert.ok(none.includes('target=project'))
   assert.ok(none.includes('target=daily'))
+  // all three off: no write duty at all, hint degrades to on-demand reads
+  const allOff = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false, perTurnKeyWrites: false }), store, agent)
+  assert.ok(!allOff.includes('target=key 写 1 条'))
+  assert.ok(!allOff.includes('每轮收尾'))
+  // key off: only daily/project keep their write duties
+  const noKey = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnKeyWrites: false }), store, agent)
+  assert.ok(noKey.includes('向 target=daily 与 target=project'))
+  assert.ok(!noKey.includes('target=key 写 1 条'))
   clean(dir)
 })
 

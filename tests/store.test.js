@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  MemoryStore, SuggestionQueue, isCanonical, parseEntries, serializeEntries,
+  ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries, projectHash, serializeEntries,
 } from '../lib/store.js'
 
 function tempDir() {
@@ -174,6 +174,61 @@ test('remove deletes the matched entry', () => {
   clean(dir)
 })
 
+test('removeExact deletes by whole-entry equality, never a substring', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  // 手工写入两条有包含关系的条目：短文本是长条目的子串
+  writeFileSync(join(dir, 'MEMORY.md'), '[2026-08-06] 喜欢简洁，也喜欢详细\n§\n[2026-08-06] 完全不同的条目\n')
+  // 短子串不存在为独立条目 → 拒绝且不误删长条目
+  const missing = store.removeExact('memory', '[2026-08-06] 喜欢简洁')
+  assert.equal(missing.ok, false)
+  assert.ok(missing.message.includes('不存在'))
+  assert.equal(store.entriesOf('memory').length, 2)
+  // 用完整原文精确删除长条目
+  const removed = store.removeExact('memory', '[2026-08-06] 喜欢简洁，也喜欢详细')
+  assert.equal(removed.ok, true)
+  const entries = store.entriesOf('memory')
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0], '[2026-08-06] 完全不同的条目')
+  // 空条目拒绝
+  assert.equal(store.removeExact('memory', '   ').ok, false)
+  // 项目轨同样可用（需要 agent）
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  store.add('key', '本项目约定 pnpm', agent)
+  const keyEntry = store.entriesOf('key', agent)[0]
+  const keyRemoved = store.removeExact('key', keyEntry, agent)
+  assert.equal(keyRemoved.ok, true)
+  assert.equal(store.entriesOf('key', agent).length, 0)
+  clean(dir)
+})
+
+test('removeExact refuses drifted files and backs them up', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const drifted = '手动内容\n\n§\n格式内容\n'
+  writeFileSync(join(dir, 'MEMORY.md'), drifted)
+  const result = store.removeExact('memory', '格式内容')
+  assert.equal(result.ok, false)
+  assert.ok(result.backup)
+  assert.ok(result.backup.includes('.bak.'))
+  assert.equal(readFileSync(join(dir, 'MEMORY.md'), 'utf8'), drifted)
+  clean(dir)
+})
+
+test('archive removeExact deletes by whole-entry equality', () => {
+  const dir = tempDir()
+  const archive = new ArchiveStore(dir)
+  archive.append('memory', '[2026-08-06] 备查事实 A')
+  archive.append('memory', '[2026-08-06] 备查事实 A 的扩展版本')
+  // 子串（非完整条目）不存在为独立条目 → 拒绝，不误删扩展版本
+  assert.equal(archive.removeExact('memory', '备查事实 A').ok, false)
+  assert.equal(archive.entriesOf('memory').length, 2)
+  // 精确删除扩展版本
+  assert.equal(archive.removeExact('memory', '[2026-08-06] 备查事实 A 的扩展版本').ok, true)
+  assert.deepEqual(archive.entriesOf('memory'), ['[2026-08-06] 备查事实 A'])
+  clean(dir)
+})
+
 
 test('threat scan blocks injection phrasing', () => {
   const dir = tempDir()
@@ -268,6 +323,39 @@ test('daily entries are tagged with the originating project by the program', () 
   // no cwd → no project tag, plain [HH:MM] stamp
   store.add('daily', '无目录会话')
   assert.match(store.entriesOf('daily')[2], /^\[\d{2}:\d{2}\] 无目录会话$/)
+  clean(dir)
+})
+
+test('key track: per-project long-term facts with date stamps', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  // key entries carry a [YYYY-MM-DD] date stamp (long-term track, same shape
+  // as the injected global tracks — no hour granularity needed)
+  const result = store.add('key', '本项目约定使用 pnpm workspaces', agent)
+  assert.equal(result.ok, true)
+  const entry = store.entriesOf('key', agent)[0]
+  assert.match(entry, /^\[\d{4}-\d{2}-\d{2}\] 本项目约定使用 pnpm workspaces$/)
+  // key lives in the same project dir as the project log, separate file
+  assert.ok(readFileSync(join(dir, 'projects', projectHash('/work/p'), 'KEY.md'), 'utf8').includes('pnpm workspaces'))
+  // a hand-written date prefix is stripped (the program stamps the truth)
+  store.add('key', '[2026-08-05] 旧日期猜测', agent)
+  const second = store.entriesOf('key', agent)[1]
+  assert.match(second, /^\[\d{4}-\d{2}-\d{2}\] 旧日期猜测$/)
+  assert.ok(!second.includes('2026-08-05'), 'guessed date prefix is stripped')
+  // project isolation: another cwd sees no key facts
+  const other = { session: { header: { cwd: '/work/q' } } }
+  assert.equal(store.entriesOf('key', other).length, 0)
+  // without a cwd the track is not locatable
+  assert.equal(store.locate('key', undefined), undefined)
+  assert.throws(() => store.pathOf('key', undefined), /工作目录/)
+  // replace/remove work like the other tracks
+  const replaced = store.replace('key', 'pnpm workspaces', '本项目约定使用 pnpm workspaces + changesets', agent)
+  assert.equal(replaced.ok, true)
+  assert.ok(store.entriesOf('key', agent)[0].includes('changesets'))
+  const removed = store.remove('key', '旧日期猜测', agent)
+  assert.equal(removed.ok, true)
+  assert.equal(store.entriesOf('key', agent).length, 1)
   clean(dir)
 })
 

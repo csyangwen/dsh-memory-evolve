@@ -616,6 +616,73 @@
   cursor: default;
 }
 
+/* ---- manual project KEY add box ---- */
+
+.mt-key-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px dashed var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.mt-key-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  outline: none;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color 120ms ease;
+}
+
+.mt-key-input:hover {
+  border-color: var(--dsw-alias-border-l4);
+}
+
+.mt-key-input:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.mt-key-input::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.mt-key-add-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mt-key-help {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mt-btn-primary {
+  flex: none;
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-on-primary, #fff);
+  font-weight: 600;
+}
+
+.mt-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
 .mt-content {
   margin: 0;
   padding: 10px;
@@ -820,6 +887,24 @@
   text-overflow: ellipsis;
   color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-state-business-tertiary);
+}
+
+/* Per-entry delete button (pretty view): right-aligned, danger tint. */
+.mt-entry-del {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  border-color: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  opacity: 0.7;
+}
+
+.mt-entry-del:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  border-color: var(--dsw-alias-state-error-secondary);
 }
 
 .mt-entry-text {

@@ -1,17 +1,20 @@
 /**
  * dsh-memory-evolve — session memory tab (conversation.view entry).
  *
- * Shows the global rule file and the four memory tracks inline, read-only,
+ * Shows the global rule file and the five memory tracks inline, read-only,
  * plus an "open with system tool" button per file. Editing happens through
- * the memory tool or the system editor (the tab never writes: hand-editing
- * the §-delimited files in a textarea could corrupt the entry format the
+ * the memory tool, the system editor, or two tab-level helpers: the KEY
+ * track's manual-add box and the pretty view's per-entry delete button
+ * (both go through the host API, never raw text edits — hand-editing the
+ * §-delimited files in a textarea could corrupt the entry format the
  * memory tool parses). Pure reader of the host API — the tab itself never
  * changes injected context, so it has zero effect on LLM prefix caching.
  *
  * Two view modes: the default "pretty" view parses each §-delimited file
- * into entry cards (timestamp badge + optional project tag + text), while
- * the "raw" view keeps the original <pre> dump. The toolbar search filters
- * entries (pretty) or whole files (raw) case-insensitively.
+ * into entry cards (timestamp badge + optional project tag + text, delete
+ * button per entry), while the "raw" view keeps the original <pre> dump.
+ * The toolbar search filters entries (pretty) or whole files (raw)
+ * case-insensitively.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -36,11 +39,13 @@ export interface MemoryTabViewProps {
 /** 视图模式：美观（条目卡片）/ 纯文本（原始 <pre>）。 */
 type ViewMode = 'pretty' | 'raw'
 
-/** 一条解析后的 § 条目：可选时间戳 + 可选项目标签 + 正文。 */
+/** 一条解析后的 § 条目：可选时间戳 + 可选项目标签 + 正文 + 原始全文。 */
 interface MemoryEntry {
   time: string | null
   tag: string | null
   text: string
+  /** 剥离前/解析前的完整条目原文（含时间戳），删除时按它精确匹配。 */
+  raw: string
 }
 
 /** § 条目分隔符，与 lib/store.js 的 ENTRY_DELIMITER 保持一致。 */
@@ -54,7 +59,7 @@ const TIME_PREFIX = {
 } as const
 
 /** 美观视图下按 § 条目解析的文件（AGENTS.md 始终纯文本）。 */
-const ENTRY_KEYS = new Set(['memory', 'user', 'archive-memory', 'archive-user', 'project', 'daily'])
+const ENTRY_KEYS = new Set(['memory', 'user', 'archive-memory', 'archive-user', 'project', 'key', 'daily'])
 
 /** 把文件内容拆成 § 条目，剥离时间戳前缀（daily 再剥离程序标注的项目标签）。 */
 function parseEntries(row: MemoryFileRow): MemoryEntry[] {
@@ -65,6 +70,7 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
   for (const raw of row.content.split(ENTRY_DELIMITER)) {
     let text = raw.trim()
     if (text === '') continue
+    const rawText = text // 完整原文（含时间戳），删除时精确匹配用
     let time: string | null = null
     let tag: string | null = null
     const timeMatch = prefix.exec(text)
@@ -79,7 +85,7 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
         }
       }
     }
-    entries.push({ time, tag, text })
+    entries.push({ time, tag, text, raw: rawText })
   }
   return entries
 }
@@ -113,6 +119,11 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [query, setQuery] = useState('')
   /** 当前激活的文件 key（tab 切换）。 */
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  /** 手动添加项目关键记忆的草稿与保存状态。 */
+  const [keyDraft, setKeyDraft] = useState('')
+  const [keySaving, setKeySaving] = useState(false)
+  /** 删除条目进行中（防止连点并发删除）。 */
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback((): void => {
     setFiles(null)
@@ -152,13 +163,54 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     const target = row.key === 'memory' ? 'memoryFile'
       : row.key === 'user' ? 'userFile'
         : row.key === 'daily' ? 'dailyFile'
-          : row.key === 'project' ? 'projectsDir'
+          : row.key === 'project' || row.key === 'key' ? 'projectsDir'
             : row.key === 'archive-memory' ? 'archiveMemoryFile'
               : row.key === 'archive-user' ? 'archiveUserFile'
                 : 'agentsFile'
     void api<{ ok: boolean }>('/api/reveal', { method: 'POST', body: JSON.stringify({ target }) })
       .then(() => flash(t('memoryTab.opened')))
       .catch((error: Error) => setNotice({ kind: 'error', text: error.message }))
+  }
+
+  /** 手动写入一条项目关键记忆：走宿主 API 的 store.add，保持 § 格式与程序盖戳。 */
+  const saveKey = (): void => {
+    const content = keyDraft.trim()
+    if (content === '' || keySaving) return
+    setKeySaving(true)
+    void api<{ ok: boolean }>('/api/memory/key', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: String(sessionId), content }),
+    }).then(() => {
+      setKeyDraft('')
+      load()
+      flash(t('memoryTab.keyAdded'))
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: error.message })
+    }).finally(() => setKeySaving(false))
+  }
+
+  /**
+   * 删除一条记忆条目：先让用户确认，再把【完整条目原文】交给宿主
+   * 精确删除（removeExact，整条相等匹配）——短条目不会误删长条目。
+   */
+  const deleteEntry = (entry: MemoryEntry): void => {
+    if (activeRow === null || deleting) return
+    const snippet = entry.text.length > 60 ? `${entry.text.slice(0, 60)}…` : entry.text
+    if (!window.confirm(t('memoryTab.deleteConfirm', { snippet }))) return
+    setDeleting(true)
+    void api<{ ok: boolean }>('/api/memory/delete', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: String(sessionId),
+        target: activeRow.key,
+        match: entry.raw,
+      }),
+    }).then(() => {
+      load()
+      flash(t('memoryTab.deleted'))
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: error.message })
+    }).finally(() => setDeleting(false))
   }
 
   /** 搜索词（小写）；空串表示不过滤。 */
@@ -251,6 +303,28 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                   </span>
                 )}
               </div>
+              {activeRow.key === 'key' && activeRow.available && (
+                <div className="mt-key-add">
+                  <textarea
+                    className="mt-key-input"
+                    rows={2}
+                    value={keyDraft}
+                    placeholder={t('memoryTab.keyAddPlaceholder')}
+                    onChange={(event) => setKeyDraft(event.target.value)}
+                  />
+                  <div className="mt-key-add-foot">
+                    <span className="mt-key-help">{t('memoryTab.keyAddHelp')}</span>
+                    <button
+                      type="button"
+                      className="mt-btn mt-btn-primary"
+                      disabled={keySaving || keyDraft.trim() === ''}
+                      onClick={saveKey}
+                    >
+                      {t('memoryTab.keyAdd')}
+                    </button>
+                  </div>
+                </div>
+              )}
               {!activeRow.available ? (
                 <p className="mt-muted">{t('memoryTab.noCwd')}</p>
               ) : !activeRow.exists ? (
@@ -261,14 +335,21 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                 <div className="mt-entries">
                   {[...activeEntries].reverse().map((entry, index) => (
                     <div key={index} className="mt-entry">
-                      {(entry.time !== null || entry.tag !== null) && (
-                        <div className="mt-entry-head">
-                          {entry.time !== null && <span className="mt-entry-time">{entry.time}</span>}
-                          {entry.tag !== null && (
-                            <span className="mt-entry-tag" title={t('memoryTab.projectTag')}>{entry.tag}</span>
-                          )}
-                        </div>
-                      )}
+                      <div className="mt-entry-head">
+                        {entry.time !== null && <span className="mt-entry-time">{entry.time}</span>}
+                        {entry.tag !== null && (
+                          <span className="mt-entry-tag" title={t('memoryTab.projectTag')}>{entry.tag}</span>
+                        )}
+                        <button
+                          type="button"
+                          className="mt-btn mt-entry-del"
+                          title={t('memoryTab.delete')}
+                          disabled={deleting}
+                          onClick={() => deleteEntry(entry)}
+                        >
+                          {t('memoryTab.delete')}
+                        </button>
+                      </div>
                       <p className="mt-entry-text">{entry.text}</p>
                     </div>
                   ))}

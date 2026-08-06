@@ -43,6 +43,7 @@ interface RuntimeConfig {
   memoryTabEnabled: boolean
   perTurnProjectWrites: boolean
   perTurnDailyWrites: boolean
+  perTurnKeyWrites: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -185,6 +186,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       memoryTabEnabled: draft.memoryTabEnabled,
       perTurnProjectWrites: draft.perTurnProjectWrites,
       perTurnDailyWrites: draft.perTurnDailyWrites,
+      perTurnKeyWrites: draft.perTurnKeyWrites,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -478,6 +480,18 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                   className="me-switch"
                   checked={draft.perTurnDailyWrites}
                   onChange={(event) => patchDraft({ perTurnDailyWrites: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.perTurnKeyWrites')}
+                  <em className="me-field-hint">{t('panel.config.perTurnKeyWrites.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.perTurnKeyWrites}
+                  onChange={(event) => patchDraft({ perTurnKeyWrites: event.target.checked })}
                 />
               </label>
             </div>
