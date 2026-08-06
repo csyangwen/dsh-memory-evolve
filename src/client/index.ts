@@ -14,7 +14,7 @@ import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the 'conversation.view' SlotMap row lives in ui-conversation.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { deferRegistration, type DeferredRegistration, type Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
 import styles from './styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
@@ -543,19 +543,32 @@ export function apply(ctx: Context): void {
   // Session memory tab (conversation.view): the ONLY memory-management
   // surface now (the settings-panel section was removed). The label carries
   // a red-dot pending count (🔴 记忆 (N)) while suggestions/skills await
-  // confirmation; label thunks re-read on every deferral refresh.
+  // confirmation. Upstream 08-06 removed ui-slots' deferRegistration; the
+  // replacement is ctx.slots.inject (registers once the slot is declared on
+  // the ledger). Badge changes re-register the entry — the register bump
+  // notifies subscribers, which re-evaluates the label thunk.
   let tabCancelled = false
   let badgeCount = 0
-  let deferral: DeferredRegistration | null = null
+  let disposeTab: (() => void) | undefined
+  const registerTab = (): void => {
+    disposeTab?.()
+    disposeTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'memory-files',
+        order: 20,
+        label: () => (badgeCount > 0 ? t('memoryTab.label.pending', { count: badgeCount }) : t('memoryTab.label')),
+      }, (props) => MemoryTabView({ ...props, t })))
+  }
   const pollBadge = (): void => {
-    if (tabCancelled || deferral === null) return
+    if (tabCancelled || disposeTab === undefined) return
     void fetch('/memory-evolve/api/badge')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((data: { count?: number }) => {
         const count = data.count ?? 0
         if (count !== badgeCount) {
           badgeCount = count
-          deferral?.refresh()
+          registerTab()
         }
       })
       .catch(() => { /* badge is best-effort; the tab still works */ })
@@ -568,13 +581,7 @@ export function apply(ctx: Context): void {
       // only config.yaml can turn it off — deliberately NOT a runtime key,
       // since switching it off from inside the tab would hide the tab itself).
       if (tabCancelled || data.config?.memoryTabEnabled !== true) return
-      deferral = deferRegistration(ctx.slots, 'conversation.view', MemoryTabView, () =>
-        ctx.slots.register({
-          name: 'conversation.view',
-          id: 'memory-files',
-          order: 20,
-          label: () => (badgeCount > 0 ? t('memoryTab.label.pending', { count: badgeCount }) : t('memoryTab.label')),
-        }, (props) => MemoryTabView({ ...props, t })))
+      registerTab()
       pollBadge()
       const timer = setInterval(pollBadge, BADGE_POLL_MS)
       ctx.effect(() => () => clearInterval(timer), 'memory-evolve: memory tab badge poller')
@@ -588,6 +595,6 @@ export function apply(ctx: Context): void {
     .catch(() => { /* the tab is optional; a failure just leaves it hidden */ })
   ctx.effect(() => () => {
     tabCancelled = true
-    deferral?.dispose()
+    disposeTab?.()
   }, 'memory-evolve: memory tab')
 }
