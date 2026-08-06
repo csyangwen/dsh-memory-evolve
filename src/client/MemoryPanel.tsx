@@ -29,6 +29,12 @@ interface SuggestionEntry {
   hits?: number
 }
 
+/** One archived entry (kept out of the injected tracks). */
+interface ArchiveEntry {
+  target: string
+  content: string
+}
+
 /** Runtime config view (subset returned by /api/config). */
 interface RuntimeConfig {
   reviewEnabled: boolean
@@ -77,6 +83,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
   const { t, refresh } = props
   const [entries, setEntries] = useState<SuggestionEntry[] | null>(null)
   const [skills, setSkills] = useState<PendingSkill[] | null>(null)
+  const [archived, setArchived] = useState<ArchiveEntry[] | null>(null)
   /** Edited text per 1-based suggestion index (textarea values). */
   const [edits, setEdits] = useState<Record<number, string>>({})
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
@@ -89,12 +96,14 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       api<{ entries: SuggestionEntry[] }>('/api/suggestions'),
       api<{ entries: PendingSkill[] }>('/api/pending-skills'),
       api<{ config: RuntimeConfig }>('/api/config'),
-    ]).then(([s, sk, c]) => {
+      api<{ entries: ArchiveEntry[] }>('/api/archive'),
+    ]).then(([s, sk, c, ar]) => {
       // Facts that resurfaced in several reviews are the most likely to be
       // worth confirming — show them first.
       const entries = [...s.entries].sort((a, b) => (b.hits ?? 1) - (a.hits ?? 1))
       setEntries(entries)
       setSkills(sk.entries)
+      setArchived(ar.entries)
       setEdits({})
       setConfig(c.config)
       setDraft((prev) => prev ?? c.config)
@@ -108,7 +117,7 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const runSuggestions = (op: 'approve' | 'reject' | 'approve-all' | 'reject-all', indices?: number[]): void => {
+  const runSuggestions = (op: 'approve' | 'archive' | 'reject' | 'approve-all' | 'reject-all', indices?: number[]): void => {
     setBusy(true)
     const body: { indices?: number[]; contents?: string[] } = {}
     if (indices !== undefined) {
@@ -140,6 +149,21 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       body: JSON.stringify({ name }),
     }).then(() => {
       setNotice({ kind: 'ok', text: t('panel.skills.done', { op: op === 'approve' ? t('panel.skills.approve') : t('panel.skills.reject') }) })
+      load()
+      refresh()
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    }).finally(() => setBusy(false))
+  }
+
+  const runArchive = (op: 'promote' | 'delete', entry: ArchiveEntry): void => {
+    if (op === 'delete' && !window.confirm(t('panel.archive.help'))) return
+    setBusy(true)
+    void api<{ ok: boolean; message: string }>(`/api/archive/${op}`, {
+      method: 'POST',
+      body: JSON.stringify({ target: entry.target, match: entry.content }),
+    }).then((res) => {
+      setNotice({ kind: 'ok', text: op === 'promote' ? t('panel.archive.promoted') : t('panel.archive.deleted') })
       load()
       refresh()
     }).catch((error: Error) => {
@@ -182,6 +206,8 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
     ['memoryDir', t('panel.reveal.memoryDir')],
     ['memoryFile', t('panel.reveal.memoryFile')],
     ['userFile', t('panel.reveal.userFile')],
+    ['archiveMemoryFile', t('panel.reveal.archiveMemoryFile')],
+    ['archiveUserFile', t('panel.reveal.archiveUserFile')],
     ['dailyFile', t('panel.reveal.dailyFile')],
     ['dailyDir', t('panel.reveal.dailyDir')],
     ['projectsDir', t('panel.reveal.projectsDir')],
@@ -237,6 +263,15 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                       </button>
                       <button
                         type="button"
+                        className="me-btn me-btn-archive"
+                        disabled={busy}
+                        title={t('panel.suggestions.archiveHint')}
+                        onClick={() => runSuggestions('archive', [index + 1])}
+                      >
+                        {t('panel.suggestions.archive')}
+                      </button>
+                      <button
+                        type="button"
                         className="me-btn me-btn-danger"
                         disabled={busy}
                         onClick={() => runSuggestions('reject', [index + 1])}
@@ -266,6 +301,50 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
               </button>
             </div>
           </>
+        )}
+      </section>
+
+      <section className="me-block">
+        <div className="me-block-head">
+          <h3 className="me-heading">{t('panel.archive.title')}</h3>
+          {archived !== null && archived.length > 0 && (
+            <span className="me-count">{archived.length}</span>
+          )}
+        </div>
+        <p className="me-help">{t('panel.archive.help')}</p>
+        {archived === null ? (
+          <p className="me-muted">{t('panel.loading')}</p>
+        ) : archived.length === 0 ? (
+          <p className="me-empty">{t('panel.archive.empty')}</p>
+        ) : (
+          <ul className="me-list me-archive-list">
+            {archived.map((entry, index) => (
+              <li key={`${entry.target}-${index}`} className="me-item">
+                <div className="me-item-head">
+                  <span className="me-badge me-badge-target">{entry.target}</span>
+                  <span className="me-item-actions">
+                    <button
+                      type="button"
+                      className="me-btn me-btn-ok"
+                      disabled={busy}
+                      onClick={() => runArchive('promote', entry)}
+                    >
+                      {t('panel.archive.promote')}
+                    </button>
+                    <button
+                      type="button"
+                      className="me-btn me-btn-danger"
+                      disabled={busy}
+                      onClick={() => runArchive('delete', entry)}
+                    >
+                      {t('panel.archive.delete')}
+                    </button>
+                  </span>
+                </div>
+                <pre className="me-archive-content">{entry.content}</pre>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

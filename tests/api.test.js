@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MemoryStore, SuggestionQueue } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, SuggestionQueue } from '../lib/store.js'
 import { installApi } from '../lib/api.js'
 import { validateRuntimePatch } from '../lib/index.js'
 
@@ -16,6 +16,7 @@ function tempDir() {
 async function bootApi(overrides = {}) {
   const dir = tempDir()
   const store = new MemoryStore(dir)
+  const archive = new ArchiveStore(dir)
   const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
   const state = { reviewEnabled: true, reviewInterval: 10, reviewMode: 'suggest' }
   const getRuntime = () => ({ ...state })
@@ -37,7 +38,7 @@ async function bootApi(overrides = {}) {
     nope: undefined,
   }
   installApi(ctx, {
-    store, queue, getRuntime, updateRuntime,
+    store, archive, queue, getRuntime, updateRuntime,
     resolveRevealTarget: (target) => revealTargets[target],
     revealPath: overrides.revealPath ?? (() => {}),
     config: overrides.config ?? { memoryDir: dir, skillDir: join(dir, 'skills') },
@@ -55,7 +56,7 @@ async function bootApi(overrides = {}) {
     const data = await res.json().catch(() => ({}))
     return { status: res.status, data }
   }
-  return { base, queue, store, request, dir, close: () => new Promise((resolve) => server.close(resolve)) }
+  return { base, queue, archive, store, request, dir, close: () => new Promise((resolve) => server.close(resolve)) }
 }
 
 test('api badge and suggestions endpoints', async () => {
@@ -276,5 +277,43 @@ description: "队列技能"
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('archive endpoints: archive a suggestion, list, promote, delete', async () => {
+  const { base, queue, archive, store, request, close, dir } = await bootApi()
+  try {
+    // seed the queue with one suggestion
+    queue.append({ time: new Date().toISOString(), target: 'user', content: '低优先级事实', reason: '观察' })
+    // archive it
+    let res = await request('POST', '/memory-evolve/api/suggestions/archive', { indices: [1] })
+    assert.equal(res.status, 200)
+    assert.equal(res.data.remaining, 0)
+    assert.equal(queue.read().length, 0)
+    assert.equal(archive.entriesOf('user').length, 1)
+    assert.ok(archive.entriesOf('user')[0].includes('归档理由：观察'))
+    // list
+    res = await request('GET', '/memory-evolve/api/archive')
+    assert.equal(res.status, 200)
+    assert.equal(res.data.entries.length, 1)
+    assert.equal(res.data.entries[0].target, 'user')
+    // promote back into the main track
+    res = await request('POST', '/memory-evolve/api/archive/promote', { target: 'user', match: '低优先级事实' })
+    assert.equal(res.status, 200)
+    assert.ok(res.data.ok)
+    assert.equal(archive.entriesOf('user').length, 0)
+    assert.ok(store.entriesOf('user').some((e) => e.includes('低优先级事实')))
+    // archive again, then delete
+    queue.append({ time: new Date().toISOString(), target: 'memory', content: '备查事实', reason: '万一有用' })
+    await request('POST', '/memory-evolve/api/suggestions/archive', { indices: [1] })
+    res = await request('POST', '/memory-evolve/api/archive/delete', { target: 'memory', match: '备查事实' })
+    assert.equal(res.status, 200)
+    assert.equal(archive.entriesOf('memory').length, 0)
+    // invalid target is rejected
+    res = await request('POST', '/memory-evolve/api/archive/promote', { target: 'daily', match: 'x' })
+    assert.equal(res.status, 400)
+  } finally {
+    await close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })

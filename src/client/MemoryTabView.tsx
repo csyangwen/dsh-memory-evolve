@@ -7,6 +7,11 @@
  * the §-delimited files in a textarea could corrupt the entry format the
  * memory tool parses). Pure reader of the host API — the tab itself never
  * changes injected context, so it has zero effect on LLM prefix caching.
+ *
+ * Two view modes: the default "pretty" view parses each §-delimited file
+ * into entry cards (timestamp badge + optional project tag + text), while
+ * the "raw" view keeps the original <pre> dump. The toolbar search filters
+ * entries (pretty) or whole files (raw) case-insensitively.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -28,6 +33,64 @@ export interface MemoryTabViewProps {
   t: Translate
 }
 
+/** 视图模式：美观（条目卡片）/ 纯文本（原始 <pre>）。 */
+type ViewMode = 'pretty' | 'raw'
+
+/** 一条解析后的 § 条目：可选时间戳 + 可选项目标签 + 正文。 */
+interface MemoryEntry {
+  time: string | null
+  tag: string | null
+  text: string
+}
+
+/** § 条目分隔符，与 lib/store.js 的 ENTRY_DELIMITER 保持一致。 */
+const ENTRY_DELIMITER = '\n§\n'
+
+/** 各轨时间戳前缀：project 带日期时间，daily 只有时分，其余为日期。 */
+const TIME_PREFIX = {
+  project: /^\[(\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}(?::\d{2})?)\]\s*/,
+  daily: /^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*/,
+  date: /^\[(\d{4}-\d{2}-\d{2})\]\s*/,
+} as const
+
+/** 美观视图下按 § 条目解析的文件（AGENTS.md 始终纯文本）。 */
+const ENTRY_KEYS = new Set(['memory', 'user', 'archive-memory', 'archive-user', 'project', 'daily'])
+
+/** 把文件内容拆成 § 条目，剥离时间戳前缀（daily 再剥离程序标注的项目标签）。 */
+function parseEntries(row: MemoryFileRow): MemoryEntry[] {
+  const prefix = row.key === 'project' ? TIME_PREFIX.project
+    : row.key === 'daily' ? TIME_PREFIX.daily
+      : TIME_PREFIX.date
+  const entries: MemoryEntry[] = []
+  for (const raw of row.content.split(ENTRY_DELIMITER)) {
+    let text = raw.trim()
+    if (text === '') continue
+    let time: string | null = null
+    let tag: string | null = null
+    const timeMatch = prefix.exec(text)
+    if (timeMatch !== null) {
+      time = timeMatch[1]
+      text = text.slice(timeMatch[0].length)
+      if (row.key === 'daily') {
+        const tagMatch = /^\[([^\]]+)\]\s*/.exec(text)
+        if (tagMatch !== null) {
+          tag = tagMatch[1]
+          text = text.slice(tagMatch[0].length)
+        }
+      }
+    }
+    entries.push({ time, tag, text })
+  }
+  return entries
+}
+
+/** 关键词匹配：内容 / 时间 / 标签，大小写不敏感（q 已转小写）。 */
+function entryMatches(entry: MemoryEntry, q: string): boolean {
+  return entry.text.toLowerCase().includes(q)
+    || (entry.time ?? '').toLowerCase().includes(q)
+    || (entry.tag ?? '').toLowerCase().includes(q)
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/memory-evolve${path}`, {
     headers: { 'content-type': 'application/json' },
@@ -46,6 +109,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [files, setFiles] = useState<MemoryFileRow[] | null>(null)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [cwd, setCwd] = useState<string | null>(null)
+  const [view, setView] = useState<ViewMode>('pretty')
+  const [query, setQuery] = useState('')
+  /** 当前激活的文件 key（tab 切换）。 */
+  const [activeKey, setActiveKey] = useState<string | null>(null)
 
   const load = useCallback((): void => {
     setFiles(null)
@@ -65,6 +132,14 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 默认选中第一个可用文件；激活 key 失效时自动回退到可用文件
+  useEffect(() => {
+    if (files === null || files.length === 0) return
+    if (activeKey !== null && files.some((row) => row.key === activeKey)) return
+    const fallback = files.find((row) => row.available) ?? files[0]
+    setActiveKey(fallback.key)
+  }, [files, activeKey])
+
   /** Transient ok notice: auto-dismiss so it never lingers. */
   const flash = (text: string): void => {
     setNotice({ kind: 'ok', text })
@@ -78,10 +153,30 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       : row.key === 'user' ? 'userFile'
         : row.key === 'daily' ? 'dailyFile'
           : row.key === 'project' ? 'projectsDir'
-            : 'agentsFile'
+            : row.key === 'archive-memory' ? 'archiveMemoryFile'
+              : row.key === 'archive-user' ? 'archiveUserFile'
+                : 'agentsFile'
     void api<{ ok: boolean }>('/api/reveal', { method: 'POST', body: JSON.stringify({ target }) })
       .then(() => flash(t('memoryTab.opened')))
       .catch((error: Error) => setNotice({ kind: 'error', text: error.message }))
+  }
+
+  /** 搜索词（小写）；空串表示不过滤。 */
+  const q = query.trim().toLowerCase()
+
+  /** 当前激活的文件；条目按需解析（raw/AGENTS 为 null）。 */
+  const activeRow = (files ?? []).find((row) => row.key === activeKey) ?? null
+  let activeEntries: MemoryEntry[] | null = null
+  let activeHidden = false
+  if (activeRow !== null && activeRow.available && activeRow.exists) {
+    if (view === 'raw' || !ENTRY_KEYS.has(activeRow.key)) {
+      // 纯文本视图 / AGENTS.md：按整个文件文本过滤
+      activeHidden = q !== '' && !activeRow.content.toLowerCase().includes(q)
+    } else {
+      const all = parseEntries(activeRow)
+      activeEntries = q === '' ? all : all.filter((entry) => entryMatches(entry, q))
+      activeHidden = q !== '' && activeEntries.length === 0
+    }
   }
 
   return (
@@ -94,32 +189,95 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       {files === null ? (
         <p className="mt-muted">{t('memoryTab.loading')}</p>
       ) : (
-        <div className="mt-list">
-          {files.map((row) => (
-            <div key={row.key} className="mt-card">
+        <>
+          <div className="mt-file-tabs" role="tablist">
+            {(files ?? []).map((row) => (
+              <button
+                key={row.key}
+                type="button"
+                role="tab"
+                aria-selected={row.key === activeKey}
+                className={row.key === activeKey ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+                onClick={() => setActiveKey(row.key)}
+              >
+                {row.title}
+              </button>
+            ))}
+          </div>
+          <div className="mt-toolbar">
+            <div className="mt-view-toggle" role="group">
+              <button
+                type="button"
+                className={view === 'pretty' ? 'mt-view-btn mt-view-btn-active' : 'mt-view-btn'}
+                onClick={() => setView('pretty')}
+              >
+                {t('memoryTab.viewPretty')}
+              </button>
+              <button
+                type="button"
+                className={view === 'raw' ? 'mt-view-btn mt-view-btn-active' : 'mt-view-btn'}
+                onClick={() => setView('raw')}
+              >
+                {t('memoryTab.viewRaw')}
+              </button>
+            </div>
+            <input
+              type="search"
+              className="mt-search"
+              value={query}
+              placeholder={t('memoryTab.searchPlaceholder')}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          {q !== '' && activeHidden && (
+            <p className="mt-empty">{t('memoryTab.noResults')}</p>
+          )}
+          {activeRow !== null && (
+            <div className="mt-card">
               <div className="mt-card-head">
-                <span className="mt-card-title">{row.title}</span>
+                <span className="mt-card-title">{activeRow.title}</span>
                 <span className="mt-badge mt-badge-ro">{t('memoryTab.readonly')}</span>
-                {row.path !== undefined && <span className="mt-card-path" title={row.path}>{row.path}</span>}
-                {row.available && (
+                {activeEntries !== null && (
+                  <span className="mt-badge mt-badge-count">
+                    {t('memoryTab.entryCount', { count: activeEntries.length })}
+                  </span>
+                )}
+                {activeRow.path !== undefined && <span className="mt-card-path" title={activeRow.path}>{activeRow.path}</span>}
+                {activeRow.available && (
                   <span className="mt-card-actions">
-                    <button type="button" className="mt-btn" onClick={() => openWithSystem(row)}>
+                    <button type="button" className="mt-btn" onClick={() => openWithSystem(activeRow)}>
                       {t('memoryTab.open')}
                     </button>
                   </span>
                 )}
               </div>
-              {!row.available ? (
+              {!activeRow.available ? (
                 <p className="mt-muted">{t('memoryTab.noCwd')}</p>
+              ) : !activeRow.exists ? (
+                <pre className="mt-content">{t('memoryTab.empty')}</pre>
+              ) : activeEntries === null ? (
+                <pre className="mt-content">{activeRow.content}</pre>
               ) : (
-                <pre className="mt-content">
-                  {row.exists ? row.content : t('memoryTab.empty')}
-                </pre>
+                <div className="mt-entries">
+                  {[...activeEntries].reverse().map((entry, index) => (
+                    <div key={index} className="mt-entry">
+                      {(entry.time !== null || entry.tag !== null) && (
+                        <div className="mt-entry-head">
+                          {entry.time !== null && <span className="mt-entry-time">{entry.time}</span>}
+                          {entry.tag !== null && (
+                            <span className="mt-entry-tag" title={t('memoryTab.projectTag')}>{entry.tag}</span>
+                          )}
+                        </div>
+                      )}
+                      <p className="mt-entry-text">{entry.text}</p>
+                    </div>
+                  ))}
+                </div>
               )}
-              {row.truncated && <p className="mt-muted">{t('memoryTab.truncated')}</p>}
+              {activeRow.truncated && <p className="mt-muted">{t('memoryTab.truncated')}</p>}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -31,6 +31,8 @@
 ├── MEMORY.md                       # 全局事实（§ 分隔条目格式）
 ├── USER.md                         # 用户档案
 ├── SUGGESTIONS.jsonl               # 待确认建议队列
+├── MEMORY-archive.md               # 归档记忆（不注入，可转正）
+├── USER-archive.md                 # 归档用户（不注入，可转正）
 ├── daily/YYYY-MM-DD.md             # 每日日志（按天分文件）
 └── projects/<cwd-hash>/MEMORY.md   # 项目记忆（每个工作目录独立）
 ```
@@ -72,7 +74,8 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 `dsh web` 左下角设置 → **记忆管理**：
 
-- **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 拒绝」或批量处理（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
+- **待确认建议**：列出全部待确认建议，**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 归档 / 拒绝」或批量处理——**归档**把不够格进主记忆但丢了可惜的建议存入 `MEMORY-archive.md` / `USER-archive.md`（设置入口的导航行会显示 `记忆管理 (N)` 数字徽标）；
+- **已归档记忆**：归档的建议在此保留备查（不注入任何会话），可「移回主记忆」（写入对应记忆文件）或「删除」；
 - **待确认技能**：审查创建的新技能在此「采纳」（移入技能库，立即生效）或「拒绝」；
 - **运行时配置**：`reviewEnabled` / `reviewInterval` / `skillReviewEnabled` / `memoryTabEnabled` / `perTurnProjectWrites` / `perTurnDailyWrites` 的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **打开文件**：一键用系统工具打开记忆目录 / 全局记忆 / 用户档案 / 今日日志 / 项目记忆目录 / 技能目录。
@@ -81,7 +84,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 ### 会话页记忆 Tab（可选）
 
-开启「会话页记忆 Tab」（配置 `memoryTabEnabled`，默认关，开启后刷新页面生效）后，会话页顶部出现「记忆」标签页：直接预览 AGENTS.md 与四轨记忆文件（**全部只读**——编辑请通过 memory 工具或用系统工具打开文件，避免破坏 § 分隔格式），每行可一键用系统工具打开。
+开启「会话页记忆 Tab」（配置 `memoryTabEnabled`，默认关，开启后刷新页面生效）后，会话页顶部出现「记忆」标签页：直接预览 AGENTS.md 与全部记忆文件（**全部只读**——编辑请通过 memory 工具或用系统工具打开文件，避免破坏 § 分隔格式）。§ 分隔的结构化条目（项目记忆/今日日志/全局记忆等）默认以**美观卡片视图**展示（时间徽标 + 内容 + 项目标签，支持关键词搜索过滤），可切换回纯文本视图；每行可一键用系统工具打开。
 
 ![会话页记忆 Tab](docs/images/记忆tab.png)
 
@@ -91,6 +94,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 ```
 /memory_review                  # 列出待确认建议（带序号）
 /memory_review approve 1 3      # 采纳第 1、3 条（写入对应记忆文件）
+/memory_review archive 1         # 归档第 1 条（保留备查，可移回主记忆）
 /memory_review reject 2         # 拒绝第 2 条
 /memory_review approve-all      # 全部采纳
 /memory_review reject-all       # 全部拒绝
