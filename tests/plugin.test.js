@@ -133,16 +133,20 @@ test('memory tool end-to-end add/list/replace/remove', async () => {
 
   const added = await tool.execute({ action: 'add', target: 'user', content: '用户喜欢简洁回答' }, fakeExec())
   assert.equal(added.ok, true)
+  // writes return only the outcome — no full entry list echoed back
+  assert.equal('entries' in added, false)
   const listed = await tool.execute({ action: 'list', target: 'user' }, fakeExec())
   assert.equal(listed.entries.length, 1)
   assert.equal(listed.limit, 1375)
 
   const replaced = await tool.execute({ action: 'replace', target: 'user', content: '用户喜欢中文简洁回答', match: '简洁回答' }, fakeExec())
   assert.equal(replaced.ok, true)
+  assert.equal('entries' in replaced, false)
   assert.equal(readFileSync(join(dir, 'USER.md'), 'utf8').includes('中文简洁回答'), true)
 
   const removed = await tool.execute({ action: 'remove', target: 'user', match: '中文简洁回答' }, fakeExec())
   assert.equal(removed.ok, true)
+  assert.equal('entries' in removed, false)
   assert.equal(readFileSync(join(dir, 'USER.md'), 'utf8').trim(), '')
   clean(dir)
 })
@@ -367,9 +371,10 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
   assert.ok(snapshot.includes('target=project'))
-  // per-turn write duty: explicit tool call, must-write on any output,
-  // first-write insurance, format discipline (no guessed dates)
-  assert.ok(snapshot.includes('每个回合结束前、输出最终回复之前，调用一次 memory 工具'))
+  // per-turn write duty: final-step timing, explicit tool call,
+  // must-write on any output, first-write insurance, format discipline
+  assert.ok(snapshot.includes('在输出最终回复之前的最后一步'))
+  assert.ok(snapshot.includes('不要在回合开头执行'))
   assert.ok(snapshot.includes('必须写入 1 条'))
   assert.ok(snapshot.includes('首写保险'))
   assert.ok(snapshot.includes('不要为写而写'))
@@ -378,7 +383,7 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
-  assert.ok(!subSnapshot.includes('每个回合结束前、输出最终回复之前，调用一次 memory 工具'))
+  assert.ok(!subSnapshot.includes('在输出最终回复之前的最后一步'))
   clean(dir)
 })
 
@@ -419,6 +424,8 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(on.includes('memory_review_status'))
   assert.ok(on.includes('action=complete'))
   assert.ok(on.includes('不要自行数回合'), 'due comes from the tool, never counted by hand')
+  assert.ok(on.includes('在输出最终回复之前的最后一步'), 'review runs as the final step of the turn')
+  assert.ok(on.includes('不要调用 complete'), 'complete is only for resetting after a finished review')
   assert.ok(on.includes('最多 2 条'))
   assert.ok(on.includes('skill_manage'))
   assert.ok(on.includes('待确认队列'))
