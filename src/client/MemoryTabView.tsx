@@ -21,9 +21,10 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryQueueView, type MemoryFeature } from './MemoryQueueView.tsx'
 import { SkillsBrowser } from './skills-browser/SkillsBrowser.tsx'
+import { TodoView } from './TodoView.tsx'
 
-/** 功能子 tab：待确认记忆/技能/运行时配置 + 技能管理（合并自 dsh-skill-browser）。 */
-type TabFeature = MemoryFeature | 'skill-browser'
+/** 功能子 tab：待确认记忆/技能/运行时配置 + 技能管理（合并自 dsh-skill-browser）+ 待办。 */
+type TabFeature = MemoryFeature | 'skill-browser' | 'todo'
 
 /** One memory-file row from the host. */
 interface MemoryFileRow {
@@ -408,6 +409,15 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
         >
           {t('memoryTab.feature.skillBrowser')}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'todo'}
+          className={feature === 'todo' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature(feature === 'todo' ? null : 'todo')}
+        >
+          {t('memoryTab.feature.todo')}
+        </button>
         <span className="mt-tab-sep" role="presentation" />
         {files !== null && (files ?? []).map((row) => (
           <button
@@ -429,6 +439,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       {feature !== null ? (
         feature === 'skill-browser' ? (
           <SkillsBrowser t={t} />
+        ) : feature === 'todo' ? (
+          <TodoView t={t} sessionId={String(sessionId)} />
         ) : (
           <MemoryQueueView
             t={t}

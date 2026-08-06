@@ -23,6 +23,16 @@ export interface MemoryQueueViewProps {
   onChanged: () => void
 }
 
+/** 待办建议 target 的展示名（todo-life → 待办·生活）。 */
+function todoTargetLabel(t: Translate, target: string): string {
+  const track = target.slice(5)
+  if (track === 'life') return `待办·${t('todo.track.life')}`
+  if (track === 'work') return `待办·${t('todo.track.work')}`
+  if (track === 'project') return `待办·${t('todo.track.project')}`
+  if (track === 'daily') return `待办·${t('todo.track.daily')}`
+  return target
+}
+
 /** One pending suggestion entry (subset of the queue record). */
 interface SuggestionEntry {
   time: string
@@ -208,7 +218,9 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                 {entries.map((entry, index) => (
                   <li key={`${entry.time}-${index}`} className="me-item">
                     <div className="me-item-head">
-                      <span className="me-badge me-badge-target">{entry.target}</span>
+                      <span className="me-badge me-badge-target">
+                        {entry.target.startsWith('todo-') ? todoTargetLabel(t, entry.target) : entry.target}
+                      </span>
                       {(entry.hits ?? 1) > 1 && (
                         <span className="me-badge me-badge-hits" title={t('panel.suggestions.hitsHint')}>
                           {t('panel.suggestions.hits', { count: entry.hits ?? 1 })}

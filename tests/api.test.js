@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { ArchiveStore, MemoryStore, SuggestionQueue } from '../lib/store.js'
 import { installApi } from '../lib/api.js'
 import { validateRuntimePatch } from '../lib/index.js'
+import { TodoStore } from '../lib/todo.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-api-test-'))
@@ -18,6 +19,7 @@ async function bootApi(overrides = {}) {
   const store = new MemoryStore(dir)
   const archive = new ArchiveStore(dir)
   const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+  const todoStore = new TodoStore(dir)
   const state = { reviewEnabled: true, reviewInterval: 10, reviewMode: 'suggest', memoryTabEnabled: true }
   const getRuntime = () => ({ ...state })
   const updateRuntime = (patch) => {
@@ -38,7 +40,7 @@ async function bootApi(overrides = {}) {
     nope: undefined,
   }
   installApi(ctx, {
-    store, archive, queue, getRuntime, updateRuntime,
+    store, archive, queue, todoStore, getRuntime, updateRuntime,
     resolveRevealTarget: (target) => revealTargets[target],
     revealPath: overrides.revealPath ?? (() => {}),
     config: overrides.config ?? { memoryDir: dir, skillDir: join(dir, 'skills') },
