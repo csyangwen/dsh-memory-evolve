@@ -373,8 +373,8 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   assert.ok(snapshot.includes('target=project'))
   // per-turn write duty: final-step timing, explicit tool call,
   // must-write on any output, first-write insurance, format discipline
-  assert.ok(snapshot.includes('在输出最终回复之前的最后一步'))
-  assert.ok(snapshot.includes('不要在回合开头执行'))
+  assert.ok(snapshot.includes('这是回合的最后一步'))
+  assert.ok(snapshot.includes('严禁提前执行'))
   assert.ok(snapshot.includes('必须写入 1 条'))
   assert.ok(snapshot.includes('首写保险'))
   assert.ok(snapshot.includes('不要为写而写'))
@@ -383,7 +383,7 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
-  assert.ok(!subSnapshot.includes('在输出最终回复之前的最后一步'))
+  assert.ok(!subSnapshot.includes('这是回合的最后一步'))
   clean(dir)
 })
 
@@ -424,7 +424,7 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(on.includes('memory_review_status'))
   assert.ok(on.includes('action=complete'))
   assert.ok(on.includes('不要自行数回合'), 'due comes from the tool, never counted by hand')
-  assert.ok(on.includes('在输出最终回复之前的最后一步'), 'review runs as the final step of the turn')
+  assert.ok(on.includes('回合的最后一步'), 'review runs as the final step of the turn')
   assert.ok(on.includes('不要调用 complete'), 'complete is only for resetting after a finished review')
   assert.ok(on.includes('最多 2 条'))
   assert.ok(on.includes('skill_manage'))
