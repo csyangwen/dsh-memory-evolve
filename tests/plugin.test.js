@@ -210,7 +210,7 @@ test('review enabled registers suggest tool and trigger; counting gates on messa
   settled(agent('s1', [1, 2]), 2, { kind: 'completed' })
   await new Promise((resolve) => setTimeout(resolve, 5))
   assert.equal(started.length, 1)
-  assert.deepEqual(started[0].request.toolFilter, { allow: ['memory', 'memory_suggest', 'skill_manage'] })
+  assert.deepEqual(started[0].request.toolFilter, { allow: ['memory_suggest', 'skill_manage'] })
   assert.equal(started[0].request.label, 'memory-review')
   assert.ok(started[0].request.prompt[0].text.includes('技能审查'), 'prompt covers the skill track')
 
@@ -355,7 +355,7 @@ test('review whitelist includes agent_session_read when the tool exists', async 
   settled(agent, 1, { kind: 'completed' })
   await new Promise((resolve) => setTimeout(resolve, 5))
   assert.equal(started.length, 1)
-  assert.deepEqual(started[0].request.toolFilter.allow, ['memory', 'memory_suggest', 'skill_manage', 'agent_session_read'])
+  assert.deepEqual(started[0].request.toolFilter.allow, ['memory_suggest', 'skill_manage', 'agent_session_read'])
   // The digest header carries the session id for tracing.
   assert.ok(started[0].request.prompt[0].text.includes('sess-x'))
   clean(dir)
@@ -461,14 +461,15 @@ test('buildReviewPrompt covers both tracks and honors skillReviewEnabled', () =>
   assert.ok(auto.includes('memory 工具直接写入'))
 })
 
-test('buildReviewPrompt: daily/project tracks are loose, global track strict', () => {
+test('buildReviewPrompt: global track only — daily/project moved to per-turn writes', () => {
   const prompt = buildReviewPrompt('转录内容', resolveConfig({ reviewMode: 'suggest' }))
-  // daily: at least one entry per session
-  assert.ok(prompt.includes('每个会话至少写 1 条'))
-  assert.ok(prompt.includes('target: "daily"'))
-  // project: loose when real work happened, skip for small talk
-  assert.ok(prompt.includes('至少 1 条（做了什么、关键决策/进展）'))
-  assert.ok(prompt.includes('纯寒暄'))
+  // daily/project writes are no longer part of the review round (the main
+  // session performs them every turn via the snapshot hint)
+  assert.ok(!prompt.includes('target: "daily"'))
+  assert.ok(!prompt.includes('每个会话至少写 1 条'))
+  assert.ok(!prompt.includes('target: "project"'))
+  assert.ok(!prompt.includes('target=project'))
+  assert.ok(!prompt.includes('target=daily'))
   // global: strict, max 2, via suggest tool
   assert.ok(prompt.includes('最多 2 条'))
   assert.ok(prompt.includes('写全局会被拒绝'))
@@ -487,8 +488,6 @@ test('buildReviewPrompt: daily/project tracks are loose, global track strict', (
   // traceability: the reviewer may read the full session when needed
   assert.ok(prompt.includes('agent_session_read'))
   assert.ok(prompt.includes('【会话信息】'))
-  assert.ok(prompt.includes('target=project'))
-  assert.ok(prompt.includes('target=daily'))
 })
 
 test('final review fires on agent/disposed for unreviewed sessions', async () => {
@@ -646,15 +645,25 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   const store = new MemoryStore(config.memoryDir, config)
   const snapshot = renderSnapshot(config, store, agent)
   // Project/daily content must NOT enter the runtime-context snapshot: it
-  // changes on every review, and injecting it would append a new tail
+  // changes on every write, and injecting it would append a new tail
   // snapshot per turn and defeat LLM prefix caching. A stable hint keeps the
-  // model aware the tracks exist (content is read on demand via the tool).
+  // model aware the tracks exist (content is read on demand via the tool)
+  // and requires a per-turn check for record-worthy facts.
   assert.ok(!snapshot.includes('X 项目事实'))
   assert.ok(!snapshot.includes('今天完成了 Y'))
   assert.ok(!snapshot.includes('## 项目记忆'))
   assert.ok(!snapshot.includes('## 今日记忆'))
   assert.ok(snapshot.includes('## 按需记忆'))
   assert.ok(snapshot.includes('target=project'))
+  // per-turn proactive write duty + format discipline (no guessed dates)
+  assert.ok(snapshot.includes('每个回合结束前主动检查一次'))
+  assert.ok(snapshot.includes('不要为写而写'))
+  assert.ok(snapshot.includes('不要在内容中自行添加任何时间/日期前缀'))
+  assert.ok(snapshot.includes('你无法确知当前日期'))
+  // subagent sessions get the restrained wording instead of the per-turn duty
+  const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
+  assert.ok(subSnapshot.includes('独立成果'))
+  assert.ok(!subSnapshot.includes('每个回合结束前主动检查一次'))
   clean(dir)
 })
 
