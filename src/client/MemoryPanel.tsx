@@ -36,6 +36,8 @@ interface RuntimeConfig {
   skillReviewEnabled: boolean
   autoApproveGlobal: boolean
   memoryTabEnabled: boolean
+  perTurnProjectWrites: boolean
+  perTurnDailyWrites: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -159,6 +161,8 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
       skillReviewEnabled: draft.skillReviewEnabled,
       autoApproveGlobal: draft.autoApproveGlobal,
       memoryTabEnabled: draft.memoryTabEnabled,
+      perTurnProjectWrites: draft.perTurnProjectWrites,
+      perTurnDailyWrites: draft.perTurnDailyWrites,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -383,6 +387,32 @@ export function MemoryPanel(props: MemoryPanelProps): JSX.Element {
                   className="me-switch"
                   checked={draft.memoryTabEnabled}
                   onChange={(event) => patchDraft({ memoryTabEnabled: event.target.checked })}
+                />
+              </label>
+            </div>
+            <div className="me-group">
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.perTurnProjectWrites')}
+                  <em className="me-field-hint">{t('panel.config.perTurnProjectWrites.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.perTurnProjectWrites}
+                  onChange={(event) => patchDraft({ perTurnProjectWrites: event.target.checked })}
+                />
+              </label>
+              <label className="me-field">
+                <span className="me-field-label">
+                  {t('panel.config.perTurnDailyWrites')}
+                  <em className="me-field-hint">{t('panel.config.perTurnDailyWrites.hint')}</em>
+                </span>
+                <input
+                  type="checkbox"
+                  className="me-switch"
+                  checked={draft.perTurnDailyWrites}
+                  onChange={(event) => patchDraft({ perTurnDailyWrites: event.target.checked })}
                 />
               </label>
             </div>

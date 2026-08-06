@@ -121,6 +121,12 @@ test('api config get/update with validation', async () => {
     assert.equal(staticKey.status, 400)
     const notPatch = await api.request('POST', '/memory-evolve/api/config', { patch: [1] })
     assert.equal(notPatch.status, 400)
+    // per-turn write switches are runtime-changeable booleans
+    const perTurn = await api.request('POST', '/memory-evolve/api/config', { patch: { perTurnProjectWrites: false, perTurnDailyWrites: true } })
+    assert.equal(perTurn.status, 200)
+    assert.equal(perTurn.data.config.perTurnProjectWrites, false)
+    const badBool = await api.request('POST', '/memory-evolve/api/config', { patch: { perTurnDailyWrites: 'yes' } })
+    assert.equal(badBool.status, 400)
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })

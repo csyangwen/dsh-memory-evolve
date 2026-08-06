@@ -667,6 +667,32 @@ test('renderSnapshot keeps project and daily on-demand (cache-friendly)', async 
   clean(dir)
 })
 
+test('renderSnapshot per-turn write switches compose the hint per track', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir })
+  const store = new MemoryStore(config.memoryDir, config)
+  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
+  // default: both tracks carry the write duty
+  const both = renderSnapshot(config, store, agent)
+  assert.ok(both.includes('- 项目相关 → target=project'))
+  assert.ok(both.includes('- 当天进展 → target=daily'))
+  // project off: only daily keeps the write duty; reads stay for both
+  const noProject = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false }), store, agent)
+  assert.ok(!noProject.includes('- 项目相关 → target=project'))
+  assert.ok(noProject.includes('- 当天进展 → target=daily'))
+  assert.ok(noProject.includes('target=project'), 'read hint for project stays')
+  // daily off: only project keeps the write duty
+  const noDaily = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnDailyWrites: false }), store, agent)
+  assert.ok(noDaily.includes('- 项目相关 → target=project'))
+  assert.ok(!noDaily.includes('- 当天进展 → target=daily'))
+  // both off: no write duty at all, hint degrades to on-demand reads
+  const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
+  assert.ok(!none.includes('写入要求'))
+  assert.ok(none.includes('target=project'))
+  assert.ok(none.includes('target=daily'))
+  clean(dir)
+})
+
 test('resolveRevealTarget falls back to containing directories for missing files', () => {
   const dir = tempDir()
   const config = resolveConfig({ memoryDir: dir, skillDir: join(dir, 'no-skills') })
