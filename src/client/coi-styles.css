@@ -282,6 +282,12 @@
   font-weight: 600;
 }
 
+/* 注入轨勾选行：三个 checkbox 横向排列 */
+.coi-inject-track-line {
+  flex-direction: row;
+  gap: 16px;
+}
+
 .coi-input,
 .coi-select,
 .coi-textarea {

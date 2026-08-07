@@ -330,7 +330,7 @@ function bootScheduler(dir, overrides = {}) {
     adapters: stores.adapters,
     sessions: stores.sessions,
     tasks: stores.tasks,
-    config: { coiTaskTimeoutMs: 60000, coiDataDir: dir, coiDefaultInjectContext: overrides.defaultInject ?? false },
+    config: { coiTaskTimeoutMs: 60000, coiDataDir: dir },
     writeSummary,
     memoryContext: overrides.memoryContext ?? (() => '【记忆】测试记忆轨内容'),
   }, { spawn: harness.spawn })
@@ -338,6 +338,18 @@ function bootScheduler(dir, overrides = {}) {
   scheduler.recover()
   return { ...stores, scheduler, harness, writeSummary }
 }
+
+test('scheduler: default scope is session (private by default)', () => {
+  const dir = tempDir()
+  const { scheduler } = bootScheduler(dir)
+  // 回归：曾默认 project → 同工作区所有会话都收到任务/注入；2026-08-07
+  // 拍板默认 session（仅发起会话可见的私有默认），需要协作时显式传
+  const result = scheduler.dispatch({ adapterId: 'grok', prompt: '默认私有' })
+  assert.equal(result.ok, true)
+  const task = scheduler.status(result.taskId).task
+  assert.equal(task.scope, 'session', '默认层级=session（仅发起会话可见）')
+  rmSync(dir, { recursive: true, force: true })
+})
 
 test('scheduler: dispatch runs async and completes with session capture', async () => {
   const dir = tempDir()
@@ -481,38 +493,38 @@ test('scheduler: relay refTaskId appends full prior output', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('scheduler: memory context injection (opt-in, inline + file fallback)', () => {
+test('scheduler: memory context injection (AI 自主选择轨, inline + file fallback)', () => {
   const dir = tempDir()
   const { scheduler, harness } = bootScheduler(dir)
-  // 默认不注入
+  // 默认不注入（不传 injectTracks）
   const plain = scheduler.dispatch({ adapterId: 'grok', prompt: '任务' })
   assert.ok(!harness.children[0].args[1].includes('背景信息'))
-  // 显式开启：自动轨注入
-  const withMem = scheduler.dispatch({ adapterId: 'grok', prompt: '任务2', injectContext: true })
+  // AI 自主选择轨：显式传 injectTracks 注入
+  const withMem = scheduler.dispatch({ adapterId: 'grok', prompt: '任务2', injectTracks: ['memory', 'user', 'key'] })
   const arg1 = harness.children[1].args[1]
   assert.ok(arg1.includes('背景信息'))
   assert.ok(arg1.includes('无需说明或提及来源'))
   assert.ok(arg1.includes('测试记忆轨内容'))
   assert.ok(arg1.includes('任务2'))
+  // 注入与 scope 无关：temporary/global 层级同样可注入（回归：AI 曾误以为
+  // 只有 project 才注入，导致为拿记忆而选 project）
+  const withTemp = scheduler.dispatch({ adapterId: 'grok', prompt: '临时任务', scope: 'temporary', injectTracks: ['key'] })
+  assert.ok(harness.children[2].args[1].includes('背景信息'), 'temporary 层级同样注入')
   // 不注入 AGENTS.md 全局规则（用户决策：只注入记忆轨，外部 COI 不背 DSH 纪律）
   assert.ok(!arg1.includes('【全局规则 AGENTS.md】'), '不注入 AGENTS.md 段')
   // 自定义文本叠加
   const withText = scheduler.dispatch({ adapterId: 'grok', prompt: '任务3', contextText: '【自查】项目日志要点：完成了登录模块' })
-  const arg2 = harness.children[2].args[1]
+  const arg2 = harness.children[3].args[1]
   assert.ok(arg2.includes('项目日志要点：完成了登录模块'))
   // 超长（>32KB）：写文件 + 路径
   const big = 'x'.repeat(40 * 1024)
-  const withBig = scheduler.dispatch({ adapterId: 'grok', prompt: '任务4', injectContext: true, contextText: big })
-  const arg3 = harness.children[3].args[1]
+  const withBig = scheduler.dispatch({ adapterId: 'grok', prompt: '任务4', injectTracks: ['key'], contextText: big })
+  const arg3 = harness.children[4].args[1]
   assert.ok(arg3.includes('已写入文件'))
   assert.match(arg3, /contexts\/coi-[a-z0-9-]+\.txt/)
-  // 全局默认开（配置）
-  const dir2 = tempDir()
-  const s2 = bootScheduler(dir2, { defaultInject: true })
-  const auto = s2.scheduler.dispatch({ adapterId: 'grok', prompt: '任务5' })
-  assert.ok(s2.harness.children[0].args[1].includes('背景信息'))
-  s2.scheduler.dispose()
-  rmSync(dir2, { recursive: true, force: true })
+  // 非法轨被过滤（不会注入）
+  const bad = scheduler.dispatch({ adapterId: 'grok', prompt: '任务5', injectTracks: ['memory', 'AGENTS'] })
+  assert.ok(harness.children[5].args[1].includes('背景信息'), '合法轨仍注入')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -641,6 +653,12 @@ test('coi tools: dispatch/status/wait/cancel registered with schemas', async () 
   const { scheduler, harness } = bootScheduler(dir)
   const tools = coiToolDefinitions(scheduler)
   assert.deepEqual(tools.map((t) => t.name), ['de_coi_dispatch', 'de_coi_adapters', 'de_coi_status', 'de_coi_wait', 'de_coi_cancel'])
+  // 回归：description 必须引导模型"派发后不要直接结束回合"（快照注入只发生在
+  // 下一次生成前，结束回合后结果不会被自动处理）——防止改回"无需等待"的误导
+  assert.ok(tools[0].description.includes('不要立即结束回合'), 'dispatch 引导不结束回合')
+  assert.ok(tools[0].description.includes('严禁承诺'), 'dispatch 禁止虚假承诺自动处理')
+  assert.ok(tools[3].description.includes('拿结果的正确方式'), 'wait 定位为派发后拿结果的方式')
+  assert.ok(!tools[0].description.includes('无需轮询、无需阻塞等待'), 'dispatch 不再误导无需等待')
   const dispatchTool = tools[0]
   const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
   assert.equal(result.ok, true)
@@ -731,6 +749,9 @@ test('memory context: key branch filtering uses declared task branch', () => {
   store.add('key', '全局可见的项目约定', agent)
   store.add('key', 'main 分支的约定 [branch:main]', agent)
   store.add('key', 'dev 分支的约定 [branch:dev]', agent)
+  // 全局记忆与用户档案（tracks 轨过滤测试用）
+  store.add('memory', '全局事实条目', agent)
+  store.add('user', '用户偏好条目', agent)
   // 任务声明分支 main：只注入无标记 + main 标记条目，标题带分支名
   const ctxMain = buildMemoryContext(store, { cwd, branch: 'main' })
   assert.ok(ctxMain.includes('全局可见的项目约定'))
@@ -749,6 +770,19 @@ test('memory context: key branch filtering uses declared task branch', () => {
   // 无 cwd：不注入项目关键记忆段
   const ctxNoCwd = buildMemoryContext(store, {})
   assert.ok(!ctxNoCwd.includes('本项目关键记忆'))
+  // tracks 轨过滤（AI 经 injectTracks 自主选择）：只取指定轨，缺省=全部
+  const ctxOnlyKey = buildMemoryContext(store, { cwd, branch: 'main', tracks: ['key'] })
+  assert.ok(ctxOnlyKey.includes('本项目关键记忆'), 'key 轨注入')
+  assert.ok(!ctxOnlyKey.includes('全局事实条目'), '未选 memory 轨不注入')
+  assert.ok(!ctxOnlyKey.includes('用户偏好条目'), '未选 user 轨不注入')
+  const ctxOnlyMemory = buildMemoryContext(store, { cwd, tracks: ['memory'] })
+  assert.ok(ctxOnlyMemory.includes('全局事实条目'))
+  assert.ok(!ctxOnlyMemory.includes('本项目关键记忆'), '未选 key 轨不注入项目记忆')
+  assert.ok(!ctxOnlyMemory.includes('用户偏好条目'), '未选 user 轨不注入')
+  const ctxOnlyUser = buildMemoryContext(store, { cwd, tracks: ['user'] })
+  assert.ok(ctxOnlyUser.includes('用户偏好条目'))
+  assert.ok(!ctxOnlyUser.includes('全局事实条目'), '未选 memory 轨不注入')
+  assert.ok(!ctxOnlyUser.includes('本项目关键记忆'), '未选 key 轨不注入项目记忆')
   rmSync(dir, { recursive: true, force: true })
 })
 

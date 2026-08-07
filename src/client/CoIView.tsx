@@ -156,8 +156,8 @@ const DICT = {
     'launch.ref': '接力引用',
     'launch.refNone': '（不引用）',
     'launch.submit': '发起',
-    'launch.injectCtx': '注入 DSH 记忆上下文',
-    'launch.injectCtxHint': '把长期记忆/用户档案/本项目关键记忆（按分支）带给 COI（不含 AGENTS.md 全局规则），让它了解项目约定（内容会发给外部 COI 服务，注意隐私）',
+    'launch.injectTracks': '注入 DSH 记忆（可选）',
+    'launch.injectTracksHint': '自主选择要带给 COI 的记忆轨（与层级 scope 无关，任何层级都可注入）：长期记忆=全局事实、用户档案=你的偏好、项目关键记忆=本工作区项目按分支过滤（不含 AGENTS.md）。内容会发给外部 COI 服务，注意隐私；留空=不注入',
     'launch.ctxText': '附加上下文文本（可选）',
     'launch.ctxTextPh': '自己拼接的上下文：如项目进展、相关日志要点…（超 32KB 自动写文件并把路径告诉 COI）',
     'launch.needPrompt': '任务内容不能为空',
@@ -275,8 +275,6 @@ const DICT = {
     'config.timeoutMinutes': '分钟',
     'config.timeoutHint': '超时仅作兜底防线（AI 任务可能数小时无输出属正常）；留空 = 不修改',
     'config.timeoutBad': '超时格式不正确',
-    'config.defaultInject': '默认注入记忆上下文',
-    'config.defaultInjectHint': '新任务默认把 DSH 记忆（长期记忆/用户档案/本项目关键记忆按分支，不含 AGENTS.md）带给 COI；每次发起时可单独覆盖。默认关（内容会发给外部 COI 服务）',
     'config.save': '保存',
     'config.saved': '已保存',
     'scope.temporary': '临时',
@@ -335,8 +333,8 @@ const DICT = {
     'launch.ref': 'Relay ref',
     'launch.refNone': '(none)',
     'launch.submit': 'Launch',
-    'launch.injectCtx': 'Inject DSH memory context',
-    'launch.injectCtxHint': 'Hand long-term memory / user profile / this project\'s key facts (branch-filtered; no AGENTS.md) to the COI so it knows the project conventions (content is sent to external COI services — mind privacy)',
+    'launch.injectTracks': 'Inject DSH memory (optional)',
+    'launch.injectTracksHint': 'Pick which memory tracks to hand to the COI (independent of scope — any tier can inject): long-term memory=global facts, user profile=your preferences, project key=this workspace\'s key facts (branch-filtered; no AGENTS.md). Content is sent to external COI services — mind privacy; empty = no injection',
     'launch.ctxText': 'Extra context text (optional)',
     'launch.ctxTextPh': 'Your own context: project progress, log highlights… (over 32KB it is written to a file and the path is given to the COI)',
     'launch.needPrompt': 'Prompt must not be empty',
@@ -454,8 +452,6 @@ const DICT = {
     'config.timeoutMinutes': 'minutes',
     'config.timeoutHint': 'Timeout is a safety net only (AI agents may stay quiet for hours); leave empty to keep current',
     'config.timeoutBad': 'Bad timeout format',
-    'config.defaultInject': 'Inject memory context by default',
-    'config.defaultInjectHint': 'New tasks carry the DSH memory (long-term memory / user profile / this project\'s key facts, branch-filtered; no AGENTS.md) to the COI; overridable per dispatch. Off by default (content is sent to external COI services)',
     'config.save': 'Save',
     'config.saved': 'Saved',
     'scope.temporary': 'temporary',
@@ -716,12 +712,14 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   // 发起表单
   const [adapterId, setAdapterId] = useState('kimi')
   const [prompt, setPrompt] = useState('')
-  const [scope, setScope] = useState<string>('project')
+  // 默认层级 session（仅发起会话可见，私有默认；用户拍板 2026-08-07）
+  const [scope, setScope] = useState<string>('session')
   const [sessionId, setSessionId] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [refTaskId, setRefTaskId] = useState('')
   const [launching, setLaunching] = useState(false)
-  const [injectCtx, setInjectCtx] = useState(false)
+  // 注入轨（memory=长期记忆 / user=用户档案 / key=项目关键记忆；与 scope 无关）
+  const [injectTracks, setInjectTracks] = useState<string[]>([])
   const [ctxText, setCtxText] = useState('')
 
   // 详情
@@ -872,7 +870,12 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
       if (scope !== 'temporary' && sessionId !== '') body.sessionId = sessionId
       if (templateId !== '') body.templateId = templateId
       if (refTaskId !== '') body.refTaskId = refTaskId
-      const res = await postJson<{ ok: boolean; taskId?: string; message?: string }>('/tasks', { ...body, dsSessionId: dsSessionId ?? '', injectContext: injectCtx || undefined, contextText: ctxText.trim() === '' ? undefined : ctxText })
+      const res = await postJson<{ ok: boolean; taskId?: string; message?: string }>('/tasks', {
+        ...body,
+        dsSessionId: dsSessionId ?? '',
+        injectTracks: injectTracks.length > 0 ? injectTracks : undefined,
+        contextText: ctxText.trim() === '' ? undefined : ctxText,
+      })
       setNotice({ kind: 'ok', text: `${t('launch.ok')}${res.taskId !== undefined ? `：${res.taskId}` : ''}` })
       setPrompt('')
       setTemplateId('')
@@ -1019,12 +1022,27 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
         </label>
         <label className="coi-field coi-field-wide">
           <span className="coi-field-check">
-            <input type="checkbox" checked={injectCtx} onChange={(e) => setInjectCtx(e.target.checked)} />
-            <span className="coi-label">{t('launch.injectCtx')}</span>
+            <span className="coi-label">{t('launch.injectTracks')}</span>
           </span>
-          <span className="coi-muted coi-small">{t('launch.injectCtxHint')}</span>
+          <span className="coi-muted coi-small">{t('launch.injectTracksHint')}</span>
         </label>
-        {injectCtx && (
+        <label className="coi-field coi-field-wide coi-inject-track-line">
+          {(['memory', 'user', 'key'] as const).map((track) => (
+            <span key={track} className="coi-field-check">
+              <input
+                type="checkbox"
+                checked={injectTracks.includes(track)}
+                onChange={(e) => setInjectTracks(
+                  e.target.checked
+                    ? [...injectTracks, track]
+                    : injectTracks.filter((item) => item !== track),
+                )}
+              />
+              <span className="coi-label">{track}</span>
+            </span>
+          ))}
+        </label>
+        {injectTracks.length > 0 && (
           <label className="coi-field coi-field-wide">
             <span className="coi-label">{t('launch.ctxText')}</span>
             <textarea
@@ -1958,7 +1976,6 @@ function ConfigPane(): JSX.Element {
   const [notify, setNotify] = useState('')
   const [retention, setRetention] = useState('')
   const [timeoutH, setTimeoutH] = useState('')
-  const [defaultInject, setDefaultInject] = useState(false)
   const [timeoutM, setTimeoutM] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -1970,7 +1987,6 @@ function ConfigPane(): JSX.Element {
         const ms = data.config.coiTaskTimeoutMs ?? 0
         setTimeoutH(String(Math.floor(ms / 3600000)))
         setTimeoutM(String(Math.round((ms % 3600000) / 60000)))
-        setDefaultInject(data.config.coiDefaultInjectContext === true)
         setLoaded(true)
       })
       .catch((err) => setError(errText(err)))
@@ -1979,7 +1995,7 @@ function ConfigPane(): JSX.Element {
   const save = async (): Promise<void> => {
     setSaving(true)
     try {
-      const patch: Record<string, unknown> = { coiNotifyCommand: notify, coiDefaultInjectContext: defaultInject }
+      const patch: Record<string, unknown> = { coiNotifyCommand: notify }
       const days = Number(retention)
       const h = Number(timeoutH)
       const m = Number(timeoutM)
@@ -2023,13 +2039,6 @@ function ConfigPane(): JSX.Element {
               <span className="coi-muted coi-small">{t('config.timeoutMinutes')}</span>
             </div>
             <span className="coi-muted coi-small">{t('config.timeoutHint')}</span>
-          </label>
-          <label className="coi-field">
-            <span className="coi-field-check">
-              <input type="checkbox" checked={defaultInject} onChange={(e) => setDefaultInject(e.target.checked)} />
-              <span className="coi-label">{t('config.defaultInject')}</span>
-            </span>
-            <span className="coi-muted coi-small">{t('config.defaultInjectHint')}</span>
           </label>
           <div className="coi-form-actions">
             <button type="button" className="coi-btn coi-btn-primary" disabled={saving} onClick={() => void save()}>
