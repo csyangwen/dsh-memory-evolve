@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readScratch, writeScratch, scratchPath, SCRATCH_MAX_BYTES } from '../lib/scratch.js'
@@ -100,6 +100,63 @@ test('scratch write: 大小上限与类型校验', () => {
   }
 })
 
+test('scratch read: 外部写入的超大文件拒绝读取（返回 error，不吐内容）', () => {
+  const dir = tempDir()
+  try {
+    const config = makeConfig(dir)
+    const path = scratchPath(config)
+    // 模拟外部编辑器（reveal 通道）绕过 writeScratch 写入超大文件
+    writeFileSync(path, Buffer.alloc(SCRATCH_MAX_BYTES + 1, 0x61))
+    const read = readScratch(config)
+    assert.equal(read.content, '')
+    assert.ok(read.error && read.error.includes('大小上限'), `error 应提示超上限：${read.error}`)
+    assert.equal(read.size, SCRATCH_MAX_BYTES + 1)
+    // 正常文件不受影响
+    writeScratch(config, '正常内容')
+    const ok = readScratch(config)
+    assert.equal(ok.content, '正常内容')
+    assert.equal(ok.error, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scratch read: 非 UTF-8 内容拒绝读取（避免乱码被覆盖写回）', () => {
+  const dir = tempDir()
+  try {
+    const config = makeConfig(dir)
+    const path = scratchPath(config)
+    // 模拟外部编辑器以非 UTF-8 编码保存：非法 UTF-8 字节序列
+    writeFileSync(path, Buffer.from([0x63, 0x63, 0xc3, 0x28, 0x21])) // 'cc' + 非法序列 + '!'
+    const read = readScratch(config)
+    assert.equal(read.content, '')
+    assert.ok(read.error && read.error.includes('UTF-8'), `error 应提示编码问题：${read.error}`)
+    // 合法 UTF-8（含多字节中文）不受影响
+    writeScratch(config, '中文便签 ✓')
+    const ok = readScratch(config)
+    assert.equal(ok.content, '中文便签 ✓')
+    assert.equal(ok.error, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scratch write: 同名 tmp 残留被清理（崩溃残留不堆积）', () => {
+  const dir = tempDir()
+  try {
+    const config = makeConfig(dir)
+    const path = scratchPath(config)
+    const tmpPath = `${path}.tmp.${process.pid}`
+    // 模拟上次写入中途崩溃留下的残留
+    writeFileSync(tmpPath, '残留垃圾')
+    writeScratch(config, '新内容')
+    assert.equal(existsSync(tmpPath), false, '写入后旧 tmp 残留应被清理')
+    assert.equal(readScratch(config).content, '新内容')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('scratch api: GET 空 / POST 写入 / GET 读回 / 非法请求', async () => {
   const dir = tempDir()
   const api = await bootApi(dir)
@@ -125,6 +182,65 @@ test('scratch api: GET 空 / POST 写入 / GET 读回 / 非法请求', async () 
     const cleared = await api.request('POST', '/memory-evolve/api/scratch', { content: '' })
     assert.equal(cleared.status, 200)
     assert.equal((await api.request('GET', '/memory-evolve/api/scratch')).data.content, '')
+  } finally {
+    await api.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scratch api: 换行密集的合法内容不再被 readBody 提前拒绝（JSON 转义放大）', async () => {
+  const dir = tempDir()
+  const api = await bootApi(dir)
+  try {
+    // 内容 400 KB、一半是换行：JSON 序列化后 body ≈ 600 KB，旧实现的
+    // 「内容上限 + 1024」body 上限会误拒（body too large）；content 本身
+    // 400 KB < 512 KiB 完全合法，应保存成功。
+    const content = 'x\n'.repeat(200 * 1024) // 400000 字节
+    assert.ok(Buffer.byteLength(content, 'utf8') < SCRATCH_MAX_BYTES)
+    const saved = await api.request('POST', '/memory-evolve/api/scratch', { content })
+    assert.equal(saved.status, 200)
+    assert.equal(saved.data.ok, true)
+    assert.equal(readScratch(makeConfig(dir)).content, content)
+  } finally {
+    await api.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scratch api: 内容超过 writeScratch 上限 → 400 且由内容校验拦截（非 body 上限）', async () => {
+  const dir = tempDir()
+  const api = await bootApi(dir)
+  try {
+    // 600 KB 纯字符：body ≈ 614 KB < 4 MiB（readBody 放行），由
+    // writeScratch 的内容字节数校验拒绝——错误信息应指向内容超限。
+    const content = 'x'.repeat(SCRATCH_MAX_BYTES + 64 * 1024)
+    const saved = await api.request('POST', '/memory-evolve/api/scratch', { content })
+    assert.equal(saved.status, 400)
+    assert.ok(saved.data.error.includes('超过上限'), `应提示内容超上限：${saved.data.error}`)
+    // 原文件未被破坏
+    assert.equal(readScratch(makeConfig(dir)).content, '')
+  } finally {
+    await api.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scratch api: GET 透传读取拒绝（超大/非 UTF-8 返回 error 而非内容）', async () => {
+  const dir = tempDir()
+  const api = await bootApi(dir)
+  try {
+    // 超大文件
+    writeFileSync(join(dir, 'scratch.md'), Buffer.alloc(SCRATCH_MAX_BYTES + 1, 0x61))
+    const big = await api.request('GET', '/memory-evolve/api/scratch')
+    assert.equal(big.status, 200)
+    assert.equal(big.data.content, '')
+    assert.ok(big.data.error && big.data.error.includes('大小上限'))
+    // 非 UTF-8
+    writeFileSync(join(dir, 'scratch.md'), Buffer.from([0x63, 0xc3, 0x28]))
+    const bad = await api.request('GET', '/memory-evolve/api/scratch')
+    assert.equal(bad.status, 200)
+    assert.equal(bad.data.content, '')
+    assert.ok(bad.data.error && bad.data.error.includes('UTF-8'))
   } finally {
     await api.close()
     rmSync(dir, { recursive: true, force: true })

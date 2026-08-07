@@ -109,6 +109,26 @@
   padding: 3px 8px;
 }
 
+/* notice 行内的操作按钮（重试 / 打开），与文案同行右排 */
+.sp-notice-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.sp-btn-small {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+/* 警示（非错误）：如「其他窗口修改了便签」提示 */
+.sp-notice-warn {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .sp-notice-ok {
   color: var(--dsw-alias-state-success-primary);
   background: var(--dsw-alias-state-success-tertiary);

@@ -105,7 +105,10 @@ test('todo store: daily track files per day', () => {
     const store = new TodoStore(dir)
     const out = store.addTodo('daily', '今天跑五公里', {}, undefined)
     assert.equal(out.ok, true)
-    const today = new Date().toISOString().slice(0, 10)
+    // 注意：daily 文件名按【本地时区】todayStamp 生成；用 toISOString()
+    // （UTC）算"今天"在本地凌晨时段会差一天导致测试误挂（本地 00:00-08:00
+    // 期间 UTC 仍是前一天）。必须与实现保持一致。
+    const today = todayStamp()
     assert.ok(existsSync(join(dir, 'daily', `${today}.todo.md`)))
     assert.equal(store.itemsOf('daily').length, 1)
     assert.equal(store.itemsOf('daily', undefined, '2020-01-01').length, 0)
