@@ -1,7 +1,7 @@
 {
   "name": "dsh-memory-evolve",
   "version": "0.1.0",
-  "description": "Hermes-style long-term memory and background memory review for DeepSeek Harness. 长期记忆 + 后台记忆审查（Hermes 机制复刻）。",
+  "description": "为 DeepSeek Harness 带来分层记忆（全局 / 用户 / 项目 / GIT 分支 / 每日）与自我进化（经验沉淀 + 技能自动创建）和技能管理、待办管理、CLI 调度（kimi/codex/grok/hermes 等外部 AI 统一调度）、临时信息便签，带 WebUI 管理界面。Hermes-style long-term memory, self-evolution, skills, todos and external CLI agent dispatch for DeepSeek Harness.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
