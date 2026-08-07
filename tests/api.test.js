@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ArchiveStore, MemoryStore, SuggestionQueue } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, SuggestionQueue, isCanonical } from '../lib/store.js'
 import { installApi } from '../lib/api.js'
 import { validateRuntimePatch } from '../lib/index.js'
 import { TodoStore } from '../lib/todo.js'
@@ -250,6 +250,37 @@ test('api approve with empty contents falls back to the suggested content', asyn
   }
 })
 
+test('api approve with a target override re-classifies the suggestion', async () => {
+  const api = await bootApi({ resolveCwd: (sessionId) => (sessionId === 'abc' ? '/work/p' : undefined) })
+  try {
+    // 建议（带 cwd）→ 覆盖到 key 轨写入该项目 KEY.md
+    api.queue.append({ time: 't', target: 'memory', content: '这本该是项目事实', reason: 'r', cwd: '/work/p' })
+    const res = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      targets: { '1': 'key' },
+    })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('key', { session: { header: { cwd: '/work/p' } } }).length, 1)
+    assert.equal(api.store.entriesOf('memory').length, 0)
+    assert.equal(api.queue.read().length, 0)
+    // 非法目标 / 非法序号 → 400
+    api.queue.append({ time: 't2', target: 'user', content: 'x', reason: 'r', cwd: null })
+    const badTarget = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      targets: { '1': 'archive' },
+    })
+    assert.equal(badTarget.status, 400)
+    const badIndex = await api.request('POST', '/memory-evolve/api/suggestions/approve', {
+      indices: [1],
+      targets: { '0': 'key' },
+    })
+    assert.equal(badIndex.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
 test('api reveal resolves whitelisted targets and rejects unknown ones', async () => {
   const api = await bootApi()
   try {
@@ -313,6 +344,63 @@ test('api key/scope sets the branch scope of a KEY entry', async () => {
     assert.equal(badShape.status, 400)
     const missing = await api.request('POST', '/memory-evolve/api/key/scope', { sessionId: 'abc', match: '[2026-08-06] 不存在', branches: [] })
     assert.equal(missing.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api memory/update edits only the body, keeps stamps, rejects §', async () => {
+  const api = await bootApi({ resolveCwd: (sessionId) => (sessionId === 'abc' ? '/work/p' : undefined) })
+  try {
+    const agent = { session: { header: { cwd: '/work/p' } } }
+    // seed: memory / key entries
+    api.store.add('memory', '原始全局事实')
+    api.store.add('key', '[branch:main] 原始项目事实', agent)
+    const mem = api.store.entriesOf('memory')[0]
+    const key = api.store.entriesOf('key', agent)[0]
+
+    // memory 轨：时间戳保留、正文替换
+    let res = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'memory', match: mem, content: '修订后的全局事实',
+    })
+    assert.equal(res.status, 200)
+    assert.equal(api.store.entriesOf('memory')[0].includes('修订后的全局事实'), true)
+    assert.equal(api.store.entriesOf('memory')[0].includes(mem.slice(mem.indexOf(']'))), false)
+
+    // key 轨：时间戳 + [branch:] 保留
+    res = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'key', match: key, content: '修订后的项目事实',
+    })
+    assert.equal(res.status, 200)
+    const keyAfter = api.store.entriesOf('key', agent)[0]
+    assert.match(keyAfter, /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] 修订后的项目事实$/)
+
+    // 校验：§ 拒绝 / 空内容拒绝 / 无效轨 / 无 cwd 的项目轨 / 未匹配条目
+    const now = api.store.entriesOf('memory')[0]
+    const seg = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'memory', match: now, content: '包含§符号',
+    })
+    assert.equal(seg.status, 400)
+    const empty = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'memory', match: now, content: '  ',
+    })
+    assert.equal(empty.status, 400)
+    const badTrack = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'archive-memory', match: now, content: 'x',
+    })
+    assert.equal(badTrack.status, 400)
+    const noCwd = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'ghost', target: 'key', match: key, content: 'x',
+    })
+    assert.equal(noCwd.status, 400)
+    const missing = await api.request('POST', '/memory-evolve/api/memory/update', {
+      sessionId: 'abc', target: 'memory', match: '[2026-08-06] 不存在', content: 'x',
+    })
+    assert.equal(missing.status, 400)
+    // 文件仍为规范 § 格式
+    const raw = readFileSync(join(api.dir, 'MEMORY.md'), 'utf8')
+    assert.equal(isCanonical(raw), true)
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })

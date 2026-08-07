@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { TodoStore, TODO_HEADER, TODO_TARGETS, stampTodoLine, todoToolDefinition } from '../lib/todo.js'
-import { ArchiveStore, SuggestionQueue, projectHash, todayStamp } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, SuggestionQueue, projectHash, todayStamp } from '../lib/store.js'
 import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived } from '../lib/review.js'
 import { installApi } from '../lib/api.js'
 
@@ -413,6 +413,25 @@ test('dtodo tool: list target=project with cwd= queries another project', async 
   }
 })
 
+test('suggestions approve: todo suggestions ignore target overrides (todo stays todo)', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    const todoStore = new TodoStore(dir)
+    const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+    const agent = { id: 'a', session: { header: { cwd: '/proj/p' } } }
+    enqueueSuggestion(queue, 'todo-work', '这句话必须还是待办', 'r', agent)
+    // 即使误传覆盖为记忆轨，待办建议仍写待办
+    const report = approveSuggestions(store, todoStore, queue, [1], agent, undefined, new Map([[1, 'memory']]))
+    assert.equal(report.remaining, 0)
+    assert.equal(store.entriesOf('memory').length, 0)
+    assert.equal(todoStore.itemsOf('work').length, 1)
+    assert.equal(todoStore.itemsOf('work')[0].text, '这句话必须还是待办')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('todo suggestions: enqueue target=todo-* → approve writes the todo track', () => {
   const dir = tempDir()
   try {
@@ -429,6 +448,49 @@ test('todo suggestions: enqueue target=todo-* → approve writes the todo track'
     assert.equal(todoStore.itemsOf('life')[0].text, '每天锻炼半小时')
     assert.equal(todoStore.itemsOf('project', '/proj/p').length, 1)
     assert.equal(todoStore.itemsOf('project', '/proj/p')[0].text, '重构解析器模块')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('suggestions approve: per-index target override re-classifies into another track', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    const todoStore = new TodoStore(dir)
+    const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+    const agent = { id: 'a', session: { header: { cwd: '/proj/p' } } }
+    enqueueSuggestion(queue, 'memory', '本该是项目关键记忆的事实', '分类不够准', agent)
+    enqueueSuggestion(queue, 'user', '用户偏好整理', 'AI 建议到 user 了', agent)
+    enqueueSuggestion(queue, 'todo-work', '这句话其实不是待办', 'AI 建议到待办了', agent)
+    // 覆盖：1 → key（按建议时记录的 cwd 写入项目 KEY.md）；2 → memory；3 → 保持 todo-work
+    const report = approveSuggestions(store, todoStore, queue, [1, 2, 3], agent, undefined, new Map([[1, 'key'], [2, 'memory']]))
+    assert.equal(report.remaining, 0)
+    const keyAgent = { session: { header: { cwd: '/proj/p' } } }
+    assert.equal(store.entriesOf('key', keyAgent).length, 1)
+    assert.equal(store.entriesOf('key', keyAgent)[0].includes('本该是项目关键记忆的事实'), true)
+    assert.equal(store.entriesOf('memory').length, 1)
+    assert.equal(store.entriesOf('memory')[0].includes('用户偏好整理'), true)
+    assert.equal(todoStore.itemsOf('work').length, 1)
+    assert.equal(todoStore.itemsOf('work')[0].text, '这句话其实不是待办')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('suggestions approve: key override without a cwd fails and keeps the entry', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    const todoStore = new TodoStore(dir)
+    const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+    // 建议来自无 cwd 的会话（entry.cwd = null），UI 采纳也不带 agent（同 API 路径）
+    enqueueSuggestion(queue, 'memory', '无工作目录会话的事实', 'r', { id: 'a', session: { header: {} } })
+    const report = approveSuggestions(store, todoStore, queue, [1], undefined, undefined, new Map([[1, 'key']]))
+    assert.equal(report.remaining, 1)
+    assert.ok(report.lines[0].includes('✗'))
+    // 原建议保留在队列里
+    assert.equal(queue.read().length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

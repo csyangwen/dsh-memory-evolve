@@ -33,6 +33,24 @@ function todoTargetLabel(t: Translate, target: string): string {
   return target
 }
 
+/** 建议目标 → 友好显示名（长期记忆/用户档案/项目关键记忆/待办·…）。 */
+function suggestTargetLabel(t: Translate, target: string): string {
+  if (target.startsWith('todo-')) return todoTargetLabel(t, target)
+  if (target === 'memory') return t('panel.suggestions.target.memory')
+  if (target === 'user') return t('panel.suggestions.target.user')
+  if (target === 'key') return t('panel.suggestions.target.key')
+  return target
+}
+
+/** 建议目标 → 徽标着色类后缀（memory/user/key/todo）。 */
+function suggestTargetClass(target: string): string {
+  return target.startsWith('todo-') ? 'todo' : target
+}
+
+/** 采纳时可选的目标轨（仅记忆三轨：默认=AI 推荐；可改到更合适的分类）。
+ *  待办建议不提供改分类下拉——直接采纳即按推荐写入待办轨。 */
+const SUGGEST_TARGETS = ['memory', 'user', 'key'] as const
+
 /** One pending suggestion entry (subset of the queue record). */
 interface SuggestionEntry {
   time: string
@@ -97,6 +115,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
   const [draft, setDraft] = useState<RuntimeConfig | null>(null)
   /** Edited text per 1-based suggestion index (textarea values). */
   const [edits, setEdits] = useState<Record<number, string>>({})
+  /** 采纳时的目标轨选择（1-based index → 覆盖轨；缺省=AI 推荐的分类）。 */
+  const [targetPicks, setTargetPicks] = useState<Record<number, string>>({})
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -112,6 +132,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       setEntries(sorted)
       setSkills(sk.entries)
       setEdits({})
+      setTargetPicks({})
       setConfig(c.config)
       setDraft((prev) => prev ?? c.config)
     }).catch((error: Error) => {
@@ -126,7 +147,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
 
   const runSuggestions = (op: 'approve' | 'archive' | 'reject' | 'approve-all' | 'reject-all', indices?: number[]): void => {
     setBusy(true)
-    const body: { indices?: number[]; contents?: string[] } = {}
+    const body: { indices?: number[]; contents?: string[]; targets?: Record<string, string> } = {}
     if (indices !== undefined) {
       body.indices = indices
       if (op === 'approve') {
@@ -135,6 +156,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
         // all-empty contents array would otherwise be treated as a real edit
         // of every entry ("" is not nullish), overwriting the suggestion.
         if (contents.some((content) => content !== '')) body.contents = contents
+        // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）
+        const overrides: Record<string, string> = {}
+        for (const index of indices) {
+          const pick = targetPicks[index]
+          if (pick !== undefined && pick !== entries?.[index - 1]?.target) overrides[String(index)] = pick
+        }
+        if (Object.keys(overrides).length > 0) body.targets = overrides
       }
     }
     void api<{ lines?: string[]; removed?: number; remaining: number }>(`/api/suggestions/${op}`, {
@@ -220,8 +248,11 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                 {entries.map((entry, index) => (
                   <li key={`${entry.time}-${index}`} className="me-item">
                     <div className="me-item-head">
-                      <span className="me-badge me-badge-target">
-                        {entry.target.startsWith('todo-') ? todoTargetLabel(t, entry.target) : entry.target}
+                      <span
+                        className={`me-badge me-badge-suggest me-badge-suggest-${suggestTargetClass(entry.target)}`}
+                        title={t('panel.suggestions.targetHint')}
+                      >
+                        {suggestTargetLabel(t, entry.target)}
                       </span>
                       {(entry.hits ?? 1) > 1 && (
                         <span className="me-badge me-badge-hits" title={t('panel.suggestions.hitsHint')}>
@@ -230,6 +261,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                       )}
                       <span className="me-item-time" title={entry.time}>{formatTime(entry.time)}</span>
                       <span className="me-item-actions">
+                        {!entry.target.startsWith('todo-') && (
+                          <select
+                            className="me-pick-target"
+                            title={t('panel.suggestions.targetHint')}
+                            value={targetPicks[index + 1] ?? entry.target}
+                            onChange={(event) => setTargetPicks((prev) => ({ ...prev, [index + 1]: event.target.value }))}
+                          >
+                            {SUGGEST_TARGETS.map((target) => (
+                              <option key={target} value={target}>{suggestTargetLabel(t, target)}</option>
+                            ))}
+                          </select>
+                        )}
                         <button
                           type="button"
                           className="me-btn me-btn-ok"

@@ -185,6 +185,48 @@
   background: var(--dsw-alias-state-warn-tertiary);
 }
 
+/* 待确认建议的目标徽标：按轨着色，醒目区分要写入哪类记忆 */
+.me-badge-suggest {
+  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 1px 10px;
+}
+
+.me-badge-suggest-memory {
+  color: var(--dsw-static-blue-5, #3b82f6);
+  background: color-mix(in srgb, var(--dsw-static-blue-5, #3b82f6) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-static-blue-5, #3b82f6) 45%, transparent);
+}
+
+.me-badge-suggest-user {
+  color: var(--dsw-static-green-5, #16a34a);
+  background: color-mix(in srgb, var(--dsw-static-green-5, #16a34a) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-static-green-5, #16a34a) 45%, transparent);
+}
+
+.me-badge-suggest-key {
+  color: var(--dsw-static-amber-6, #d97706);
+  background: color-mix(in srgb, var(--dsw-static-amber-5, #f59e0b) 18%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-static-amber-5, #f59e0b) 48%, transparent);
+}
+
+.me-badge-suggest-todo {
+  color: var(--dsw-static-purple-5, #9333ea);
+  background: color-mix(in srgb, var(--dsw-static-purple-5, #9333ea) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-static-purple-5, #9333ea) 45%, transparent);
+}
+
+/* 采纳目标选择下拉（默认=AI 推荐轨，可改分类） */
+.me-pick-target {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
 .me-item-time {
   flex: 1;
   min-width: 0;
@@ -1069,6 +1111,46 @@
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--dsw-alias-label-primary);
+}
+
+/* 条目正文编辑框（美观视图「编辑」）：只改内容，标记程序维护 */
+.mt-entry-edit {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mt-item-edit {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  resize: vertical;
+  min-height: 56px;
+}
+
+.mt-item-edit:focus-visible {
+  outline: 2px solid var(--dsw-static-blue-6, #2563eb);
+  outline-offset: 1px;
+}
+
+.mt-entry-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mt-entry-edit-hint {
+  flex: 1 1 auto;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Entry list scrollbar (token-driven, fall back to border color) */

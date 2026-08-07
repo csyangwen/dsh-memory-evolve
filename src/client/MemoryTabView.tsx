@@ -75,6 +75,12 @@ const TIME_PREFIX = {
 /** 美观视图下按 § 条目解析的文件（AGENTS.md 始终纯文本）。 */
 const ENTRY_KEYS = new Set(['memory', 'user', 'archive-memory', 'archive-user', 'archive-key', 'project', 'key', 'daily'])
 
+/** 美观视图下可编辑正文的文件（五个主轨；归档只读，可移回后编辑）。 */
+const EDIT_KEYS = new Set(['memory', 'user', 'project', 'key', 'daily'])
+
+/** 注入轨：保存后会立即进入模型上下文（编辑保存需确认）。 */
+const INJECTED_KEYS = new Set(['memory', 'user', 'key'])
+
 /** 把文件内容拆成 § 条目，剥离时间戳前缀（daily 再剥离程序标注的项目标签）。 */
 function parseEntries(row: MemoryFileRow): MemoryEntry[] {
   const prefix = row.key === 'project' ? TIME_PREFIX.project
@@ -169,6 +175,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [scopeEdit, setScopeEdit] = useState<string | null>(null)
   const [scopeDraft, setScopeDraft] = useState<string[]>([])
   const [scopeSaving, setScopeSaving] = useState(false)
+  /** 正在编辑正文的条目 raw（null = 未在编辑）；草稿与保存状态。 */
+  const [editEntryRaw, setEditEntryRaw] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
   /** 删除条目进行中（防止连点并发删除）。 */
   const [deleting, setDeleting] = useState(false)
   /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置/技能管理面板。 */
@@ -314,6 +324,40 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: error.message })
     }).finally(() => setDeleting(false))
+  }
+
+  /** 开始编辑某条正文（草稿=当前正文）。 */
+  const startEdit = (entry: MemoryEntry): void => {
+    setEditEntryRaw(entry.raw)
+    setEditDraft(entry.text)
+  }
+
+  /** 保存正文编辑：只改内容，时间戳/tag 由宿主保留；§ 分隔符输入即过滤。
+   *  注入轨（memory/user/key）保存后立即进入模型上下文，需用户确认。 */
+  const saveEdit = (): void => {
+    if (editEntryRaw === null || activeRow === null || editSaving) return
+    const content = editDraft.trim()
+    if (content === '') return
+    if (INJECTED_KEYS.has(activeRow.key)) {
+      const snippet = content.length > 60 ? `${content.slice(0, 60)}…` : content
+      if (!window.confirm(t('memoryTab.editConfirm', { snippet }))) return
+    }
+    setEditSaving(true)
+    void api<{ ok: boolean }>('/api/memory/update', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: String(sessionId),
+        target: activeRow.key,
+        match: editEntryRaw,
+        content: editDraft,
+      }),
+    }).then(() => {
+      setEditEntryRaw(null)
+      load()
+      flash(t('memoryTab.updated'))
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: error.message })
+    }).finally(() => setEditSaving(false))
   }
 
   /**
@@ -609,6 +653,17 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                               {t('memoryTab.promote')}
                             </button>
                           )}
+                          {EDIT_KEYS.has(activeRow.key) && editEntryRaw !== entry.raw && (
+                            <button
+                              type="button"
+                              className="mt-btn mt-entry-op"
+                              title={t('memoryTab.edit')}
+                              disabled={deleting}
+                              onClick={() => startEdit(entry)}
+                            >
+                              {t('memoryTab.edit')}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="mt-btn mt-entry-del"
@@ -620,7 +675,32 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                           </button>
                         </span>
                       </div>
-                      <p className="mt-entry-text">{entry.text}</p>
+                      {editEntryRaw === entry.raw ? (
+                        <div className="mt-entry-edit">
+                          <textarea
+                            className="mt-item-edit"
+                            rows={3}
+                            value={editDraft}
+                            onChange={(event) => setEditDraft(event.target.value.replaceAll('§', ''))}
+                          />
+                          <div className="mt-entry-edit-row">
+                            <span className="mt-entry-edit-hint">{t('memoryTab.editHint')}</span>
+                            <button
+                              type="button"
+                              className="mt-btn mt-btn-primary"
+                              disabled={editSaving || editDraft.trim() === ''}
+                              onClick={saveEdit}
+                            >
+                              {t('memoryTab.save')}
+                            </button>
+                            <button type="button" className="mt-btn" disabled={editSaving} onClick={() => setEditEntryRaw(null)}>
+                              {t('memoryTab.cancel')}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-entry-text">{entry.text}</p>
+                      )}
                       {activeRow.key === 'key' && scopeEdit === entry.raw && branches.length > 0 && (
                         <div className="mt-scope">
                           <span className="mt-key-scope-label">{t('memoryTab.keyScope')}:</span>
