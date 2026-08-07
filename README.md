@@ -251,7 +251,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `coiTaskTimeoutMs` | `43200000` | 任务默认超时（毫秒，12 小时；AI 代理任务动辄数小时，超时仅作兜底防线，配置页可调） |
 | `coiSyncSkills` | `true` | 启动时把内置适配器技能（kimi/codex/grok/hermes-cli-calling）同步到技能库——使用指南的源头在插件，默认启用、可在「技能管理」Tab 禁用、随插件升级更新 |
 | `coiMaxLogBytes` | `2097152` | 单任务留档上限（字节，超限标记截断） |
-| `coiDefaultInjectContext` | `false` | 新任务默认是否向 COI 注入 DSH 记忆上下文（AGENTS 规则/长期记忆/用户档案/本项目关键记忆按 cwd+分支过滤，与 DSH 会话注入同规则；内容会发给外部 COI 服务，默认关；每次发起可覆盖） |
+| `coiDefaultInjectContext` | `false` | 新任务默认是否向 COI 注入 DSH 记忆上下文（长期记忆/用户档案/本项目关键记忆按 cwd+分支过滤，不含 AGENTS.md；内容会发给外部 COI 服务，默认关；每次发起可覆盖） |
 
 ## 安全设计
 

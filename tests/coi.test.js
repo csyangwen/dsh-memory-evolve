@@ -458,6 +458,8 @@ test('scheduler: memory context injection (opt-in, inline + file fallback)', () 
   assert.ok(arg1.includes('无需说明或提及来源'))
   assert.ok(arg1.includes('测试记忆轨内容'))
   assert.ok(arg1.includes('任务2'))
+  // 不注入 AGENTS.md 全局规则（用户决策：只注入记忆轨，外部 COI 不背 DSH 纪律）
+  assert.ok(!arg1.includes('【全局规则 AGENTS.md】'), '不注入 AGENTS.md 段')
   // 自定义文本叠加
   const withText = scheduler.dispatch({ adapterId: 'grok', prompt: '任务3', contextText: '【自查】项目日志要点：完成了登录模块' })
   const arg2 = harness.children[2].args[1]
@@ -615,6 +617,60 @@ test('coi tools: dispatch/status/wait/cancel registered with schemas', async () 
   const waitTool = tools[3]
   const cancelResult = await waitTool.execute({ taskId: 'nonexistent' })
   assert.equal(cancelResult.ok, false)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missing/null-typed fields)', async () => {
+  // 回归：de_coi_status 曾因返回全字段任务而 schema 只声明 6 个属性被模型 API
+  // 拒绝（additionalProperties:false + null 撞 string 类型）。现在输出必须与
+  // schema 的属性集一一对应：字段不多不少、可空字符串归一化为空串、可空数字
+  // 保留 null（schema 用 oneOf 声明）。
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const tools = coiToolDefinitions(scheduler)
+  const dispatchTool = tools[0]
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const statusTool = tools[2]
+  const waitTool = tools[3]
+  const cancelTool = tools[4]
+  // 运行中任务：sessionId/finishedAt/exitCode/summary 尚未产生
+  const status = await statusTool.execute({ taskId: result.taskId })
+  assert.equal(status.ok, true)
+  assert.ok(status.message.length > 0, 'status 必须带 message')
+  const taskSchema = statusTool.output.schema.properties.task
+  const schemaProps = Object.keys(taskSchema.properties).sort()
+  assert.deepEqual(Object.keys(status.task).sort(), schemaProps, 'task 字段集必须与 schema 完全一致')
+  assert.equal(status.task.sessionId, '', '可空字符串归一化为空串')
+  assert.equal(status.task.finishedAt, null, '可空数字保留 null')
+  assert.equal(status.task.exitCode, null)
+  assert.equal(status.task.summary, '')
+  assert.ok(Array.isArray(status.task.progress))
+  // wait：完成任务的输出同样合规（wait 成功分支原无 message，已补）
+  harness.children[0].emit('close', 0)
+  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 })
+  assert.equal(waited.ok, true)
+  assert.ok(waited.message.length > 0, 'wait 必须带 message')
+  assert.deepEqual(Object.keys(waited.task).sort(), schemaProps, 'wait task 字段集与 schema 一致')
+  // cancel：任务已结束 → {ok:false} 无 task（schema 允许 task 缺省）
+  const cancel = await cancelTool.execute({ taskId: result.taskId })
+  assert.equal(cancel.ok, false)
+  assert.ok(cancel.message.length > 0)
+  // 新任务 cancel：返回带 task 的终止详情，同样合规
+  const result2 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务2', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const cancel2 = await cancelTool.execute({ taskId: result2.taskId })
+  assert.equal(cancel2.ok, true)
+  assert.deepEqual(Object.keys(cancel2.task).sort(), schemaProps, 'cancel task 字段集与 schema 一致')
+  assert.equal(cancel2.task.status, 'killed')
+  // wait 可被 exec.signal（停止按钮/回合中断）中止：不阻塞到 timeout
+  const result3 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务3', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const controller = new AbortController()
+  const waitPromise = waitTool.execute({ taskId: result3.taskId, timeoutMs: 120000 }, { signal: controller.signal })
+  controller.abort()
+  const aborted = await waitPromise
+  assert.equal(aborted.ok, false, 'abort 后立即返回')
+  assert.match(aborted.message, /取消/)
+  // 让被放弃的 wait 内部 Promise 正常收尾（任务完成 → 清掉残留 timer）
+  harness.children[2].emit('close', 0)
   rmSync(dir, { recursive: true, force: true })
 })
 
