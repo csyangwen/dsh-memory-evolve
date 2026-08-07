@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-08-07 — slots API 适配与快照提示优化（`68d05de`/`cfcfd63`）
+
+- **适配 DSH 08-06 profiles 架构**（`68d05de`）：上游移除 `ui-slots.deferRegistration`，客户端改用 `ctx.slots.inject` 注册记忆 Tab，badge 刷新改为重新注册（deferral.refresh）后恢复 tab 选择；配套 dsh-plugin / dsh-web-plugin 技能按新架构更新（config.yaml → cordis.patch.yml、`--dump-config` 排查）
+- **快照提示词优化**（`cfcfd63`）：分区标题更清晰（「长期记忆（所有项目、会话都必须遵循）」「本项目关键记忆（memory 工具 target=key）」「记忆 memory-evolve（包含 memory 工具、dtodo 待办工具、skill_manage 技能工具）」），删除「✅ memory-evolve 本轮执行完毕」收尾语（快照只保留纪律，不再自指）
+
+---
+
 ## 2026-08-07 — 本地文件搜索（`a4cdb3b`/`1bb4909`/`5af8c10`）
 
 ### 🎯 本地文件搜索工具（memory_evolve_search_local_files）
