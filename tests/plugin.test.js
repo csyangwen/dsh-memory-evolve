@@ -121,12 +121,18 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.skillManageToolName, 'skill_manage')
   assert.ok(config.memoryDir.endsWith('memories'))
   assert.ok(config.skillDir.endsWith(join('.agents', 'skills')))
+  assert.deepEqual(config.searchDocsExts, ['md'])
+  assert.equal(config.searchDocsProviders, 'auto')
+  assert.equal(config.searchDocsEnabled, false)
   assert.throws(() => resolveConfig({ nope: 1 }), /未知配置项/)
   assert.throws(() => resolveConfig({ reviewInterval: 0 }), /正数/)
   assert.throws(() => resolveConfig({ reviewMode: 'x' }), /suggest/)
   assert.throws(() => resolveConfig({ reviewTools: [] }), /未知配置项/)
   assert.throws(() => resolveConfig({ skillMaxBytes: -1 }), /正数/)
   assert.throws(() => resolveConfig({ entryDatePrefix: 'yes' }), /布尔/)
+  assert.throws(() => resolveConfig({ searchDocsExts: [] }), /searchDocsExts/)
+  assert.throws(() => resolveConfig({ searchDocsExts: ['BAD*'] }), /searchDocsExts/)
+  assert.throws(() => resolveConfig({ searchDocsProviders: [] }), /searchDocsProviders/)
   assert.throws(() => resolveConfig('x'), /对象/)
 })
 
@@ -143,6 +149,28 @@ test('apply registers memory tool and snapshot context by default', () => {
   assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_suggest'), 'suggest tool off by default')
   assert.ok(ctx.state.commands.some((c) => c.name === 'memory_review'), 'review command registered')
   clean(dir)
+})
+
+test('search docs tool: 默认禁用不注册；配置/运行时 state 开启后注册；命令始终注册', () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir })
+  assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '默认禁用：工具不注册（模型不可见）')
+  assert.ok(ctx.state.commands.some((c) => c.name === 'memory_evolve_search_docs'), '开关命令始终注册')
+  clean(dir)
+
+  const ctx2 = fakeCtx()
+  apply(ctx2, { memoryDir: dir, searchDocsEnabled: true })
+  assert.ok(ctx2.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '配置开启后注册工具')
+  clean(dir)
+
+  // 运行时 state 文件开启（Web 面板 / slash 命令的持久化通道）
+  const dir3 = tempDir()
+  writeFileSync(join(dir3, 'plugin-state.json'), JSON.stringify({ searchDocsEnabled: true }))
+  const ctx3 = fakeCtx()
+  apply(ctx3, { memoryDir: dir3 })
+  assert.ok(ctx3.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '运行时状态开启后注册工具')
+  clean(dir3)
 })
 
 test('memory tool end-to-end add/list/replace/remove', async () => {

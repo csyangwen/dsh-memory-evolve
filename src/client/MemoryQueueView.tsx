@@ -59,6 +59,7 @@ interface RuntimeConfig {
   perTurnProjectWrites: boolean
   perTurnDailyWrites: boolean
   perTurnKeyWrites: boolean
+  searchDocsEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -176,6 +177,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnProjectWrites: draft.perTurnProjectWrites,
       perTurnDailyWrites: draft.perTurnDailyWrites,
       perTurnKeyWrites: draft.perTurnKeyWrites,
+      searchDocsEnabled: draft.searchDocsEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -413,6 +415,20 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.perTurnKeyWrites}
                     onChange={(event) => patchDraft({ perTurnKeyWrites: event.target.checked })}
+                  />
+                </label>
+              </div>
+              <div className="me-group">
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.searchDocsEnabled')}
+                    <em className="me-field-hint">{t('panel.config.searchDocsEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.searchDocsEnabled}
+                    onChange={(event) => patchDraft({ searchDocsEnabled: event.target.checked })}
                   />
                 </label>
               </div>
