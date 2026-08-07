@@ -671,6 +671,15 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   assert.match(aborted.message, /取消/)
   // 让被放弃的 wait 内部 Promise 正常收尾（任务完成 → 清掉残留 timer）
   harness.children[2].emit('close', 0)
+  // wait 超时：运行中任务轮询到 deadline 返回——不依赖 ctx.on/ctx.off
+  // （bootScheduler 的 ctx 只有 emit；曾因超时回调里 ctx.off 抛
+  //  "cannot get property off without inject" 崩掉整个进程）
+  const result4 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务4', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const timedOut = await waitTool.execute({ taskId: result4.taskId, timeoutMs: 1500 })
+  assert.equal(timedOut.ok, false)
+  assert.match(timedOut.message, /超时/)
+  assert.equal(timedOut.task.status, 'running', '超时返回当前状态')
+  harness.children[3].emit('close', 0)
   rmSync(dir, { recursive: true, force: true })
 })
 
