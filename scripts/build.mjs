@@ -16,10 +16,25 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
-/** Loader entry name — must match the `name` in ~/.dsh/config.yaml EXACTLY. */
-const PLUGIN_ID = '@dsh-local/dsh-memory-evolve'
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+/** DSH source checkout root; override with $DSH_SOURCE when not the default. */
+const CHECKOUT = process.env.DSH_SOURCE ?? join(homedir(), '.dsh/source/current')
+
+/**
+ * Loader entry name — must equal the patch row `name` EXACTLY.
+ *
+ * 自 DSH 08-06 起插件采用标准安装（`dsh plugin --profile <name> add <pkg>`，
+ * 包装进 profile 的 node_modules），加载器（client-modules）按 loader entry
+ * 的 name 解析 client bundle 的注册 ID，而 loader entry 的 name 即
+ * package.json 的 `name`。旧机制（`~/node_modules/@dsh-local/` 软链 +
+ * `~/.dsh/config.yaml`）依赖 `@dsh-local/` 命名空间前缀，08-06 起已废弃
+ * （config.yaml 不再被读取）。因此这里从 package.json 动态读取，避免硬编码
+ * 前缀导致标准安装下 "loaded without registering"（见 issue #3）。
+ */
+const MANIFEST = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const PLUGIN_ID = MANIFEST.name
 
 /** Platform module table (must stay aligned with packages/client/web/src/platform.ts + the runtime exemption). */
 const EXTERNALS = [
@@ -34,10 +49,6 @@ const EXTERNALS = [
   '@deepseek-ai/dsh-client-schema-form',
   '@deepseek-ai/dsh-client-runtime/client',
 ]
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-/** DSH source checkout root; override with $DSH_SOURCE when not the default. */
-const CHECKOUT = process.env.DSH_SOURCE ?? join(homedir(), '.dsh/source/current')
 
 /** Locate the esbuild package inside a pnpm checkout (store or hoisted). */
 function resolveEsbuild(checkout) {
