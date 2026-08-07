@@ -110,6 +110,37 @@ test('adapter store: builtins + custom CRUD', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('adapter store: builtin upsert merges partial def and persists override', () => {
+  // 前端 saveUseCase 只提交部分字段（缺 resume 等）——后端必须合并内置
+  // 完整定义后校验（通过），且覆盖结果持久化（重启/重载不丢）。
+  const dir = tempDir()
+  const store = new AdapterStore(join(dir, 'adapters.json'))
+  const updated = store.upsert({
+    id: 'kimi',
+    name: 'Kimi Code',
+    type: 'ai-cli',
+    binary: 'kimi',
+    args: ['-p', '{task}'],
+    skillName: 'kimi-cli-calling',
+    useCase: '新场景',
+  })
+  assert.equal(updated.useCase, '新场景')
+  // 合并后保留内置关键字段（resume 等）
+  assert.ok(updated.resume, '合并后保留内置 resume')
+  assert.ok(updated.sessionIdExtract, '合并后保留内置 sessionIdExtract')
+  // 持久化：新实例从同一文件加载，覆盖仍在
+  const again = new AdapterStore(join(dir, 'adapters.json'))
+  assert.equal(again.get('kimi').useCase, '新场景')
+  // 完整定义 upsert（前端 {...a, useCase} 形态）同样通过并持久化
+  const full = { ...BUILTIN_ADAPTERS.grok, useCase: '另一个场景' }
+  const updated2 = store.upsert(full)
+  assert.equal(updated2.useCase, '另一个场景')
+  assert.equal(new AdapterStore(join(dir, 'adapters.json')).get('grok').useCase, '另一个场景')
+  // 清空 useCase 仍被拒（语义不变）
+  assert.throws(() => store.upsert({ ...BUILTIN_ADAPTERS.kimi, useCase: '  ' }), /useCase/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('buildArgs: new / resume / continue per adapter', () => {
   const kimi = BUILTIN_ADAPTERS.kimi
   const codex = BUILTIN_ADAPTERS.codex
@@ -731,6 +762,16 @@ test('coi api: adapter upsert + delete + test', async () => {
     assert.equal(delBuiltin.data.ok, false)
     const del = await api.request('DELETE', '/memory-evolve/api/coi/adapters/hello')
     assert.equal(del.data.ok, true)
+    // 启用/禁用路由（回归：segments 段数曾误写 7 → 404）
+    const disable = await api.request('POST', '/memory-evolve/api/coi/adapters/kimi/enabled', { enabled: false })
+    assert.equal(disable.status, 200)
+    assert.equal(disable.data.ok, true)
+    assert.equal(api.stores.adapters.get('kimi').enabled, false)
+    const enable = await api.request('POST', '/memory-evolve/api/coi/adapters/kimi/enabled', { enabled: true })
+    assert.equal(enable.status, 200)
+    assert.equal(api.stores.adapters.get('kimi').enabled, true)
+    const badEnable = await api.request('POST', '/memory-evolve/api/coi/adapters/kimi/enabled', { enabled: 'yes' })
+    assert.equal(badEnable.status, 400)
     const test = await api.request('POST', '/memory-evolve/api/coi/adapters/test', { id: 'grok' })
     assert.equal(test.status, 200)
     assert.equal(test.data.ok, true)

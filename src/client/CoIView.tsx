@@ -460,9 +460,15 @@ function deleteJson<T>(path: string): Promise<T> {
   return fetchJson<T>(path, { method: 'DELETE' })
 }
 
-/** unknown → 可读错误文本。 */
+/** unknown → 可读错误文本；空信息兜底，绝不渲染空红框。 */
 function errText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  const text = err instanceof Error ? err.message : String(err)
+  return text !== undefined && text.trim() !== '' ? text : '操作失败（无错误详情）'
+}
+
+/** 后端 message 兜底：空串/缺失时用 fallback。 */
+function msgOr(text: string | undefined, fallback: string): string {
+  return text !== undefined && text.trim() !== '' ? text : fallback
 }
 
 function pad2(n: number): string {
@@ -718,7 +724,7 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
     try {
       const res = await deleteJson<{ ok: boolean; message?: string }>(`/tasks/${encodeURIComponent(id)}`)
       if (res.ok !== true) {
-        setNotice({ kind: 'error', text: res.message ?? '删除失败' })
+        setNotice({ kind: 'error', text: msgOr(res.message, '删除失败') })
         return
       }
       setSelectedId(null)
@@ -1313,7 +1319,7 @@ function AdaptersPane(): JSX.Element {
     try {
       const res = await deleteJson<{ ok: boolean; message?: string }>(`/adapters/${encodeURIComponent(id)}`)
       if (res.ok === false) {
-        setNotice({ kind: 'error', text: res.message ?? 'ok:false' })
+        setNotice({ kind: 'error', text: msgOr(res.message, 'ok:false') })
         return
       }
       void load()
@@ -1324,18 +1330,12 @@ function AdaptersPane(): JSX.Element {
 
   const saveUseCase = async (a: Adapter): Promise<void> => {
     try {
-      const def = {
-        id: a.id,
-        name: a.name,
-        type: a.type,
-        binary: a.binary,
-        args: a.args,
-        skillName: a.skillName,
-        useCase: useCaseDraft.trim(),
-      }
+      // 发送完整定义（...a 含 resume/continue/sessionIdExtract 等全部字段），
+      // 只覆盖 useCase——后端按完整定义校验，避免部分字段被拒
+      const def = { ...a, useCase: useCaseDraft.trim() }
       const res = await postJson<{ ok: boolean; message?: string }>('/adapters', { def })
       if (res.ok !== true) {
-        setNotice({ kind: 'error', text: res.message ?? '保存失败' })
+        setNotice({ kind: 'error', text: msgOr(res.message, '保存失败') })
         return
       }
       setUseCaseEditId(null)
@@ -1350,7 +1350,7 @@ function AdaptersPane(): JSX.Element {
       const next = a.enabled === false
       const res = await postJson<{ ok: boolean; message?: string }>(`/adapters/${encodeURIComponent(a.id)}/enabled`, { enabled: next })
       if (res.ok !== true) {
-        setNotice({ kind: 'error', text: res.message ?? '操作失败' })
+        setNotice({ kind: 'error', text: msgOr(res.message, '操作失败') })
         return
       }
       void load()
@@ -1368,7 +1368,7 @@ function AdaptersPane(): JSX.Element {
     try {
       const res = await fetchJson<{ ok: boolean; skillName?: string; exists?: boolean; content?: string; message?: string }>(`/adapters/${encodeURIComponent(a.id)}/skill`)
       if (res.ok !== true) {
-        setSkillError(res.message ?? '读取失败')
+        setSkillError(msgOr(res.message, '读取失败'))
         return
       }
       setSkillEditName(res.skillName ?? '')
@@ -1389,7 +1389,7 @@ function AdaptersPane(): JSX.Element {
         body: JSON.stringify({ content: skillContent }),
       })
       if (res.ok !== true) {
-        setSkillError(res.message ?? '保存失败')
+        setSkillError(msgOr(res.message, '保存失败'))
         return
       }
       setNotice({ kind: 'ok', text: res.message ?? t('adapters.skillSaved') })

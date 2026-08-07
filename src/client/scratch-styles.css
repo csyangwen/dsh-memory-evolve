@@ -85,14 +85,21 @@
   flex: 1;
 }
 
-.sp-dirty {
+.sp-status {
   font-size: 12px;
-  color: var(--dsw-alias-state-warn-primary);
+  line-height: 1.4;
 }
 
-.sp-hint {
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+.sp-status-ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.sp-status-pending {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sp-status-error {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .sp-notice {
@@ -108,7 +115,9 @@
 }
 
 .sp-notice-error {
-  color: var(--dsw-alias-state-error-primary);
+  /* 暗色主题下 error-primary 与 error-secondary 同色（red-400），
+     固定深红保证文字在粉红底上可读 */
+  color: var(--dsw-static-red-900);
   background: var(--dsw-alias-state-error-secondary);
 }
 
@@ -136,14 +145,4 @@
 .sp-btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.sp-btn-primary {
-  background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-primary-inverted);
-  border-color: transparent;
-}
-
-.sp-btn-primary:hover:not(:disabled) {
-  background: var(--dsw-alias-button-primary-hover);
 }
