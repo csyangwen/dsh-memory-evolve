@@ -16,6 +16,8 @@ import { coiStats } from '../lib/coi/stats.js'
 import { coiToolDefinitions } from '../lib/coi/tools.js'
 import { installCoiApi } from '../lib/coi/api.js'
 import { validateCoiRuntimePatch } from '../lib/coi/index.js'
+import { buildCoiSnapshotBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { MemoryStore } from '../lib/store.js'
 
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
 const schedulers = []
@@ -238,47 +240,59 @@ test('visibility: scope-tier filtering for tasks and sessions', () => {
   const dir = tempDir()
   const { tasks, sessions } = bootStores(dir)
   const mk = (scope, extra = {}) => tasks.add({ adapterId: 'kimi', prompt: 'p', scope, cwd: null, branch: null, ...extra })
-  // 会话 A 的任务
-  const tTemp = mk('temporary', { ownerSessionId: 'sessA', cwd: '/projA' })
-  const tSession = mk('session', { ownerSessionId: 'sessA', cwd: '/projA' })
-  const tProject = mk('project', { ownerSessionId: 'sessA', cwd: '/projA' })
+  // 会话 A（工作区 /workA）的任务
+  const tTemp = mk('temporary', { ownerSessionId: 'sessA', cwd: '/projA', ownerCwd: '/workA' })
+  const tSession = mk('session', { ownerSessionId: 'sessA', cwd: '/projA', ownerCwd: '/workA' })
+  // 跨目录派的任务：工作区 /workA，任务 cwd=/projA
+  const tProject = mk('project', { ownerSessionId: 'sessA', cwd: '/projA', ownerCwd: '/workA' })
+  const tProjectCross = mk('project', { ownerSessionId: 'sessA', cwd: '/elsewhere', ownerCwd: '/workA' })
   const tGlobal = mk('global', { ownerSessionId: 'sessA' })
-  // 会话 B 的任务
-  const tTempB = mk('temporary', { ownerSessionId: 'sessB', cwd: '/projA' })
-  const tProjectB = mk('project', { ownerSessionId: 'sessB', cwd: '/projB' })
+  // 会话 B（工作区 /workB）的任务
+  const tTempB = mk('temporary', { ownerSessionId: 'sessB', cwd: '/projA', ownerCwd: '/workB' })
+  const tProjectB = mk('project', { ownerSessionId: 'sessB', cwd: '/projB', ownerCwd: '/workB' })
+  // 旧任务（无 ownerCwd）：回退按任务 cwd 匹配
+  const tLegacy = mk('project', { ownerSessionId: 'sessX', cwd: '/workA' })
 
-  // A 的视角（cwd=/projA）：临时/会话=仅 A；项目=任何会话可见；全局=全显
-  const viewA = tasks.list({ ownerSessionId: 'sessA', sessionCwd: '/projA' })
+  // A 的视角（工作区 /workA）：临时/会话=仅 A；项目=发起者工作区内的全部
+  //（含跨目录派的任务 tProjectCross 与旧任务 tLegacy）；全局=全显
+  const viewA = tasks.list({ ownerSessionId: 'sessA', sessionCwd: '/workA' })
   const idsA = viewA.map((t) => t.id)
   assert.ok(idsA.includes(tTemp.id))
   assert.ok(idsA.includes(tSession.id))
   assert.ok(idsA.includes(tProject.id))
+  assert.ok(idsA.includes(tProjectCross.id), '跨目录派的任务在同一工作区可见')
+  assert.ok(idsA.includes(tLegacy.id), '旧任务（无 ownerCwd）按任务 cwd 匹配可见')
   assert.ok(idsA.includes(tGlobal.id))
   assert.ok(!idsA.includes(tTempB.id), '会话 B 的临时任务对 A 不可见')
-  assert.ok(idsA.includes(tProjectB.id), '项目任务跨会话可见（跨目录派的任务不被查看者 cwd 隐藏）')
+  assert.ok(!idsA.includes(tProjectB.id), '其他工作区的项目任务对 A 不可见')
 
-  // B 的视角（cwd=/projB）：看不到 A 的临时/会话任务；项目任务（含 A 的）与全局可见
-  const viewB = tasks.list({ ownerSessionId: 'sessB', sessionCwd: '/projB' })
+  // B 的视角（工作区 /workB）：看不到 A 的任何任务（含跨目录派的任务），全局可见
+  const viewB = tasks.list({ ownerSessionId: 'sessB', sessionCwd: '/workB' })
   const idsB = viewB.map((t) => t.id)
   assert.ok(idsB.includes(tTempB.id))
   assert.ok(idsB.includes(tProjectB.id))
   assert.ok(!idsB.includes(tTemp.id))
   assert.ok(!idsB.includes(tSession.id))
-  assert.ok(idsB.includes(tProject.id), 'A 的项目任务对 B 也可见')
+  assert.ok(!idsB.includes(tProject.id), 'A 的项目任务对 B 不可见')
+  assert.ok(!idsB.includes(tProjectCross.id), 'A 跨目录派的任务对 B 不可见')
+  assert.ok(!idsB.includes(tLegacy.id), '旧任务也不跨工作区泄漏')
   assert.ok(idsB.includes(tGlobal.id), '全局任务任何会话可见')
 
   // 不带视角（如 slash 命令）：全部可见（不启用层级过滤）
-  assert.equal(tasks.list().length, 6)
+  assert.equal(tasks.list().length, 8)
 
-  // 会话记录同样按层级过滤：临时/会话仅发起会话可见；项目会话跨会话可见
+  // 会话记录同样按层级过滤：临时/会话仅发起会话可见；项目=发起者工作区可见
   sessions.upsert({ id: 'sA', adapterId: 'kimi', scope: 'session', ownerSessionId: 'sessA' })
-  sessions.upsert({ id: 'pA', adapterId: 'kimi', scope: 'project', cwd: '/projA', ownerSessionId: 'sessA' })
+  sessions.upsert({ id: 'pA', adapterId: 'kimi', scope: 'project', cwd: '/projA', ownerSessionId: 'sessA', ownerCwd: '/workA' })
   sessions.upsert({ id: 'gA', adapterId: 'kimi', scope: 'global', ownerSessionId: 'sessA' })
-  const sViewB = sessions.list({ ownerSessionId: 'sessB', sessionCwd: '/projB' })
+  const sViewB = sessions.list({ ownerSessionId: 'sessB', sessionCwd: '/workB' })
   const sIdsB = sViewB.map((x) => x.id)
   assert.ok(!sIdsB.includes('sA'))
-  assert.ok(sIdsB.includes('pA'), '项目会话跨会话可见')
+  assert.ok(!sIdsB.includes('pA'), '其他工作区看不到 A 的项目会话')
   assert.ok(sIdsB.includes('gA'))
+  // A 自己工作区可见自己的项目会话
+  const sViewA = sessions.list({ ownerSessionId: 'sessA', sessionCwd: '/workA' })
+  assert.ok(sViewA.map((x) => x.id).includes('pA'), '发起者工作区可见自己的项目会话')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -680,6 +694,78 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   assert.match(timedOut.message, /超时/)
   assert.equal(timedOut.task.status, 'running', '超时返回当前状态')
   harness.children[3].emit('close', 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------------------ snapshot
+
+test('memory context: key branch filtering uses declared task branch', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir })
+  const store = new MemoryStore(dir, config)
+  const cwd = join(dir, 'proj')
+  const agent = { session: { header: { cwd } } }
+  // 三条项目关键记忆：无标记（全部）/ main / dev
+  store.add('key', '全局可见的项目约定', agent)
+  store.add('key', 'main 分支的约定 [branch:main]', agent)
+  store.add('key', 'dev 分支的约定 [branch:dev]', agent)
+  // 任务声明分支 main：只注入无标记 + main 标记条目，标题带分支名
+  const ctxMain = buildMemoryContext(store, { cwd, branch: 'main' })
+  assert.ok(ctxMain.includes('全局可见的项目约定'))
+  assert.ok(ctxMain.includes('main 分支的约定'))
+  assert.ok(!ctxMain.includes('dev 分支的约定'), '其他分支的 key 不注入')
+  assert.ok(ctxMain.includes('【本项目关键记忆（分支 main）】'))
+  // 任务声明分支 dev：只注入无标记 + dev
+  const ctxDev = buildMemoryContext(store, { cwd, branch: 'dev' })
+  assert.ok(ctxDev.includes('dev 分支的约定'))
+  assert.ok(!ctxDev.includes('main 分支的约定'))
+  // 未声明分支（cwd 非 git 目录）：gitBranch 失败 → 全部注入
+  const ctxAny = buildMemoryContext(store, { cwd })
+  assert.ok(ctxAny.includes('main 分支的约定'))
+  assert.ok(ctxAny.includes('dev 分支的约定'))
+  assert.ok(!ctxAny.includes('分支 main）'), '未声明分支时标题不带分支名')
+  // 无 cwd：不注入项目关键记忆段
+  const ctxNoCwd = buildMemoryContext(store, {})
+  assert.ok(!ctxNoCwd.includes('本项目关键记忆'))
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('snapshot: COI task status block (active notify) injected when coiEnabled', () => {
+  const dir = tempDir()
+  const coiDir = join(dir, 'coi')
+  mkdirSync(coiDir, { recursive: true })
+  writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify({
+    tasks: [
+      { id: 'coi-run-1', adapterId: 'grok', coi: 'Grok (xAI)', status: 'running', prompt: '写一个手表页面', startedAt: Date.now() - 3 * 60000, finishedAt: null },
+      { id: 'coi-done-1', adapterId: 'kimi', coi: 'Kimi Code', status: 'completed', prompt: '重构登录模块', startedAt: Date.now() - 10 * 60000, finishedAt: Date.now() - 5 * 60000, summary: '已完成 5 个文件改动，验证通过' },
+      { id: 'coi-fail-1', adapterId: 'grok', coi: 'Grok (xAI)', status: 'failed', prompt: '部署', startedAt: Date.now() - 60 * 60000, finishedAt: Date.now() - 59 * 60000, summary: null },
+    ],
+  }))
+  const config = resolveConfig({ memoryDir: dir, coiEnabled: true })
+  // 单元：buildCoiSnapshotBlock
+  const block = buildCoiSnapshotBlock(config)
+  assert.ok(block !== null)
+  assert.ok(block.includes('COI 任务状态'))
+  assert.ok(block.includes('coi-run-1'), '运行中任务注入')
+  assert.ok(block.includes('运行中'))
+  assert.ok(block.includes('coi-done-1'), '最近完成任务注入')
+  assert.ok(block.includes('已完成 5 个文件改动'), '摘要注入')
+  assert.ok(block.includes('coi-fail-1'), '最近失败任务注入')
+  assert.ok((block.match(/[✅❌]/g) ?? []).length <= 2, '终态最多 2 条（克制）')
+  // 集成：renderSnapshot 注入
+  const store = new MemoryStore(dir, config)
+  const agent = { session: { header: { cwd: dir } } }
+  const snap = renderSnapshot(config, store, agent)
+  assert.ok(snap.includes('COI 任务状态'))
+  // coiEnabled=false → 段消失（零开销）
+  const off = renderSnapshot({ ...config, coiEnabled: false }, store, agent)
+  assert.ok(!off.includes('COI 任务状态'))
+  // tasks.json 不存在/无数据 → 不注入、不抛错
+  const dir2 = tempDir()
+  const config2 = resolveConfig({ memoryDir: dir2 })
+  assert.equal(buildCoiSnapshotBlock(config2), null)
+  assert.ok(!renderSnapshot(config2, store, agent).includes('COI 任务状态'))
+  rmSync(dir2, { recursive: true, force: true })
   rmSync(dir, { recursive: true, force: true })
 })
 
