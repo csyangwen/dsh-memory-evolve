@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Which feature sub-tab is active. */
-export type MemoryFeature = 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
+export type MemoryFeature = 'guide' | 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
 
 /** Locale-bound props for the feature panels. */
 export interface MemoryQueueViewProps {
@@ -233,6 +233,66 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     <div className="me-panel">
       {notice !== null && (
         <div className={`me-notice me-notice-${notice.kind}`}>{notice.text}</div>
+      )}
+
+      {feature === 'guide' && (
+        <section className="me-block">
+          <div className="me-block-head">
+            <h3 className="me-heading">{t('panel.guide.title')}</h3>
+          </div>
+          <p className="me-help">{t('panel.guide.intro')}</p>
+          <div className="me-guide">
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🧠</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.memory.title')}</strong>
+                <span>{t('panel.guide.memory.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🔄</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.review.title')}</strong>
+                <span>{t('panel.guide.review.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">✅</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.todo.title')}</strong>
+                <span>{t('panel.guide.todo.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🛠️</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.skill.title')}</strong>
+                <span>{t('panel.guide.skill.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🔍</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.search.title')}</strong>
+                <span>{t('panel.guide.search.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🛡️</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.confirm.title')}</strong>
+                <span>{t('panel.guide.confirm.desc')}</span>
+              </span>
+            </div>
+          </div>
+          <h4 className="me-guide-sub">{t('panel.guide.best.title')}</h4>
+          <ul className="me-guide-tips">
+            <li>{t('panel.guide.best.1')}</li>
+            <li>{t('panel.guide.best.2')}</li>
+            <li>{t('panel.guide.best.3')}</li>
+          </ul>
+          <p className="me-guide-loop">{t('panel.guide.loop')}</p>
+        </section>
       )}
 
       {(feature === 'suggestions' || feature === 'todo-suggestions') && (

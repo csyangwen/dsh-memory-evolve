@@ -422,6 +422,15 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
         <button
           type="button"
           role="tab"
+          aria-selected={feature === 'guide'}
+          className={feature === 'guide' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature(feature === 'guide' ? null : 'guide')}
+        >
+          {t('memoryTab.feature.guide')}
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={feature === 'suggestions'}
           className={feature === 'suggestions' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
           onClick={() => setFeature(feature === 'suggestions' ? null : 'suggestions')}

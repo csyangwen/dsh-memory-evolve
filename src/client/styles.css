@@ -227,6 +227,72 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* 使用指南面板 */
+.me-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.me-guide-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-l2, rgba(128, 128, 128, 0.06));
+}
+
+.me-guide-icon {
+  flex: none;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+.me-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.me-guide-body strong {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.me-guide-body span {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.me-guide-sub {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.me-guide-tips {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.me-guide-loop {
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-static-blue-5, #3b82f6);
+}
+
 .me-item-time {
   flex: 1;
   min-width: 0;
