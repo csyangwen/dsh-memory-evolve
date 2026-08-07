@@ -146,6 +146,7 @@ const DICT = {
     'launch.scope': '范围',
     'launch.session': '恢复会话',
     'launch.sessionNone': '（新会话）',
+    'launch.sessionEmpty': '（当前适配器暂无会话）',
     'launch.template': '模板',
     'launch.templateNone': '（不用模板）',
     'launch.ref': '接力引用',
@@ -306,6 +307,7 @@ const DICT = {
     'launch.scope': 'Scope',
     'launch.session': 'Resume session',
     'launch.sessionNone': '(new session)',
+    'launch.sessionEmpty': '(no sessions for this adapter)',
     'launch.template': 'Template',
     'launch.templateNone': '(no template)',
     'launch.ref': 'Relay ref',
@@ -902,7 +904,19 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
         <div className="coi-form-grid">
           <label className="coi-field">
             <span className="coi-label">{t('launch.adapter')}</span>
-            <select className="coi-select" value={adapterId} onChange={(e) => setAdapterId(e.target.value)}>
+            <select
+              className="coi-select"
+              value={adapterId}
+              onChange={(e) => {
+                const next = e.target.value
+                setAdapterId(next)
+                // 会话绑定适配器：切换适配器后，已选会话若不属于新适配器则清空，
+                // 避免恢复会话时拿其他适配器的 session id 去调度（必然失败）
+                if (sessionId !== '' && !sessions.some((s) => s.id === sessionId && s.adapterId === next)) {
+                  setSessionId('')
+                }
+              }}
+            >
               {adapters.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}（{a.id}）</option>
               ))}
@@ -920,13 +934,17 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
           {scope !== 'temporary' && (
             <label className="coi-field">
               <span className="coi-label">{t('launch.session')}</span>
+              {/* 会话属于某个适配器：只列当前适配器的会话（跨适配器恢复必然失败） */}
               <select className="coi-select" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
                 <option value="">{t('launch.sessionNone')}</option>
-                {sessions.map((s) => (
+                {sessions.filter((s) => s.adapterId === adapterId).map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.id}（{s.adapterId}{s.note !== null && s.note !== '' ? ` · ${trunc(s.note, 12)}` : ''}）
                   </option>
                 ))}
+                {sessions.filter((s) => s.adapterId === adapterId).length === 0 && (
+                  <option value="" disabled>{t('launch.sessionEmpty')}</option>
+                )}
               </select>
             </label>
           )}

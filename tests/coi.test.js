@@ -247,7 +247,7 @@ test('visibility: scope-tier filtering for tasks and sessions', () => {
   const tTempB = mk('temporary', { ownerSessionId: 'sessB', cwd: '/projA' })
   const tProjectB = mk('project', { ownerSessionId: 'sessB', cwd: '/projB' })
 
-  // A 的视角（cwd=/projA）：临时/会话=仅 A；项目=仅 /projA；全局=全显
+  // A 的视角（cwd=/projA）：临时/会话=仅 A；项目=任何会话可见；全局=全显
   const viewA = tasks.list({ ownerSessionId: 'sessA', sessionCwd: '/projA' })
   const idsA = viewA.map((t) => t.id)
   assert.ok(idsA.includes(tTemp.id))
@@ -255,29 +255,29 @@ test('visibility: scope-tier filtering for tasks and sessions', () => {
   assert.ok(idsA.includes(tProject.id))
   assert.ok(idsA.includes(tGlobal.id))
   assert.ok(!idsA.includes(tTempB.id), '会话 B 的临时任务对 A 不可见')
-  assert.ok(!idsA.includes(tProjectB.id), '项目 B 的任务对 A 不可见')
+  assert.ok(idsA.includes(tProjectB.id), '项目任务跨会话可见（跨目录派的任务不被查看者 cwd 隐藏）')
 
-  // B 的视角（cwd=/projB）：看不到 A 的临时/会话/项目任务，全局可见
+  // B 的视角（cwd=/projB）：看不到 A 的临时/会话任务；项目任务（含 A 的）与全局可见
   const viewB = tasks.list({ ownerSessionId: 'sessB', sessionCwd: '/projB' })
   const idsB = viewB.map((t) => t.id)
   assert.ok(idsB.includes(tTempB.id))
   assert.ok(idsB.includes(tProjectB.id))
   assert.ok(!idsB.includes(tTemp.id))
   assert.ok(!idsB.includes(tSession.id))
-  assert.ok(!idsB.includes(tProject.id))
+  assert.ok(idsB.includes(tProject.id), 'A 的项目任务对 B 也可见')
   assert.ok(idsB.includes(tGlobal.id), '全局任务任何会话可见')
 
   // 不带视角（如 slash 命令）：全部可见（不启用层级过滤）
   assert.equal(tasks.list().length, 6)
 
-  // 会话记录同样按层级过滤
+  // 会话记录同样按层级过滤：临时/会话仅发起会话可见；项目会话跨会话可见
   sessions.upsert({ id: 'sA', adapterId: 'kimi', scope: 'session', ownerSessionId: 'sessA' })
   sessions.upsert({ id: 'pA', adapterId: 'kimi', scope: 'project', cwd: '/projA', ownerSessionId: 'sessA' })
   sessions.upsert({ id: 'gA', adapterId: 'kimi', scope: 'global', ownerSessionId: 'sessA' })
   const sViewB = sessions.list({ ownerSessionId: 'sessB', sessionCwd: '/projB' })
   const sIdsB = sViewB.map((x) => x.id)
   assert.ok(!sIdsB.includes('sA'))
-  assert.ok(!sIdsB.includes('pA'))
+  assert.ok(sIdsB.includes('pA'), '项目会话跨会话可见')
   assert.ok(sIdsB.includes('gA'))
   rmSync(dir, { recursive: true, force: true })
 })
