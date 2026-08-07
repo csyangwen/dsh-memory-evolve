@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-08-07 — 本地文件搜索（`a4cdb3b`/`1bb4909`/`5af8c10`）
+
+### 🎯 本地文件搜索工具（memory_evolve_search_local_files）
+- 新工具 `memory_evolve_search_local_files`（slash 命令 `/memory_evolve_search_files`，前缀保留防撞名）：在本机按**文件名**搜索文件/文件夹，**只返回路径、不读内容**（文档查找主用途）
+- **provider 可替换链**：`mdfind` → `rg --no-messages`（外置卷权限错误会让 rg exit 2）→ Node walk+缓存——换实现不动工具契约（`registerSearchProvider` + `searchDocsProviders` 配置顺序）
+- **默认只搜文档**：不传 `exts` 时默认仅常见文档扩展名（md 等），**绝不静默全盘枚举**；全类型搜索（图片/视频/任意扩展名）必须显式 `allTypes=true`（或 `exts=["*"]`），副作用在描述中说明
+- **type 参数**：`file`（默认）/ `dir`（文件夹名，mdfind 走 kMDItemContentType==public.folder）/ `all`；rg/es 无法枚举文件夹时明确报错并回退 walk（walk 收集目录，kind=dir/any）
+- **默认禁用 + 动态注册/注销**：`tools.register` 返回 disposer，禁用即注销、模型不可见；运行时开关在配置面板；默认搜索根含外置卷 `/Volumes`
+- 配置项：`searchDocsEnabled` / `searchDocsToolName` / `searchDocsCommandName` / `searchDocsExts` / `searchDocsProviders` / `searchDocsCacheTtlMs` / `searchDocsTimeoutMs`；walk 缓存按 root TTL + 后台重建 + 并发去重
+
+### 🔧 修复与配套
+- **搜索不再冻结 DSH 主进程**（`1bb4909`）：mdfind 结果靠 JS 过滤导致空结果触发回退链（rg 全盘扫 7 个卷 + walk 全量重建），walk 同步 `JSON.stringify` + `writeFileSync` 数十万条缓存 + 48 路并发 readdir 卡死事件循环——改为有预算上限、异步重建等
+- 修复 `allTypes` 把所有结果滤空、`type=dir` 泄漏默认 md 扩展名的问题（`5af8c10`）
+- **dtodo 工具描述场景化**：`past=true` 不带 `expired` 时输出提示（含空结果时），说明每日待办当天截止即过期（`a4cdb3b`）
+- **快照 dtodo 节精简**：只留每轮纪律（收尾检查到期、提醒、不主动展开），用法细节一律指向工具 description（function calling 自解释、省每轮 token、保缓存）（`a4cdb3b`）
+- memory 工具 list 描述补充默认顺序与空结果指引（`a4cdb3b`）
+
+---
+
 ## 2026-08-07 — 每日待办可查过往 + 记忆条目编辑 + 建议队列分类（`342869d`/`4f2b435`/`39f55c8`）
 
 ### 🎯 每日待办可查过往（`342869d`）
