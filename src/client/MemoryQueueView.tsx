@@ -79,6 +79,7 @@ interface RuntimeConfig {
   perTurnKeyWrites: boolean
   searchDocsEnabled: boolean
   coiEnabled: boolean
+  scratchEnabled: boolean
   promptsEnabled: boolean
 }
 
@@ -207,6 +208,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnKeyWrites: draft.perTurnKeyWrites,
       searchDocsEnabled: draft.searchDocsEnabled,
       coiEnabled: draft.coiEnabled,
+      scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
@@ -584,6 +586,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.coiEnabled}
                     onChange={(event) => patchDraft({ coiEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.scratchEnabled')}
+                    <em className="me-field-hint">{t('panel.config.scratchEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.scratchEnabled}
+                    onChange={(event) => patchDraft({ scratchEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">

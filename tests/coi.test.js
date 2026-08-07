@@ -296,6 +296,24 @@ test('visibility: scope-tier filtering for tasks and sessions', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('scheduler: ai-cli dispatch appends output convention, plain-cli does not', () => {
+  const dir = tempDir()
+  const { scheduler, harness, adapters } = bootScheduler(dir)
+  // ai-cli（内置 grok）：prompt 末尾自动追加【输出约定】
+  scheduler.dispatch({ adapterId: 'grok', prompt: '做个页面' })
+  const argAi = harness.children[0].args[1]
+  assert.ok(argAi.includes('【输出约定】'), 'ai-cli 追加输出约定')
+  assert.ok(argAi.includes('【结论】'), '约定含结论段要求')
+  assert.ok(argAi.includes('绝对路径'), '约定含绝对路径要求')
+  // plain-cli（自定义普通命令）：不追加自然语言指令
+  adapters.upsert({ id: 'plain-x', name: 'Plain X', type: 'plain-cli', binary: 'echo', args: ['{task}'] })
+  scheduler.dispatch({ adapterId: 'plain-x', prompt: 'hello' })
+  const argPlain = harness.children[1].args.join(' ')
+  assert.ok(!argPlain.includes('【输出约定】'), 'plain-cli 不追加输出约定')
+  assert.equal(argPlain, 'hello', 'plain-cli 原样透传')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 // ------------------------------------------------------------------ scheduler
 
 function bootScheduler(dir, overrides = {}) {
@@ -329,7 +347,11 @@ test('scheduler: dispatch runs async and completes with session capture', async 
   assert.ok(result.taskId)
   const child = harness.children[0]
   assert.equal(child.binary, 'kimi')
-  assert.deepEqual(child.args, ['-p', '做一件事'])
+  // ai-cli 自动追加输出约定（【结论】段 + 绝对路径），任务原文在开头
+  assert.ok(child.args[1].startsWith('做一件事'))
+  assert.ok(child.args[1].includes('【输出约定】'))
+  assert.ok(child.args[1].includes('【结论】'))
+  assert.ok(child.args[1].includes('绝对路径'))
   assert.equal(tasks.get(result.taskId).status, 'running')
   // 输出 + session id 捕获
   child.stdout.emit('data', '• 思考中\n')
@@ -734,29 +756,59 @@ test('snapshot: COI task status block (active notify) injected when coiEnabled',
   const dir = tempDir()
   const coiDir = join(dir, 'coi')
   mkdirSync(coiDir, { recursive: true })
+  const t = (id, now) => ({ id, adapterId: 'grok', coi: 'Grok (xAI)', startedAt: now - 60000 })
+  const now = Date.now()
   writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify({
     tasks: [
-      { id: 'coi-run-1', adapterId: 'grok', coi: 'Grok (xAI)', status: 'running', prompt: '写一个手表页面', startedAt: Date.now() - 3 * 60000, finishedAt: null },
-      { id: 'coi-done-1', adapterId: 'kimi', coi: 'Kimi Code', status: 'completed', prompt: '重构登录模块', startedAt: Date.now() - 10 * 60000, finishedAt: Date.now() - 5 * 60000, summary: '已完成 5 个文件改动，验证通过' },
-      { id: 'coi-fail-1', adapterId: 'grok', coi: 'Grok (xAI)', status: 'failed', prompt: '部署', startedAt: Date.now() - 60 * 60000, finishedAt: Date.now() - 59 * 60000, summary: null },
+      // 工作区 /workA 的任务（含跨目录派发，ownerCwd=/workA）
+      { ...t('coi-run-1', now), status: 'running', prompt: '写一个手表页面', scope: 'project', ownerCwd: '/workA', finishedAt: null },
+      { ...t('coi-temp-run-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'running', prompt: '本会话临时任务', scope: 'temporary', ownerSessionId: 'sessA', finishedAt: null },
+      { ...t('coi-temp-other-run-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'running', prompt: '别的会话临时任务', scope: 'temporary', ownerSessionId: 'sessB', finishedAt: null },
+      { ...t('coi-done-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'completed', prompt: '重构登录模块', scope: 'project', ownerCwd: '/workA', finishedAt: now - 5 * 60000, summary: '已完成 5 个文件改动，验证通过' },
+      { ...t('coi-fail-1', now), status: 'failed', prompt: '部署', scope: 'project', ownerCwd: '/workA', finishedAt: now - 60000, summary: '…（前 1000 字符已省略）\n部署失败：超时' },
+      // 其他工作区 /workB 的任务（不应注入给 /workA 的查看者）
+      { ...t('coi-other-1', now), status: 'completed', prompt: 'B 工作区的任务', scope: 'project', ownerCwd: '/workB', finishedAt: now - 4 * 60000, summary: 'B 的摘要' },
+      // 全局任务（全显；时间较老，避免挤占 done 前 2）
+      { ...t('coi-global-1', now), status: 'completed', prompt: '全局任务', scope: 'global', finishedAt: now - 30 * 60000, summary: '全局摘要' },
     ],
   }))
   const config = resolveConfig({ memoryDir: dir, coiEnabled: true })
-  // 单元：buildCoiSnapshotBlock
-  const block = buildCoiSnapshotBlock(config)
+  // 查看者：会话 sessA、工作区 /workA
+  const viewer = { sessionId: 'sessA', cwd: '/workA' }
+  // 单元：buildCoiSnapshotBlock（带 viewer 过滤）
+  const block = buildCoiSnapshotBlock(config, viewer)
   assert.ok(block !== null)
   assert.ok(block.includes('COI 任务状态'))
-  assert.ok(block.includes('coi-run-1'), '运行中任务注入')
-  assert.ok(block.includes('运行中'))
-  assert.ok(block.includes('coi-done-1'), '最近完成任务注入')
-  assert.ok(block.includes('已完成 5 个文件改动'), '摘要注入')
+  assert.ok(block.includes('coi-run-1'), '本工作区运行中任务注入')
+  assert.ok(!block.includes('分钟'), '运行中行不含耗时（固定文本，快照只在状态变化时变）')
+  assert.ok(block.includes('coi-temp-run-1'), '本会话临时任务注入')
+  assert.ok(!block.includes('coi-temp-other-run-1'), '其他会话的临时任务不注入')
+  assert.ok(block.includes('coi-done-1'), '本工作区最近完成任务注入')
+  assert.ok(block.includes('已完成 5 个文件改动'), '完整摘要注入')
+  assert.ok(block.includes('````'), '摘要用 4 反引号围栏包裹（AI 可识别为完整摘要）')
+  assert.ok(!block.includes('前 1000 字符已省略'), 'readLog 省略标记被清理')
   assert.ok(block.includes('coi-fail-1'), '最近失败任务注入')
+  assert.ok(block.includes('部署失败：超时'), '失败任务完整摘要注入')
+  assert.ok(!block.includes('coi-other-1'), '其他工作区的任务不注入')
   assert.ok((block.match(/[✅❌]/g) ?? []).length <= 2, '终态最多 2 条（克制）')
-  // 集成：renderSnapshot 注入
+  // 无视角（viewer 为空）：只注入 global（先测，避免被下方 viewer 视角抢先通知）
+  const blockNoViewer = buildCoiSnapshotBlock(config, {})
+  assert.ok(blockNoViewer !== null)
+  assert.ok(blockNoViewer.includes('coi-global-1'), '全局任务全显')
+  assert.ok(!blockNoViewer.includes('coi-run-1'), '无视角不注入项目任务')
+  // 一次性通知：终态展示后被标记 notified，第二次不再注入（运行中仍注入；
+  // 首次未轮到展示的终态会在后续轮次补通知）
+  const block2 = buildCoiSnapshotBlock(config, viewer)
+  assert.ok(block2 !== null)
+  assert.ok(block2.includes('coi-run-1'), '运行中任务每次注入')
+  assert.ok(!block2.includes('coi-done-1'), '终态任务只通知一次')
+  assert.ok(!block2.includes('coi-fail-1'), '终态任务只通知一次')
+  // 集成：renderSnapshot 注入（agent 提供会话视角）
   const store = new MemoryStore(dir, config)
-  const agent = { session: { header: { cwd: dir } } }
+  const agent = { session: { id: 'sessA', header: { cwd: '/workA' } } }
   const snap = renderSnapshot(config, store, agent)
   assert.ok(snap.includes('COI 任务状态'))
+  assert.ok(!snap.includes('coi-other-1'), '集成视图同样过滤其他工作区')
   // coiEnabled=false → 段消失（零开销）
   const off = renderSnapshot({ ...config, coiEnabled: false }, store, agent)
   assert.ok(!off.includes('COI 任务状态'))
@@ -961,7 +1013,8 @@ test('de_coi command: tokenize/parseOpts and handler basics', async () => {
   assert.equal(run.kind, 'success')
   assert.match(run.text, /coi-/)
   assert.equal(harness.children[0].binary, 'kimi')
-  assert.deepEqual(harness.children[0].args, ['-p', '做一件事'])
+  assert.ok(harness.children[0].args[1].startsWith('做一件事'), 'slash run 同样追加输出约定')
+  assert.ok(harness.children[0].args[1].includes('【输出约定】'))
   // list
   const list = await cmd.handler({ rawInput: 'list --limit 5' })
   assert.equal(list.kind, 'success')

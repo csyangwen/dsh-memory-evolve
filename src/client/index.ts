@@ -296,6 +296,8 @@ export const zh = {
   'panel.config.perTurnKeyWrites.hint': '要求模型每个回合结束前判断是否出现重要项目事实（长期约定/决策/架构/踩坑），有则写入 target=key（自动注入上下文），没有就跳过；关闭后 key 仅保留手动添加与读取。⚠️ 依赖 LLM 指令遵循',
   'panel.config.coiEnabled': 'COI 调度',
   'panel.config.coiEnabled.hint': '启用 de_coi_* 工具与「COI 调度」Tab：统一调度 kimi/codex/grok/hermes 等 CLI 代理（默认禁用——本插件的本职是记忆/待办/技能，调度是按需增强；关闭时工具与 Tab 完全不可见）',
+  'panel.config.scratchEnabled': '临时信息 Tab',
+  'panel.config.scratchEnabled.hint': '启用「临时信息」Tab：持久化 Markdown 便签，临时想法随手记（自动保存到 ~/.dsh/memories/scratch.md，重启不丢，可随时迁移或删除）。默认关闭；关闭时 Tab 完全不可见',
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '启用 memory_evolve_search_local_files：让模型能在本机所有磁盘/目录中按文件名搜索文件（默认只搜文档 md/docx/pdf…；全类型/文件夹需显式参数确认；只匹配文件名不读内容）。默认关闭；关闭时工具对模型完全不可见',
   'panel.config.promptsEnabled': '提示词管理器',
@@ -577,6 +579,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.perTurnKeyWrites.hint': 'Require the model to judge at the end of every turn whether an important project fact emerged (long-lived convention/decision/architecture/pitfall); if so, write it to target=key (injected into the context), otherwise skip. When off, key facts are only added manually or read. ⚠️ Relies on LLM instruction following',
   'panel.config.coiEnabled': 'COI dispatch',
   'panel.config.coiEnabled.hint': 'Enable the de_coi_* tools and the CLI Dispatch tab: unified dispatch of CLI agents (kimi/codex/grok/hermes…). Off by default — this plugin\'s core is memory/todos/skills, dispatch is an on-demand add-on; when off, the tools and the tab are completely invisible',
+  'panel.config.scratchEnabled': 'Scratch pad tab',
+  'panel.config.scratchEnabled.hint': 'Enable the Scratch Pad tab: a persistent Markdown note for temporary thoughts (auto-saves to ~/.dsh/memories/scratch.md, survives restarts, ready to migrate or delete anytime). Off by default; when off the tab is completely invisible',
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Enable memory_evolve_search_local_files: lets the model search files by name across all local disks/directories (documents md/docx/pdf… by default; all types/folders require explicit parameter confirmation; name matching only, never reads contents). Off by default; when off the tool is completely invisible to the model',
   'panel.config.promptsEnabled': 'Prompt manager',
@@ -720,10 +724,12 @@ export function apply(ctx: Context): void {
 
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-    .then((data: { config?: { memoryTabEnabled?: boolean } }) => {
-      // 临时信息 tab：跟随 config 探测成功注册（host API 可用即显示，
-      // 不设开关——内容持久化在 scratch.md，属于本插件的常驻能力）。
-      if (!scratchCancelled && disposeScratchTab === undefined) {
+    .then((data: { config?: { memoryTabEnabled?: boolean; scratchEnabled?: boolean } }) => {
+      // 临时信息 tab：受 scratchEnabled 运行时开关控制（默认关闭，与
+      // COI/提示词一致）。开关在「记忆技能待办」Tab 的运行时配置里切换，
+      // 开启后刷新页面即出现；关闭时 Tab 完全不可见（host 的
+      // /api/scratch 路由仍常驻——纯文件读写、零副作用，不随开关卸载）。
+      if (!scratchCancelled && data.config?.scratchEnabled === true && disposeScratchTab === undefined) {
         disposeScratchTab = ctx.slots.inject('conversation.view', () =>
           ctx.slots.register({
             name: 'conversation.view',
