@@ -15,7 +15,7 @@
 - **技能自我进化（创建需确认）**：审查优化 `~/.agents/skills` 下已有技能（read-before-write 保护）；**新技能默认进入待确认队列**，会话页记忆 Tab 采纳后才移入技能库（创建门槛严格：多次踩坑、难度大、后续会复用才创建）——技能注入所有会话，必须克制；
 - **技能管理器（已合并原 dsh-skill-browser）**：会话页记忆 Tab 的「技能管理」子 Tab 提供完整技能管理——按**来源层级**（用户注入 user-* / 自定义 custom / 系统 bundled / 项目 project-*）浏览全部技能，**搜索 + 来源/状态筛选 + 分页**，**一键禁用/启用技能**（shadow 机制：禁用后从模型技能目录消失、`skill` 工具拒绝加载，project 系统技能结构性不可禁用），自定义技能目录添加/移除，目录树浏览与技能文件编辑；原独立插件的**禁用列表自动迁移**，API 前缀沿用 `/skills-manager`；
 - **四轨待办（dtodo）**：会话页记忆 Tab 的「待办」子 Tab 与 `dtodo` 工具提供 生活/工作/本项目（按工作目录隔离）/每日 四轨待办——§ 分隔 MD 存储（文件头注释说明 tag 语法，任何编辑器/模型可直接读取），每条带**四象限**（q1-q4，重要×紧急）、**截止日期**、**状态**（pending/doing/done/blocked/cancelled，done 自动盖完成时间）、可选分类；**用户口述直写、模型自建进待确认队列**；`dtodo list` 默认只返回**需要关注的未完成项**（逾期/今日到期/本项目/重要紧急，最多 8 条），待办内容**永不注入**（固定提示行提醒收尾检查，缓存友好）；
-- **本地文档搜索（search_local_docs）**：可选的 `memory_evolve_search_local_docs` 工具——让模型在本机**所有磁盘/目录**中按文件名查找文档（md/docx/pdf…，只匹配文件名、不读内容）。**默认禁用**：关闭时工具根本不注册，模型请求里没有它。启用后走**三层自适应**：平台索引（macOS `mdfind` Spotlight / Windows `es.exe`）→ `rg --files`（`--no-messages` 容忍外置卷权限错误）→ Node 并发遍历+结果缓存（零依赖兜底）；实现**可替换**：`registerSearchProvider` 注册新 provider，`searchDocsProviders` 配置顺序即可换实现，工具名/参数/返回不变。切换入口：记忆 Tab「运行时配置」开关或 `/memory_evolve_search_docs on|off`，**即时生效无需重启**；
+- **本地文件搜索（search_local_files）**：可选的 `memory_evolve_search_local_files` 工具——让模型在本机**所有磁盘/目录**中按文件名搜索文件（md/docx/pdf…，只匹配文件名、不读内容）。**默认禁用**：关闭时工具根本不注册，模型请求里没有它。启用后走**三层自适应**：平台索引（macOS `mdfind` Spotlight / Windows `es.exe`）→ `rg --files`（`--no-messages` 容忍外置卷权限错误）→ Node 并发遍历+结果缓存（零依赖兜底）；实现**可替换**：`registerSearchProvider` 注册新 provider，`searchDocsProviders` 配置顺序即可换实现，工具名/参数/返回不变。切换入口：记忆 Tab「运行时配置」开关或 `/memory_evolve_search_files on|off`，**即时生效无需重启**；
 - **建议确认制**：全局记忆（用户档案/全局事实）写入需经会话页记忆 Tab 或 `/memory_review` 确认；新技能同样需确认，杜绝无人把关的自我修改；
 - **安全设计**：防漂移备份、跨进程文件锁、原子写、提示注入扫描、禁用技能保护；
 - **缓存友好**：记忆快照走 user-role 尾部消息注入（变更检测），system prompt 与历史前缀保持稳定。**只注入低频变化的轨**（用户档案/全局事实/**项目关键记忆**）——项目日志与每日日志随每回合主动写入而变化，若注入会导致每轮追加新的上下文快照、前缀缓存命中率下降，因此它们**默认不注入**，改为按需读取 + 快照中一行**固定提示**要求模型每轮收尾调用 memory 工具写入并检查（提示文本固定不变，不产生新快照）。项目关键记忆（`key`）只在出现长期事实时才写入，低频稳定，与全局轨一样用**实时读取 + 变更检测**注入——写入后下一轮即出现在模型上下文中。
@@ -116,10 +116,12 @@ ln -s ~/.dsh/plugins/dsh-memory-evolve ~/node_modules/@dsh-local/dsh-memory-evol
 
 agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理技能。用户也可以直接说"记住 XXX"。
 
-启用后（`searchDocsEnabled`，默认关），agent 还可通过 `memory_evolve_search_local_docs` 工具在**本机全盘**按文件名查找文档：
+启用后（`searchDocsEnabled`，默认关），agent 还可通过 `memory_evolve_search_local_files` 工具在**本机全盘**按文件名搜索文件：
 
-- `memory_evolve_search_local_docs query=写小说 exts=["md","docx"]`：文件名关键字 + 扩展名（支持 `"md,docx"` 字符串），结果按修改时间倒序；**中文文件名建议尝试多个说法**（"年报"查不到可换"述职"、"年度报告"等文件名里实际出现的词）；
-- `memory_evolve_search_local_docs query="" exts=["md"] limit=5`：不传关键字 = 列出最近修改的文档；
+- `memory_evolve_search_local_files query=写小说 exts=["md","docx"]`：文件名关键字 + 扩展名（支持 `"md,docx"` 字符串），结果按修改时间倒序；**中文文件名建议尝试多个说法**（"年报"查不到可换"述职"、"年度报告"等文件名里实际出现的词）；
+- `memory_evolve_search_local_files query="" exts=["md"] limit=5`：不传关键字 = 列出最近修改的文档；
+- **全类型搜索（图片/视频/任意扩展名）必须显式确认**：`allTypes=true`（或 `exts=["*"]`）——副作用是结果集可能很大、首次全盘扫描较慢，非必要不用；
+- **文件夹搜索**：`type="dir"`（或 `type="all"` 文件+文件夹），如 `query=年终 type="dir"` 找文件夹名；
 - `dir` 可选限定目录；`limit` 默认 20 最大 100。只返回路径/名称/大小/修改时间，**不读取文件内容**。
 
 `memory` 工具参数：`action`（add / replace / remove / list）+ `target`（memory / user / project / key / daily）。
@@ -136,7 +138,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 - **待确认记忆建议**：列出全部待确认建议（含 **key 项目关键记忆建议**——采纳后写入该项目 KEY.md 并注入），**采纳前可编辑文本**（修改后再入库），逐条「采纳 / 归档 / 拒绝」或批量处理——**归档**把不够格进主记忆但丢了可惜的建议存入 `MEMORY-archive.md` / `USER-archive.md`（key 建议归档到该项目的 `KEY-archive.md`）；
 - **待确认技能建议**：审查创建的新技能在此「采纳」（移入技能库，立即生效）或「拒绝」；
-- **运行时配置**：`reviewEnabled` / `reviewInterval` / `skillReviewEnabled` / `perTurnProjectWrites` / `perTurnDailyWrites` / `perTurnKeyWrites` / `searchDocsEnabled`（本地文档搜索工具开关）的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
+- **运行时配置**：`reviewEnabled` / `reviewInterval` / `skillReviewEnabled` / `perTurnProjectWrites` / `perTurnDailyWrites` / `perTurnKeyWrites` / `searchDocsEnabled`（本地文件搜索工具开关）的表单修改，保存后**立即生效并持久化**（覆盖 config.yaml 对应项，重启不丢）；
 - **技能管理**：完整技能管理器（见下节「技能管理器」）；
 - **待办**：四轨待办（生活/工作/项目/每日）列表 + 快速添加 + 状态/四象限筛选 + 每条完成/编辑/删除（见下节「待办（dtodo）」）；
 - 有未确认的记忆/技能/待办建议时，会话页的「记忆技能待办」标签会显示 **🔴 小红点 + 计数**，提示你处理。
@@ -155,9 +157,9 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 /memory_review reject 2         # 拒绝第 2 条
 /memory_review approve-all      # 全部采纳
 /memory_review reject-all       # 全部拒绝
-/memory_evolve_search_docs      # 查看本地文档搜索工具状态
-/memory_evolve_search_docs on   # 启用（工具注册，模型可见，即时生效）
-/memory_evolve_search_docs off  # 禁用（工具注销，模型不可见，即时生效）
+/memory_evolve_search_files      # 查看本地文件搜索工具状态
+/memory_evolve_search_files on   # 启用（工具注册，模型可见，即时生效）
+/memory_evolve_search_files off  # 禁用（工具注销，模型不可见，即时生效）
 ```
 
 ### 回合内记忆审查
@@ -196,9 +198,9 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `skillDir` | `~/.agents/skills` | 技能写入目录（DSH 技能库） |
 | `skillManageToolName` | `skill_manage` | 技能管理工具名 |
 | `todoToolName` | `dtodo` | 待办工具名（四轨待办：生活/工作/项目/每日；用户口述直写、模型自建进待确认队列） |
-| `searchDocsEnabled` | `false` | 本地文档搜索工具开关（`memory_evolve_search_local_docs`）：默认禁用 = 工具不注册、模型完全不可见；可运行时切换（记忆 Tab「运行时配置」/ `/memory_evolve_search_docs on|off`），即时生效 |
-| `searchDocsToolName` | `memory_evolve_search_local_docs` | 本地文档搜索工具名 |
-| `searchDocsCommandName` | `memory_evolve_search_docs` | 本地文档搜索开关命令名 |
+| `searchDocsEnabled` | `false` | 本地文件搜索工具开关（`memory_evolve_search_local_files`）：默认禁用 = 工具不注册、模型完全不可见；可运行时切换（记忆 Tab「运行时配置」/ `/memory_evolve_search_files on|off`），即时生效 |
+| `searchDocsToolName` | `memory_evolve_search_local_files` | 本地文件搜索工具名 |
+| `searchDocsCommandName` | `memory_evolve_search_files` | 本地文件搜索开关命令名 |
 | `searchDocsExts` | `["md"]` | 默认扩展名列表（模型未传 `exts` 时使用） |
 | `searchDocsProviders` | `"auto"` | 搜索实现链：`auto` = 按平台探测（macOS `mdfind`→`rg`→`walk`；Windows `es`→`rg`→`walk`；Linux `rg`→`walk`）；或显式数组如 `["rg","walk"]`（`registerSearchProvider` 注册的实现也可放入，用于替换为更快的实现） |
 | `searchDocsCacheTtlMs` | `3600000` | walk 兜底层结果缓存 TTL（毫秒） |

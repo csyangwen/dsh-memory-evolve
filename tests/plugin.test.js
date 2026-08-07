@@ -155,13 +155,13 @@ test('search docs tool: 默认禁用不注册；配置/运行时 state 开启后
   const dir = tempDir()
   const ctx = fakeCtx()
   apply(ctx, { memoryDir: dir })
-  assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '默认禁用：工具不注册（模型不可见）')
-  assert.ok(ctx.state.commands.some((c) => c.name === 'memory_evolve_search_docs'), '开关命令始终注册')
+  assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_evolve_search_local_files'), '默认禁用：工具不注册（模型不可见）')
+  assert.ok(ctx.state.commands.some((c) => c.name === 'memory_evolve_search_files'), '开关命令始终注册')
   clean(dir)
 
   const ctx2 = fakeCtx()
   apply(ctx2, { memoryDir: dir, searchDocsEnabled: true })
-  assert.ok(ctx2.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '配置开启后注册工具')
+  assert.ok(ctx2.state.tools.some((t) => t.name === 'memory_evolve_search_local_files'), '配置开启后注册工具')
   clean(dir)
 
   // 运行时 state 文件开启（Web 面板 / slash 命令的持久化通道）
@@ -169,7 +169,7 @@ test('search docs tool: 默认禁用不注册；配置/运行时 state 开启后
   writeFileSync(join(dir3, 'plugin-state.json'), JSON.stringify({ searchDocsEnabled: true }))
   const ctx3 = fakeCtx()
   apply(ctx3, { memoryDir: dir3 })
-  assert.ok(ctx3.state.tools.some((t) => t.name === 'memory_evolve_search_local_docs'), '运行时状态开启后注册工具')
+  assert.ok(ctx3.state.tools.some((t) => t.name === 'memory_evolve_search_local_files'), '运行时状态开启后注册工具')
   clean(dir3)
 })
 

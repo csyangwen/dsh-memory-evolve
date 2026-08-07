@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   SearchAborted, createSearchDocsController, createSearcher, defaultRoots,
-  matchQuery, normalizeExts, renderSearchResult, resolveProviders,
+  isAllTypes, matchQuery, normalizeExts, renderSearchResult, resolveProviders,
   searchDocsCommand, searchDocsToolDefinition,
 } from '../lib/search-docs.js'
 
@@ -18,8 +18,8 @@ function baseConfig(overrides = {}) {
   return {
     memoryDir: '/tmp',
     searchDocsEnabled: false,
-    searchDocsToolName: 'memory_evolve_search_local_docs',
-    searchDocsCommandName: 'memory_evolve_search_docs',
+    searchDocsToolName: 'memory_evolve_search_local_files',
+    searchDocsCommandName: 'memory_evolve_search_files',
     searchDocsExts: ['md'],
     searchDocsProviders: 'auto',
     searchDocsCacheTtlMs: 3600000,
@@ -29,12 +29,22 @@ function baseConfig(overrides = {}) {
   }
 }
 
-test('normalizeExts：数组/字符串/去点/小写/去重', () => {
+test('normalizeExts：数组/字符串/去点/小写/去重；* 表示全部', () => {
   assert.deepEqual(normalizeExts(['.MD', 'docx', 'md'], ['md']), ['md', 'docx'])
   assert.deepEqual(normalizeExts('pdf, .TXT ,', ['md']), ['pdf', 'txt'])
   assert.deepEqual(normalizeExts(undefined, ['md']), ['md'])
-  // 非法输入退回默认
-  assert.deepEqual(normalizeExts(['*', '../x'], ['md']), ['md'])
+  // "*" 合法（全类型）；非法输入丢弃
+  assert.deepEqual(normalizeExts(['*', '../x'], ['md']), ['*'])
+  assert.deepEqual(normalizeExts('*', ['md']), ['*'])
+  assert.deepEqual(normalizeExts(['all'], ['md']), ['all'])
+})
+
+test('isAllTypes：* 或 all 表示全类型', () => {
+  assert.equal(isAllTypes(['*']), true)
+  assert.equal(isAllTypes(['all']), true)
+  assert.equal(isAllTypes(['md', '*']), true)
+  assert.equal(isAllTypes(['md']), false)
+  assert.equal(isAllTypes([]), false)
 })
 
 test('matchQuery：大小写不敏感子串；空 query 全匹配', () => {
@@ -73,7 +83,7 @@ test('工具定义：契约字段固定；execute 清洗参数并透传结果', 
     return { provider: 'fake', results: [{ path: '/x/README.md', name: 'README.md', mtime: 1000, size: 10 }] }
   }
   const def = searchDocsToolDefinition(baseConfig(), fakeSearch)
-  assert.equal(def.name, 'memory_evolve_search_local_docs')
+  assert.equal(def.name, 'memory_evolve_search_local_files')
   assert.ok(def.description.includes('文件名'))
   // output schema 为合法 DSH JSON Schema（无 property 级 required 布尔）
   assert.equal(def.output.schema.type, 'object')
@@ -96,6 +106,30 @@ test('工具定义：契约字段固定；execute 清洗参数并透传结果', 
   const failed = await bad.execute({}, {})
   assert.equal(failed.ok, false)
   assert.match(failed.message, /boom/)
+})
+
+test('工具 execute：allTypes 确认参数与 type=dir/all 透传', async () => {
+  const calls = []
+  const def = searchDocsToolDefinition(baseConfig(), async (params) => {
+    calls.push(params)
+    return { provider: 'fake', results: [] }
+  })
+  // 不传类型参数 → 默认文档扩展名（安全，绝不静默全盘）
+  await def.execute({}, {})
+  assert.deepEqual(calls[0].exts, ['md'])
+  assert.equal(calls[0].kind, 'file')
+  // allTypes=true → 全类型（忽略 exts）
+  await def.execute({ allTypes: true, exts: ['md'] }, {})
+  assert.deepEqual(calls[1].exts, ['*'])
+  assert.equal(calls[1].kind, 'file')
+  // exts=["*"] 等价全类型
+  await def.execute({ exts: ['*'] }, {})
+  assert.deepEqual(calls[2].exts, ['*'])
+  // type=dir / type=all
+  await def.execute({ type: 'dir', query: '年终' }, {})
+  assert.equal(calls[3].kind, 'dir')
+  await def.execute({ type: 'all', query: '年终' }, {})
+  assert.equal(calls[4].kind, 'any')
 })
 
 test('工具 execute：AbortSignal 中止返回"索引构建中"语义', async () => {
@@ -173,7 +207,7 @@ test('控制器：启用注册、禁用注销、状态', () => {
   assert.equal(registered, null, '默认禁用：不注册')
   enabled = true
   ctrl.sync()
-  assert.equal(registered?.name, 'memory_evolve_search_local_docs', '启用后注册工具')
+  assert.equal(registered?.name, 'memory_evolve_search_local_files', '启用后注册工具')
   const status = ctrl.status()
   assert.equal(status.enabled, true)
   assert.deepEqual(status.providers, ['mdfind', 'rg', 'walk'])
@@ -186,7 +220,7 @@ test('命令：on/off/status', () => {
   let current = false
   const ctrl = { status: () => ({ enabled: current, toolName: 't', providers: ['a'], defaultExts: ['md'] }), setEnabled: (v) => { current = v } }
   const cmd = searchDocsCommand(baseConfig(), ctrl)
-  assert.equal(cmd.name, 'memory_evolve_search_docs')
+  assert.equal(cmd.name, 'memory_evolve_search_files')
   assert.equal(cmd.handler({ rawInput: 'on' }).kind, 'success')
   assert.equal(current, true)
   assert.equal(cmd.handler({ rawInput: 'off' }).kind, 'success')
