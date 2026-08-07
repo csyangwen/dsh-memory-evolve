@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import {
+import { todayStamp,
   ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries,
   parseEntryBranches, projectHash, serializeEntries,
 } from '../lib/store.js'
@@ -79,7 +79,7 @@ test('query filters by keyword, date range, limit and recency; daily spans files
   // daily across two files
   mkdirSync(join(dir, 'daily'), { recursive: true })
   writeFileSync(join(dir, 'daily', '2026-08-05.md'), '[10:00] 昨天完成了 A\n§\n[11:00] 昨天完成了 B\n')
-  writeFileSync(join(dir, 'daily', '2026-08-06.md'), '[09:00] 今天做了 C\n§\n[10:00] 今天做了 D\n')
+  writeFileSync(join(dir, 'daily', `${todayStamp()}.md`), '[09:00] 今天做了 C\n§\n[10:00] 今天做了 D\n')
   // keyword filter
   let hits = store.query('daily', agent, { filter: 'C' })
   assert.deepEqual(hits, ['[09:00] 今天做了 C'])

@@ -407,12 +407,12 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   assert.ok(!snapshot.includes('## 今日记忆'))
   // Project KEY facts ARE injected (rarely-changing long-term facts, same
   // live-read/change-detected mechanism as the global tracks).
-  assert.ok(snapshot.includes('## 项目关键记忆'))
+  assert.ok(snapshot.includes('## 本项目关键记忆'))
   assert.ok(snapshot.includes('X 项目的长期约定'))
-  assert.ok(snapshot.includes('target=key，已注入'))
+  assert.ok(snapshot.includes('memory 工具 target=key'))
   // without a cwd, no key section (nothing to inject)
   const noCwd = renderSnapshot(config, store, { id: 'b', session: { header: {} } })
-  assert.ok(!noCwd.includes('## 项目关键记忆'))
+  assert.ok(!noCwd.includes('## 本项目关键记忆'))
   assert.ok(snapshot.includes('## 记忆 memory-evolve'))
   assert.ok(snapshot.includes('target=project'))
   // per-turn duties: one minimal checklist, text-first tool-after pattern
@@ -482,7 +482,7 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(on.includes('due=false 直接结束'), 'no complete when not due')
   assert.ok(on.includes('memory_suggest'))
   assert.ok(on.includes('skill_manage'))
-  assert.ok(on.includes('memory-evolve 本轮执行完毕'))
+  assert.ok(!on.includes('本轮执行完毕'), 'completion phrase removed')
   // due warning: the snapshot itself announces an overdue review
   const dueSnap = renderSnapshot(resolveConfig({ memoryDir: dir, reviewEnabled: true }), store, agent, { turnsOf: () => 99 })
   assert.ok(dueSnap.includes('记忆审查已到期'))
