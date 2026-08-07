@@ -118,7 +118,7 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 
 启用后（`searchDocsEnabled`，默认关），agent 还可通过 `memory_evolve_search_local_docs` 工具在**本机全盘**按文件名查找文档：
 
-- `memory_evolve_search_local_docs query=写小说 exts=["md","docx"]`：文件名关键字 + 扩展名（支持 `"md,docx"` 字符串），结果按修改时间倒序；
+- `memory_evolve_search_local_docs query=写小说 exts=["md","docx"]`：文件名关键字 + 扩展名（支持 `"md,docx"` 字符串），结果按修改时间倒序；**中文文件名建议尝试多个说法**（"年报"查不到可换"述职"、"年度报告"等文件名里实际出现的词）；
 - `memory_evolve_search_local_docs query="" exts=["md"] limit=5`：不传关键字 = 列出最近修改的文档；
 - `dir` 可选限定目录；`limit` 默认 20 最大 100。只返回路径/名称/大小/修改时间，**不读取文件内容**。
 
