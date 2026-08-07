@@ -26,6 +26,10 @@ interface Adapter {
   skillName?: string
   useCase?: string
   enabled?: boolean
+  /** ai-cli 专属：指定会话恢复（必填）、最近会话恢复（可选）、会话 id 提取（可选）。 */
+  resume?: { kind: 'flag'; flag: string; arg: string } | { kind: 'args'; args: string[] }
+  continue?: { kind: 'flag'; flag: string } | { kind: 'args'; args: string[] }
+  sessionIdExtract?: { source: 'stdout' | 'stderr' | 'any' | 'none'; regex: string | null }
 }
 
 /** 任务状态机。 */
@@ -230,6 +234,24 @@ const DICT = {
     'adapters.confirmDelete': '确认删除该自定义适配器？',
     'adapters.builtin': '内置',
     'adapters.custom': '自定义',
+    'adapters.resumeSection': '会话恢复配置（ai-cli 必填）',
+    'adapters.resumeSectionHint': 'ai-cli 类型必须有指定会话恢复能力；没有恢复能力的 CLI 请选 plain-cli 类型',
+    'adapters.resumeKind': '恢复方式',
+    'adapters.resumeKindFlag': 'flag 模式（恢复参数插在基础参数前）',
+    'adapters.resumeKindArgs': 'args 模式（完整恢复命令）',
+    'adapters.resumeFlag': '恢复 flag',
+    'adapters.resumeFlagPh': '如 -S / -r / --resume',
+    'adapters.resumeArg': '会话参数',
+    'adapters.resumeArgPh': '含 {sessionId} 占位符，如 {sessionId}',
+    'adapters.resumeArgs': '恢复命令参数',
+    'adapters.resumeArgsPh': '逗号分隔，含 {sessionId}（及可选 {task}），如 exec, resume, {sessionId}, {task}',
+    'adapters.continueFlag': '最近会话恢复 flag（可选）',
+    'adapters.continueFlagPh': '如 -c；留空 = 不支持"最近会话"恢复',
+    'adapters.extractSection': '会话 ID 自动提取（可选）',
+    'adapters.extractSource': '输出流',
+    'adapters.extractRegex': '提取正则',
+    'adapters.extractRegexPh': '捕获组 1 为会话 ID，如 To resume this session: kimi -r (session_\\S+)',
+    'adapters.resumeMissing': 'ai-cli 类型必须填写会话恢复配置（resume）',
     'templates.addTitle': '添加模板',
     'templates.name': '名称',
     'templates.prompt': '任务内容',
@@ -391,6 +413,24 @@ const DICT = {
     'adapters.confirmDelete': 'Delete this custom adapter?',
     'adapters.builtin': 'builtin',
     'adapters.custom': 'custom',
+    'adapters.resumeSection': 'Session resume (required for ai-cli)',
+    'adapters.resumeSectionHint': 'ai-cli must support resuming a named session; CLIs without resume support should use plain-cli',
+    'adapters.resumeKind': 'Resume mode',
+    'adapters.resumeKindFlag': 'flag mode (resume flag + arg prepended to base args)',
+    'adapters.resumeKindArgs': 'args mode (full resume command)',
+    'adapters.resumeFlag': 'Resume flag',
+    'adapters.resumeFlagPh': 'e.g. -S / -r / --resume',
+    'adapters.resumeArg': 'Session arg',
+    'adapters.resumeArgPh': 'with {sessionId} placeholder, e.g. {sessionId}',
+    'adapters.resumeArgs': 'Resume command args',
+    'adapters.resumeArgsPh': 'comma separated, with {sessionId} (and optional {task}), e.g. exec, resume, {sessionId}, {task}',
+    'adapters.continueFlag': 'Continue-last flag (optional)',
+    'adapters.continueFlagPh': 'e.g. -c; leave empty = no “continue last session” support',
+    'adapters.extractSection': 'Auto session-ID extraction (optional)',
+    'adapters.extractSource': 'Output stream',
+    'adapters.extractRegex': 'Extract regex',
+    'adapters.extractRegexPh': 'capture group 1 = session ID, e.g. To resume this session: kimi -r (session_\\S+)',
+    'adapters.resumeMissing': 'ai-cli requires a session resume config',
     'templates.addTitle': 'Add template',
     'templates.name': 'Name',
     'templates.prompt': 'Prompt',
@@ -1307,6 +1347,14 @@ function AdaptersPane(): JSX.Element {
   const [fSkill, setFSkill] = useState('')
   const [fUseCase, setFUseCase] = useState('')
   const [fSkillContent, setFSkillContent] = useState('')
+  // ai-cli 专属：会话恢复配置（resume 必填，continue/提取可选）
+  const [fResumeKind, setFResumeKind] = useState<'flag' | 'args'>('flag')
+  const [fResumeFlag, setFResumeFlag] = useState('')
+  const [fResumeArg, setFResumeArg] = useState('')
+  const [fResumeArgs, setFResumeArgs] = useState('')
+  const [fContinueFlag, setFContinueFlag] = useState('')
+  const [fExtractSource, setFExtractSource] = useState<'stdout' | 'stderr' | 'any' | 'none'>('none')
+  const [fExtractRegex, setFExtractRegex] = useState('')
   const [adding, setAdding] = useState(false)
 
   const load = useCallback(async (): Promise<void> => {
@@ -1421,9 +1469,17 @@ function AdaptersPane(): JSX.Element {
   }
 
   const add = async (): Promise<void> => {
+    // 前端预校验：ai-cli 必须有 resume（与后端 validateAdapter 一致，省一次往返）
+    if (fType === 'ai-cli') {
+      const resumeEmpty = fResumeKind === 'flag' ? fResumeFlag.trim() === '' : fResumeArgs.trim() === ''
+      if (resumeEmpty) {
+        setNotice({ kind: 'error', text: t('adapters.resumeMissing') })
+        return
+      }
+    }
     setAdding(true)
     try {
-      const def = {
+      const def: Record<string, unknown> = {
         id: fId.trim(),
         name: fName.trim(),
         type: fType,
@@ -1432,14 +1488,35 @@ function AdaptersPane(): JSX.Element {
         skillName: fSkill.trim() === '' ? undefined : fSkill.trim(),
         useCase: fUseCase.trim() === '' ? undefined : fUseCase.trim(),
       }
+      if (fType === 'ai-cli') {
+        // resume 必填：flag 模式（flag+arg 插在基础参数前）/ args 模式（完整恢复命令）
+        // arg 留空默认 {sessionId}——调度器用它替换会话 id
+        def.resume = fResumeKind === 'flag'
+          ? { kind: 'flag', flag: fResumeFlag.trim(), arg: fResumeArg.trim() === '' ? '{sessionId}' : fResumeArg.trim() }
+          : { kind: 'args', args: fResumeArgs.split(',').map((s) => s.trim()).filter((s) => s !== '') }
+        if (fContinueFlag.trim() !== '') def.continue = { kind: 'flag', flag: fContinueFlag.trim() }
+        if (fExtractSource !== 'none' && fExtractRegex.trim() !== '') {
+          def.sessionIdExtract = { source: fExtractSource, regex: fExtractRegex.trim() }
+        }
+      }
       const skillContent = fSkill.trim() !== '' && fSkillContent.trim() !== '' ? fSkillContent : undefined
-      const res = await postJson<{ ok: boolean; skillMessage?: string }>('/adapters', { def, skillContent })
+      const res = await postJson<{ ok: boolean; message?: string; skillMessage?: string }>('/adapters', { def, skillContent })
+      if (res.ok !== true) {
+        setNotice({ kind: 'error', text: msgOr(res.message, '保存失败') })
+        return
+      }
       setNotice({ kind: 'ok', text: res.skillMessage !== undefined ? res.skillMessage : t('config.saved') })
       setFId('')
       setFName('')
       setFBinary('')
       setFArgs('')
       setFUseCase('')
+      // 清空 ai-cli 会话恢复配置（类型/恢复方式保留，方便连续添加同类适配器）
+      setFResumeFlag('')
+      setFResumeArg('')
+      setFResumeArgs('')
+      setFContinueFlag('')
+      setFExtractRegex('')
       void load()
     } catch (err) {
       setNotice({ kind: 'error', text: errText(err) })
@@ -1565,6 +1642,62 @@ function AdaptersPane(): JSX.Element {
             <span className="coi-label">{t('adapters.useCase')}</span>
             <input className="coi-input" value={fUseCase} onChange={(e) => setFUseCase(e.target.value)} placeholder={t('adapters.useCasePh')} />
           </label>
+          {fType === 'ai-cli' && (
+            <>
+              {/* ai-cli 会话恢复配置：后端 validateAdapter 强制 ai-cli 必须有 resume，
+                  这里提供对应输入，避免"手动添加 AI 适配器保存被拒" */}
+              <div className="coi-field coi-field-wide coi-resume-section">
+                <span className="coi-label">{t('adapters.resumeSection')}</span>
+                <span className="coi-muted coi-small">{t('adapters.resumeSectionHint')}</span>
+              </div>
+              <label className="coi-field">
+                <span className="coi-label">{t('adapters.resumeKind')}</span>
+                <select className="coi-select" value={fResumeKind} onChange={(e) => setFResumeKind(e.target.value as 'flag' | 'args')}>
+                  <option value="flag">{t('adapters.resumeKindFlag')}</option>
+                  <option value="args">{t('adapters.resumeKindArgs')}</option>
+                </select>
+              </label>
+              {fResumeKind === 'flag' ? (
+                <>
+                  <label className="coi-field">
+                    <span className="coi-label">{t('adapters.resumeFlag')}</span>
+                    <input className="coi-input" value={fResumeFlag} onChange={(e) => setFResumeFlag(e.target.value)} placeholder={t('adapters.resumeFlagPh')} />
+                  </label>
+                  <label className="coi-field">
+                    <span className="coi-label">{t('adapters.resumeArg')}</span>
+                    <input className="coi-input" value={fResumeArg} onChange={(e) => setFResumeArg(e.target.value)} placeholder={t('adapters.resumeArgPh')} />
+                  </label>
+                </>
+              ) : (
+                <label className="coi-field coi-field-wide">
+                  <span className="coi-label">{t('adapters.resumeArgs')}</span>
+                  <input className="coi-input" value={fResumeArgs} onChange={(e) => setFResumeArgs(e.target.value)} placeholder={t('adapters.resumeArgsPh')} />
+                </label>
+              )}
+              <label className="coi-field coi-field-wide">
+                <span className="coi-label">{t('adapters.continueFlag')}</span>
+                <input className="coi-input" value={fContinueFlag} onChange={(e) => setFContinueFlag(e.target.value)} placeholder={t('adapters.continueFlagPh')} />
+              </label>
+              <div className="coi-field coi-field-wide coi-resume-section">
+                <span className="coi-label">{t('adapters.extractSection')}</span>
+              </div>
+              <label className="coi-field">
+                <span className="coi-label">{t('adapters.extractSource')}</span>
+                <select className="coi-select" value={fExtractSource} onChange={(e) => setFExtractSource(e.target.value as 'stdout' | 'stderr' | 'any' | 'none')}>
+                  <option value="none">none</option>
+                  <option value="stdout">stdout</option>
+                  <option value="stderr">stderr</option>
+                  <option value="any">any</option>
+                </select>
+              </label>
+              {fExtractSource !== 'none' && (
+                <label className="coi-field coi-field-wide">
+                  <span className="coi-label">{t('adapters.extractRegex')}</span>
+                  <input className="coi-input" value={fExtractRegex} onChange={(e) => setFExtractRegex(e.target.value)} placeholder={t('adapters.extractRegexPh')} />
+                </label>
+              )}
+            </>
+          )}
           {fSkill.trim() !== '' && (
             <label className="coi-field coi-field-wide">
               <span className="coi-label">{t('adapters.skillContent')}</span>
@@ -1580,7 +1713,17 @@ function AdaptersPane(): JSX.Element {
           )}
         </div>
         <div className="coi-form-actions">
-          <button type="button" className="coi-btn coi-btn-primary" disabled={adding || fId.trim() === '' || fName.trim() === '' || fBinary.trim() === ''} onClick={() => void add()}>
+          {/* ai-cli 必填 resume：缺失时禁用添加按钮（与 add() 内预校验一致） */}
+          <button
+            type="button"
+            className="coi-btn coi-btn-primary"
+            disabled={adding
+              || fId.trim() === ''
+              || fName.trim() === ''
+              || fBinary.trim() === ''
+              || (fType === 'ai-cli' && (fResumeKind === 'flag' ? fResumeFlag.trim() === '' : fResumeArgs.trim() === ''))}
+            onClick={() => void add()}
+          >
             {t('adapters.add')}
           </button>
         </div>

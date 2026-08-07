@@ -270,6 +270,18 @@
   font-size: 12px;
 }
 
+/* 表单内配置区块标题（如"会话恢复配置"）：分隔线 + 强调色，与普通 label 区分 */
+.coi-resume-section {
+  flex-basis: 100%;
+  border-top: 1px dashed var(--dsw-alias-interactive-bg-hover);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+.coi-resume-section .coi-label {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
 .coi-input,
 .coi-select,
 .coi-textarea {
