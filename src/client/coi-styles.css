@@ -511,7 +511,7 @@
   height: 88vh;
   max-width: 1400px;
   border-radius: 10px;
-  background: var(--dsw-alias-bg-default, #1e1e1e);
+  background: var(--dsw-alias-bg-overlay);
   border: 1px solid var(--dsw-alias-interactive-bg-hover);
   overflow: hidden;
 }

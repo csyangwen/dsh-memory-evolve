@@ -18,9 +18,11 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
 import { CoIView } from './CoIView.tsx'
 import { ScratchView } from './ScratchView.tsx'
+import { PromptView } from './PromptView.tsx'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
 import scratchStyles from './scratch-styles.css'
+import promptStyles from './prompt-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
 
 /** Locale namespace owned by this plugin. */
@@ -119,6 +121,8 @@ export const zh = {
   'memoryTab.label.pending': '🔴 记忆技能待办 ({count})',
   'coiTab.label': 'CLI调度',
   'scratchTab.label': '临时信息',
+  'promptTab.label': '提示词',
+  'promptTab.label.active': '🔴 提示词 ({count})',
   'memoryTab.feature.guide': '使用指南',
   'memoryTab.feature.suggestions': '待确认记忆建议',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -239,6 +243,8 @@ export const zh = {
   'panel.guide.search.desc': '记忆里没有、要找本地资料时，AI 可按文件名搜索——不止文档，图片/代码/配置等一切与项目相关的文件都能找（默认只搜文档扩展名，需要时可显式全类型搜索）。**默认禁用**：需要时在下方「运行时配置」打开开关，或对我说“启用本地搜索”。',
   'panel.guide.coi.title': 'COI 调度（de_coi）',
   'panel.guide.coi.desc': '把任务派给外部 CLI 代理（kimi/codex/grok/hermes 等）：统一调度不卡主进程、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并沉淀到记忆。说"派给 kimi/codex 做 XX"即可，或打开「COI 调度」Tab 手动发起。**默认禁用**：与本地搜索一样按需启用——在下方「运行时配置」打开「COI 调度」开关（工具即时生效，Tab 刷新后出现）。',
+  'panel.guide.prompt.title': '提示词管理器（Prompt Manager）',
+  'panel.guide.prompt.desc': '把常用的工作范式固化成提示词资产（内置程序员示例：代码审查/调试/架构/测试等，来源以自写为主）：选中一条即可注入——**写入后模型下一轮自动看到、不打断回复**；支持一次性、持续 N 轮、每 M 回合提醒一次（按对话回合计数自动过期），「注入中」可随时停止。**默认禁用**：在下方「运行时配置」打开「提示词管理器」开关，Tab 刷新后出现。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
@@ -292,6 +298,8 @@ export const zh = {
   'panel.config.coiEnabled.hint': '启用 de_coi_* 工具与「COI 调度」Tab：统一调度 kimi/codex/grok/hermes 等 CLI 代理（默认禁用——本插件的本职是记忆/待办/技能，调度是按需增强；关闭时工具与 Tab 完全不可见）',
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '启用 memory_evolve_search_local_files：让模型能在本机所有磁盘/目录中按文件名搜索文件（默认只搜文档 md/docx/pdf…；全类型/文件夹需显式参数确认；只匹配文件名不读内容）。默认关闭；关闭时工具对模型完全不可见',
+  'panel.config.promptsEnabled': '提示词管理器',
+  'panel.config.promptsEnabled.hint': '启用「提示词」Tab：提示词库（用户自写范式 + 内置示例）+ 注入轨（一次性/持续 N 轮/每 M 回合一次——写入后模型下一轮自动看到，回合递减自动过期，可随时停止）。默认关闭；关闭时快照段/事件监听/API 全部卸载，Tab 刷新后隐藏',
   'panel.config.save': '保存配置',
   'panel.reveal.title': '打开文件',
   'panel.reveal.help': '用系统工具打开记忆目录与记忆文件。⚠️ 随意编辑可能破坏 § 分隔格式、导致记忆读取错乱，请谨慎修改。',
@@ -394,6 +402,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'memoryTab.label.pending': '🔴 Memory, Skills & Todos ({count})',
   'coiTab.label': 'CLI Dispatch',
   'scratchTab.label': 'Scratch Pad',
+  'promptTab.label': 'Prompts',
+  'promptTab.label.active': '🔴 Prompts ({count})',
   'memoryTab.feature.guide': 'Guide',
   'memoryTab.feature.suggestions': 'Memory suggestions',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -514,6 +524,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.search.desc': 'When memory is not enough and local material is needed, the AI can search by file name — not just documents: images, code, configs, anything relevant to the project (documents only by default; full-type search available when explicitly requested). **Disabled by default**: toggle it on in the runtime config below, or tell the AI “enable local search”.',
   'panel.guide.coi.title': 'COI dispatch (de_coi)',
   'panel.guide.coi.desc': 'Dispatch tasks to external CLI agents (kimi/codex/grok/hermes…): unified non-blocking scheduling, live progress, auto-tiered session management with one-click resume, cross-COI relay, archived results that also sink into memory. Just say “have kimi/codex do X”, or open the CLI Dispatch tab to dispatch manually. **Disabled by default**: enable the COI dispatch toggle in the runtime config below (tools take effect immediately; the tab appears after a refresh).',
+  'panel.guide.prompt.title': 'Prompt manager',
+  'panel.guide.prompt.desc': 'Turn recurring working paradigms into prompt assets (built-in programmer examples: code review/debugging/architecture/tests…; write your own as the main source). Pick one and inject — the content becomes visible to the model next turn without interrupting the reply; supports one-shot, N consecutive turns, or once every M turns (auto-expiring by turn counting), and can be stopped anytime. **Disabled by default**: enable the prompt manager toggle in the runtime config below; the tab appears after a refresh.',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
@@ -567,6 +579,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.coiEnabled.hint': 'Enable the de_coi_* tools and the CLI Dispatch tab: unified dispatch of CLI agents (kimi/codex/grok/hermes…). Off by default — this plugin\'s core is memory/todos/skills, dispatch is an on-demand add-on; when off, the tools and the tab are completely invisible',
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Enable memory_evolve_search_local_files: lets the model search files by name across all local disks/directories (documents md/docx/pdf… by default; all types/folders require explicit parameter confirmation; name matching only, never reads contents). Off by default; when off the tool is completely invisible to the model',
+  'panel.config.promptsEnabled': 'Prompt manager',
+  'panel.config.promptsEnabled.hint': 'Enable the Prompts tab: a prompt library (user-written paradigms + built-in examples) plus an injection track (once / N consecutive turns / every M turns — injected content is visible to the model next turn, expires automatically by turn counting, and can be stopped anytime). Off by default; when off the snapshot section, event listener and API are fully uninstalled and the tab hides after refresh',
   'panel.config.save': 'Save config',
   'panel.reveal.title': 'Open files',
   'panel.reveal.help': 'Open the memory directories and files with your system tools. ⚠️ Careless edits can break the §-delimited format and corrupt memory reads — edit with caution.',
@@ -657,6 +671,18 @@ export function apply(ctx: Context): void {
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'memory-evolve: scratch stylesheet')
+
+  // 提示词样式（pm- 前缀，独立注入）。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-prompt-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.promptCss = '1'
+    tag.textContent = promptStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: prompt stylesheet')
 
   // Session memory tab (conversation.view): the ONLY memory-management
   // surface now (the settings-panel section was removed). The label carries
@@ -756,4 +782,54 @@ export function apply(ctx: Context): void {
     coiCancelled = true
     disposeCoiTab?.()
   }, 'memory-evolve: coi tab')
+
+  // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
+  // API 探测注册（prompts 模块为插件常驻能力，无独立开关）。label 带红点
+  // 计数：有活跃注入时显示「🔴 提示词 (N)」——30s 轮询注入轨 + 监听
+  // badge-change 事件（注入/停止后 PromptView 即时触发）刷新。
+  let promptCancelled = false
+  let disposePromptTab: (() => void) | undefined
+  let promptBadgeCount = 0
+  const registerPromptTab = (): void => {
+    disposePromptTab?.()
+    disposePromptTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'prompt-hub',
+        order: 35,
+        label: () => promptBadgeCount > 0
+          ? t('promptTab.label.active', { count: promptBadgeCount })
+          : t('promptTab.label'),
+      }, (props) => PromptView({ ...props, t })))
+  }
+  const pollPromptBadge = (): void => {
+    if (promptCancelled || disposePromptTab === undefined) return
+    void fetch('/memory-evolve/api/prompts/injections')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data: { injections?: unknown[] }) => {
+        const count = data.injections?.length ?? 0
+        if (count !== promptBadgeCount) {
+          promptBadgeCount = count
+          registerPromptTab()
+        }
+      })
+      .catch(() => { /* badge is best-effort; the tab still works */ })
+  }
+  void fetch('/memory-evolve/api/prompts/sources')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(() => {
+      if (promptCancelled) return
+      registerPromptTab()
+      pollPromptBadge()
+      const promptBadgeTimer = setInterval(pollPromptBadge, BADGE_POLL_MS)
+      ctx.effect(() => () => clearInterval(promptBadgeTimer), 'memory-evolve: prompt tab badge poller')
+      const onPromptBadgeChange = (): void => pollPromptBadge()
+      window.addEventListener('dsh-memory-evolve:badge-change', onPromptBadgeChange)
+      ctx.effect(() => () => window.removeEventListener('dsh-memory-evolve:badge-change', onPromptBadgeChange), 'memory-evolve: prompt tab badge listener')
+    })
+    .catch(() => { /* host 端不可用：Tab 保持隐藏 */ })
+  ctx.effect(() => () => {
+    promptCancelled = true
+    disposePromptTab?.()
+  }, 'memory-evolve: prompt tab')
 }
