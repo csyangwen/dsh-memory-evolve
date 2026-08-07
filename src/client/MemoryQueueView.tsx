@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Which feature sub-tab is active. */
-export type MemoryFeature = 'suggestions' | 'skills' | 'config'
+export type MemoryFeature = 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
 
 /** Locale-bound props for the feature panels. */
 export interface MemoryQueueViewProps {
@@ -145,25 +145,23 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const runSuggestions = (op: 'approve' | 'archive' | 'reject' | 'approve-all' | 'reject-all', indices?: number[]): void => {
+  const runSuggestions = (op: 'approve' | 'archive' | 'reject', indices: number[]): void => {
     setBusy(true)
     const body: { indices?: number[]; contents?: string[]; targets?: Record<string, string> } = {}
-    if (indices !== undefined) {
-      body.indices = indices
-      if (op === 'approve') {
-        const contents = indices.map((index) => edits[index] ?? '')
-        // Send contents only when the user actually edited some entry; an
-        // all-empty contents array would otherwise be treated as a real edit
-        // of every entry ("" is not nullish), overwriting the suggestion.
-        if (contents.some((content) => content !== '')) body.contents = contents
-        // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）
-        const overrides: Record<string, string> = {}
-        for (const index of indices) {
-          const pick = targetPicks[index]
-          if (pick !== undefined && pick !== entries?.[index - 1]?.target) overrides[String(index)] = pick
-        }
-        if (Object.keys(overrides).length > 0) body.targets = overrides
+    body.indices = indices
+    if (op === 'approve') {
+      const contents = indices.map((index) => edits[index] ?? '')
+      // Send contents only when the user actually edited some entry; an
+      // all-empty contents array would otherwise be treated as a real edit
+      // of every entry ("" is not nullish), overwriting the suggestion.
+      if (contents.some((content) => content !== '')) body.contents = contents
+      // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）
+      const overrides: Record<string, string> = {}
+      for (const index of indices) {
+        const pick = targetPicks[index]
+        if (pick !== undefined && pick !== entries?.[index - 1]?.target) overrides[String(index)] = pick
       }
+      if (Object.keys(overrides).length > 0) body.targets = overrides
     }
     void api<{ lines?: string[]; removed?: number; remaining: number }>(`/api/suggestions/${op}`, {
       method: 'POST',
@@ -223,29 +221,43 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     setDraft((prev) => (prev === null ? prev : { ...prev, ...patch }))
   }
 
+  /** 当前面板的建议行（保留全量队列的 1-based index）：记忆面板=非待办类，
+   *  待办面板=todo-* 类。 */
+  const suggestionRows = (entries ?? [])
+    .map((entry, index) => ({ entry, index: index + 1 }))
+    .filter(({ entry }) => (feature === 'todo-suggestions')
+      ? entry.target.startsWith('todo-')
+      : !entry.target.startsWith('todo-'))
+
   return (
     <div className="me-panel">
       {notice !== null && (
         <div className={`me-notice me-notice-${notice.kind}`}>{notice.text}</div>
       )}
 
-      {feature === 'suggestions' && (
+      {(feature === 'suggestions' || feature === 'todo-suggestions') && (
         <section className="me-block">
           <div className="me-block-head">
-            <h3 className="me-heading">{t('panel.suggestions.title')}</h3>
-            {entries !== null && entries.length > 0 && (
-              <span className="me-count">{entries.length}</span>
+            <h3 className="me-heading">
+              {feature === 'todo-suggestions' ? t('panel.todoSuggestions.title') : t('panel.suggestions.title')}
+            </h3>
+            {suggestionRows.length > 0 && (
+              <span className="me-count">{suggestionRows.length}</span>
             )}
           </div>
-          <p className="me-help">{t('panel.suggestions.help')}</p>
+          <p className="me-help">
+            {feature === 'todo-suggestions' ? t('panel.todoSuggestions.help') : t('panel.suggestions.help')}
+          </p>
           {entries === null ? (
             <p className="me-muted">{t('panel.loading')}</p>
-          ) : entries.length === 0 ? (
-            <p className="me-empty">{t('panel.suggestions.empty')}</p>
+          ) : suggestionRows.length === 0 ? (
+            <p className="me-empty">
+              {feature === 'todo-suggestions' ? t('panel.todoSuggestions.empty') : t('panel.suggestions.empty')}
+            </p>
           ) : (
             <>
               <ul className="me-list">
-                {entries.map((entry, index) => (
+                {suggestionRows.map(({ entry, index }) => (
                   <li key={`${entry.time}-${index}`} className="me-item">
                     <div className="me-item-head">
                       <span
@@ -265,8 +277,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           <select
                             className="me-pick-target"
                             title={t('panel.suggestions.targetHint')}
-                            value={targetPicks[index + 1] ?? entry.target}
-                            onChange={(event) => setTargetPicks((prev) => ({ ...prev, [index + 1]: event.target.value }))}
+                            value={targetPicks[index] ?? entry.target}
+                            onChange={(event) => setTargetPicks((prev) => ({ ...prev, [index]: event.target.value }))}
                           >
                             {SUGGEST_TARGETS.map((target) => (
                               <option key={target} value={target}>{suggestTargetLabel(t, target)}</option>
@@ -277,7 +289,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           type="button"
                           className="me-btn me-btn-ok"
                           disabled={busy}
-                          onClick={() => runSuggestions('approve', [index + 1])}
+                          onClick={() => runSuggestions('approve', [index])}
                         >
                           {t('panel.suggestions.approve')}
                         </button>
@@ -286,7 +298,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           className="me-btn me-btn-archive"
                           disabled={busy}
                           title={t('panel.suggestions.archiveHint')}
-                          onClick={() => runSuggestions('archive', [index + 1])}
+                          onClick={() => runSuggestions('archive', [index])}
                         >
                           {t('panel.suggestions.archive')}
                         </button>
@@ -294,7 +306,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           type="button"
                           className="me-btn me-btn-danger"
                           disabled={busy}
-                          onClick={() => runSuggestions('reject', [index + 1])}
+                          onClick={() => runSuggestions('reject', [index])}
                         >
                           {t('panel.suggestions.reject')}
                         </button>
@@ -303,8 +315,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     <textarea
                       className="me-item-edit"
                       rows={3}
-                      value={edits[index + 1] ?? entry.content}
-                      onChange={(event) => setEdits((prev) => ({ ...prev, [index + 1]: event.target.value }))}
+                      value={edits[index] ?? entry.content}
+                      onChange={(event) => setEdits((prev) => ({ ...prev, [index]: event.target.value }))}
                     />
                     <p className="me-item-reason">
                       {entry.reason !== undefined && entry.reason !== '' ? entry.reason : t('panel.suggestions.editHint')}
@@ -313,10 +325,20 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                 ))}
               </ul>
               <div className="me-bulk">
-                <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => runSuggestions('approve-all')}>
+                <button
+                  type="button"
+                  className="me-btn me-btn-ok"
+                  disabled={busy}
+                  onClick={() => runSuggestions('approve', suggestionRows.map((row) => row.index))}
+                >
                   {t('panel.suggestions.approveAll')}
                 </button>
-                <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => runSuggestions('reject-all')}>
+                <button
+                  type="button"
+                  className="me-btn me-btn-danger"
+                  disabled={busy}
+                  onClick={() => runSuggestions('reject', suggestionRows.map((row) => row.index))}
+                >
                   {t('panel.suggestions.rejectAll')}
                 </button>
               </div>

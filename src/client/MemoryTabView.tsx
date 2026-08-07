@@ -184,12 +184,16 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置/技能管理面板。 */
   const [feature, setFeature] = useState<TabFeature | null>(persistedFeature)
   /** 待确认计数（来自 /api/badge，用于功能 tab 的徽标文本）。 */
-  const [badge, setBadge] = useState<{ suggestions: number; skills: number }>({ suggestions: 0, skills: 0 })
+  const [badge, setBadge] = useState<{ suggestions: number; todoSuggestions: number; skills: number }>({ suggestions: 0, todoSuggestions: 0, skills: 0 })
 
   /** 拉取待确认计数（功能 tab 徽标）。 */
   const pollBadge = useCallback((): void => {
-    void api<{ suggestions?: number; skills?: number }>('/api/badge')
-      .then((data) => setBadge({ suggestions: data.suggestions ?? 0, skills: data.skills ?? 0 }))
+    void api<{ suggestions?: number; todoSuggestions?: number; skills?: number }>('/api/badge')
+      .then((data) => setBadge({
+        suggestions: data.suggestions ?? 0,
+        todoSuggestions: data.todoSuggestions ?? 0,
+        skills: data.skills ?? 0,
+      }))
       .catch(() => { /* 徽标尽力而为 */ })
   }, [])
 
@@ -424,6 +428,16 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
         >
           {t('memoryTab.feature.suggestions')}
           {badge.suggestions > 0 && <span className="mt-feature-count">{badge.suggestions}</span>}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'todo-suggestions'}
+          className={feature === 'todo-suggestions' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature(feature === 'todo-suggestions' ? null : 'todo-suggestions')}
+        >
+          {t('memoryTab.feature.todoSuggestions')}
+          {badge.todoSuggestions > 0 && <span className="mt-feature-count">{badge.todoSuggestions}</span>}
         </button>
         <button
           type="button"
