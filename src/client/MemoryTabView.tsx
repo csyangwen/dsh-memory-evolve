@@ -414,8 +414,6 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       {notice !== null && (
         <div className={`mt-notice mt-notice-${notice.kind}`}>{notice.text}</div>
       )}
-      <p className="mt-warning">⚠️ {t('memoryTab.warning')}</p>
-      {cwd !== null && <p className="mt-cwd">{t('memoryTab.cwd')}: {cwd}</p>}
       {/* 功能 tab 与文件页签合并为一行：功能在前，竖线分隔；点功能 tab
           时文件页签仍可见，可随时切回文件视图 */}
       <div className="mt-file-tabs" role="tablist">
@@ -503,6 +501,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
           </button>
         ))}
       </div>
+      <p className="mt-warning">⚠️ {t('memoryTab.warning')}</p>
+      {cwd !== null && <p className="mt-cwd">{t('memoryTab.cwd')}: {cwd}</p>}
       {feature !== null ? (
         feature === 'skill-browser' ? (
           <SkillsBrowser t={t} />

@@ -617,8 +617,8 @@
 .mt-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 6px 12px 12px;
   overflow-y: auto;
   height: 100%;
   box-sizing: border-box;
@@ -926,21 +926,24 @@
 .mt-file-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 2px;
+  padding: 0;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  margin-bottom: 10px;
 }
 
 .mt-file-tab {
-  height: 28px;
-  padding: 0 14px;
-  border: 1px solid var(--dsw-alias-border-l3);
-  border-radius: 999px;
+  appearance: none;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px 6px 0 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .mt-file-tab:hover:not(.mt-file-tab-active) {
@@ -948,10 +951,10 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.mt-file-tab-active {
+.mt-file-tab-active,
+.mt-file-tab-active:hover {
   background: var(--dsw-alias-interactive-bg-active);
-  border-color: var(--dsw-alias-interactive-fg-default);
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-brand-primary);
   font-weight: 600;
 }
 

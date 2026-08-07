@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-08-07 — COI 调度模块 + 临时信息便签（de_coi）
+
+### 🎯 临时信息便签（scratch）
+- 会话页第三个独立 Tab「临时信息」：持久化 Markdown 便签（`<memoryDir>/scratch.md`，512 KiB 上限，原子写），跨 DSH web 重启保留；**与 § 分隔的结构化记忆无关**，自由文本随意编辑不破坏解析
+- 等宽编辑区 + 显式保存（Ctrl/Cmd+S，编辑区聚焦时拦截）+ 未保存脏标记 + 上次保存时间 + 一键用系统工具打开（复用 reveal 通道，`scratchFile` target）
+- 宿主端 `GET/POST /memory-evolve/api/scratch` 路由（读不存在返回空、POST 整体覆盖写入，body 上限放宽到文档上限）
+- Tab 名定稿：**「CLI调度」**（zh）/ **「CLI Dispatch」**（en）——弃用晦涩的「COI 调度」「COI Hub」，UI 与文档引用同步更新
+
+### 🔧 快照审查提示优化（无需每轮 check）
+- `memory_review_status` 描述改为：**无需每轮调用**——到期提醒由程序在快照中动态注入（「记忆审查已到期」出现时才执行审查），complete 复位计数，漏做下轮继续提醒；check 仅手动确认进度时使用
+- 快照固定提示段删除每轮 `action=check` 步骤，只保留收尾纪律与 complete 行为（省每轮一次工具调用、保缓存）
+
+### 🎯 COI 调度（统一调度 kimi/codex/grok/hermes 等 CLI 代理）
+- **适配器驱动架构**（`lib/coi/` 独立模块，边界清晰可拆）：内置 kimi/codex/grok/hermes 四家开箱即用（命令模板/会话恢复参数/session id 提取/结构化输出解析/**内置使用指南**），UI 可**自定义添加任意 CLI**（`ai-cli` 有会话恢复 / `plain-cli` 普通命令降级，两级配置：常用表单 + 高级规则），适配器**测试按钮**一键 ping 验证
+- **非阻塞调度**（第一原则）：`de_coi_dispatch` 工具 / `/de_coi run` / Web 面板三入口**立即返回 taskId**，任务经 `node:child_process` 后台化，**绝不卡死 DSH 主进程**；终止杀**进程树**（detached 进程组）、超时兜底（默认 12 小时）、输出体积截断留档
+- **进度可视化**：Web「COI 调度」Tab 实时日志流（2s 轮询）、任务列表 3s 轮询、状态机 queued/running/completed/failed/killed/interrupted；`de_coi_wait` 可同步等待结果（Agent 侧完成回传）
+- **终止确认**：GUI confirm 弹窗 / `/de_coi stop <id>` 二次确认（`--force`）/ `--all --force`；Agent 工具取消直接执行不弹窗
+- **会话分层管理**：session id 自动捕获（kimi 尾部正则 / codex stderr 头部）→ 按 **临时/会话/项目/全局** 分层入库，项目级可挂 **git 分支**（与 key 记忆同构），备注/检索/一键恢复（各家恢复参数自动拼接）/`/de_coi sessions` 管理
+- **会话并发锁**：同一会话同时只能跑一个任务（恢复时检测占用，防上下文串扰）
+- **跨 COI 接力**：发起任务可 `refTaskId` 引用上一任务留档输出自动拼接（如 codex 写 → kimi review）
+- **任务留档与检索**：输出自动落盘（`coi/logs/`），按 COI/项目/时间/关键词检索，自动清理（默认 90 天）
+- **任务跨会话可见**：数据按项目目录归类，任何 DSH 会话可见该项目 COI 任务
+- **任务模板**：内置 4 个（review 代码/修复测试/总结日志/架构分析）+ 自定义，一键发起
+- **用量统计**：各 COI 调用次数/累计耗时/状态分布（GUI 统计页 + `/de_coi stats`）
+- **会话导出**：封装 kimi export / grok export / hermes sessions export 后台导出
+- **完成通知**：`coiNotifyCommand` 命令模板（占位符 `{taskId}{coi}{status}{summary}`，可配 `hermes send` 推微信/飞书），失败静默不影响任务
+- **崩溃恢复**：任务状态全程持久化，DSH 重启后遗留 running/queued 标记 interrupted，可基于会话恢复
+- **记忆融合（弱耦合）**：任务完成自动把摘要沉淀到 project/daily 记忆轨（模块内部直连 `store.add`，停用记忆轨不影响调度）
+- **配置项**：`coiEnabled` / `coiDataDir` / `coiSummaryEnabled` / `coiNotifyCommand` / `coiRetentionDays` / `coiTaskTimeoutMs` / `coiMaxLogBytes`
+- 命令前缀 `de_`（D=DeepSeek，E=edgar）防插件冲突；Web 新 Tab「CLI调度」（探测 host API 存在才注册）；使用指南新增 COI 线；README 同步（含新 docs/COI-调度.md 使用文档，AGENTS.md 加 de_coi_dispatch 提示）
+
+---
+
 ## 2026-08-07 — slots API 适配与快照提示优化（`68d05de`/`cfcfd63`）
 
 - **适配 DSH 08-06 profiles 架构**（`68d05de`）：上游移除 `ui-slots.deferRegistration`，客户端改用 `ctx.slots.inject` 注册记忆 Tab，badge 刷新改为重新注册（deferral.refresh）后恢复 tab 选择；配套 dsh-plugin / dsh-web-plugin 技能按新架构更新（config.yaml → cordis.patch.yml、`--dump-config` 排查）
@@ -165,4 +198,4 @@
 
 ## 未发布（工作区）
 
-- 无（当前工作区干净，最新已推送 `56ae87d`）。
+- 无（最新提交 hash 见顶部大节，提交后回填）。

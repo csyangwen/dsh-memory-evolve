@@ -1,0 +1,597 @@
+/**
+ * dsh-memory-evolve — COI 调度 tab 样式（coi- 前缀，由 index.ts 注入）。
+ * 颜色一律走 DSH 设计 token（--dsw-alias-* / --dsw-static-*），深浅色自动适配。
+ */
+
+.coi-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+/* ---- 子 Tab 条 ---- */
+.coi-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  flex-shrink: 0;
+}
+
+.coi-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 6px 6px 0 0;
+}
+
+.coi-tab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.coi-tab-active,
+.coi-tab-active:hover {
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+  font-weight: 600;
+}
+
+/* ---- 内容区 ---- */
+.coi-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.coi-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coi-tasks {
+  overflow: hidden;
+}
+
+/* ---- 任务视图：左列表 + 右详情 ---- */
+.coi-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.coi-task-list {
+  flex: 0 0 46%;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.coi-task-row {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  width: 100%;
+}
+
+.coi-task-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.coi-task-row-active,
+.coi-task-row-active:hover {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.coi-task-status {
+  flex-shrink: 0;
+}
+
+.coi-task-id {
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.coi-task-adapter {
+  flex-shrink: 0;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.coi-task-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coi-task-time {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.coi-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.coi-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.coi-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coi-meta-row .coi-label {
+  min-width: 64px;
+}
+
+.coi-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.coi-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coi-log-title {
+  margin-top: 4px;
+}
+
+.coi-log {
+  flex: 1;
+  min-height: 220px;
+  max-height: 45vh;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.coi-guide {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+/* ---- 卡片 / 表单 ---- */
+.coi-card {
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.coi-card-title {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.coi-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coi-adapter-card {
+  gap: 4px;
+}
+
+.coi-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 纵向卡片里的字段：flex-basis 只用于横向网格（宽度），
+   纵向排列时禁止按 180px 高度拉伸（否则每个字段下方留大片空白） */
+.coi-card > .coi-field {
+  flex: none;
+}
+
+.coi-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.coi-field-wide {
+  flex-basis: 100%;
+}
+
+.coi-label {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.coi-input,
+.coi-select,
+.coi-textarea {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.coi-input:focus,
+.coi-select:focus,
+.coi-textarea:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.coi-textarea {
+  resize: vertical;
+}
+
+.coi-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ---- 按钮 ---- */
+.coi-btn {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 6px;
+  background: var(--dsw-alias-button-tool-bar-fill);
+  color: var(--dsw-alias-interactive-fg-default);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.coi-btn:hover {
+  background: var(--dsw-alias-button-tool-bar-hover);
+}
+
+.coi-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.coi-btn-primary {
+  background: var(--dsw-alias-button-primary-fill);
+  border-color: transparent;
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.coi-btn-primary:hover {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.coi-btn-danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.coi-btn-danger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.coi-btn-mini {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* ---- 工具条 / 列表行 ---- */
+.coi-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.coi-toolbar .coi-input {
+  flex: 1;
+}
+
+.coi-row {
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.coi-row-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.coi-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- 徽标 / 状态色 ---- */
+.coi-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.coi-status-queued {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.coi-status-running {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.coi-status-completed {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.coi-status-failed {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.coi-status-killed {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.coi-status-interrupted {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* ---- 提示 ---- */
+.coi-notice {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.coi-notice-ok {
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.coi-notice-error {
+  background: var(--dsw-alias-state-error-secondary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.coi-error {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--dsw-alias-state-error-secondary);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- 统计 ---- */
+.coi-stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.coi-stat-card {
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  flex: 1 1 140px;
+}
+
+.coi-stat-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--dsw-alias-brand-primary);
+}
+
+/* ---- 杂项 ---- */
+.coi-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.coi-small {
+  font-size: 11px;
+}
+
+.coi-muted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.coi-strong {
+  font-weight: 600;
+}
+
+.coi-pad {
+  padding: 12px;
+}
+
+/* ---- 日志全屏弹窗 ---- */
+.coi-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.coi-modal-box {
+  display: flex;
+  flex-direction: column;
+  width: 92vw;
+  height: 88vh;
+  max-width: 1400px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-default, #1e1e1e);
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  overflow: hidden;
+}
+
+.coi-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  flex-shrink: 0;
+}
+
+.coi-log-full {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  border-radius: 0;
+  margin: 0;
+}
+
+/* ---- 小时/分钟横排 ---- */
+.coi-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.coi-inline .coi-input {
+  width: 88px;
+  flex-shrink: 0;
+}
+
+/* ---- 发起任务大输入框 ---- */
+.coi-textarea-lg {
+  min-height: 130px;
+}
+
+/* ---- 技能编辑弹窗编辑器 ---- */
+.coi-skill-editor {
+  flex: 1;
+  min-height: 0;
+  margin: 0 12px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+}
+
+.coi-skill-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---- 任务列表搜索栏 ---- */
+.coi-task-toolbar {
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.coi-task-toolbar .coi-input {
+  width: 100%;
+}
+
+/* ---- 详情：任务内容（只读，小区域，可滚动） ---- */
+.coi-prompt-view {
+  max-height: 120px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.coi-prompt-view-full {
+  white-space: pre-wrap;
+  word-break: break-all;
+}

@@ -1,0 +1,149 @@
+/**
+ * dsh-memory-evolve — 临时信息 tab 样式（`sp-` 前缀）。
+ * 颜色只用 --dsw-alias-* token，深浅色自动适配（与 coi- 一致）。
+ */
+
+.sp-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  gap: 8px;
+  padding: 12px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.sp-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sp-path {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--dsw-font-family-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-saved-at {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sp-help {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sp-editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  padding: 12px 14px;
+  font-family: var(--dsw-font-family-mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 13px;
+  line-height: 1.7;
+  outline: none;
+}
+
+.sp-editor:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.sp-editor::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sp-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.sp-spacer {
+  flex: 1;
+}
+
+.sp-dirty {
+  font-size: 12px;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.sp-hint {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sp-notice {
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.sp-notice-ok {
+  color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-tertiary);
+}
+
+.sp-notice-error {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-secondary);
+}
+
+.sp-loading {
+  padding: 12px 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sp-btn {
+  flex: none;
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 6px;
+  background: var(--dsw-alias-button-tool-bar-fill);
+  color: var(--dsw-alias-interactive-fg-default);
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sp-btn:hover {
+  background: var(--dsw-alias-button-tool-bar-hover);
+}
+
+.sp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sp-btn-primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-inverted);
+  border-color: transparent;
+}
+
+.sp-btn-primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}

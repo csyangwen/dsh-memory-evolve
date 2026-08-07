@@ -16,7 +16,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
+import { CoIView } from './CoIView.tsx'
+import { ScratchView } from './ScratchView.tsx'
 import styles from './styles.css'
+import coiStyles from './coi-styles.css'
+import scratchStyles from './scratch-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
 
 /** Locale namespace owned by this plugin. */
@@ -113,6 +117,8 @@ export const zh = {
   'preview': '预览',
   'memoryTab.label': '记忆技能待办',
   'memoryTab.label.pending': '🔴 记忆技能待办 ({count})',
+  'coiTab.label': 'CLI调度',
+  'scratchTab.label': '临时信息',
   'memoryTab.feature.guide': '使用指南',
   'memoryTab.feature.suggestions': '待确认记忆建议',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -230,7 +236,9 @@ export const zh = {
   'panel.guide.skill.title': '技能沉淀（skill_manage）',
   'panel.guide.skill.desc': '反复踩坑的方法论可固化为技能，同类任务下次直接按流程执行，不用重新摸索。创建保持克制，只建高复用价值的；技能库可在「技能管理」里浏览、搜索并一键启用/禁用（禁用后 AI 不再加载）。',
   'panel.guide.search.title': '本地搜索（memory_evolve_search_local_files）',
-  'panel.guide.search.desc': '记忆里没有、要找本地资料时，AI 可按文件名搜索——不止文档，图片/代码/配置等一切与项目相关的文件都能找（默认只搜文档扩展名，需要时可显式全类型搜索）。',
+  'panel.guide.search.desc': '记忆里没有、要找本地资料时，AI 可按文件名搜索——不止文档，图片/代码/配置等一切与项目相关的文件都能找（默认只搜文档扩展名，需要时可显式全类型搜索）。**默认禁用**：需要时在下方「运行时配置」打开开关，或对我说“启用本地搜索”。',
+  'panel.guide.coi.title': 'COI 调度（de_coi）',
+  'panel.guide.coi.desc': '把任务派给外部 CLI 代理（kimi/codex/grok/hermes 等）：统一调度不卡主进程、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并沉淀到记忆。说"派给 kimi/codex 做 XX"即可，或打开「COI 调度」Tab 手动发起。**默认禁用**：与本地搜索一样按需启用——在下方「运行时配置」打开「COI 调度」开关（工具即时生效，Tab 刷新后出现）。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
@@ -280,6 +288,8 @@ export const zh = {
   'panel.config.perTurnDailyWrites.hint': '要求模型每个回合结束前主动检查并记录当天进展；关闭后每日日志仅按需读取。⚠️ 依赖 LLM 指令遵循，弱遵循的模型不一定会执行',
   'panel.config.perTurnKeyWrites': '每回合检查项目关键记忆',
   'panel.config.perTurnKeyWrites.hint': '要求模型每个回合结束前判断是否出现重要项目事实（长期约定/决策/架构/踩坑），有则写入 target=key（自动注入上下文），没有就跳过；关闭后 key 仅保留手动添加与读取。⚠️ 依赖 LLM 指令遵循',
+  'panel.config.coiEnabled': 'COI 调度',
+  'panel.config.coiEnabled.hint': '启用 de_coi_* 工具与「COI 调度」Tab：统一调度 kimi/codex/grok/hermes 等 CLI 代理（默认禁用——本插件的本职是记忆/待办/技能，调度是按需增强；关闭时工具与 Tab 完全不可见）',
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '启用 memory_evolve_search_local_files：让模型能在本机所有磁盘/目录中按文件名搜索文件（默认只搜文档 md/docx/pdf…；全类型/文件夹需显式参数确认；只匹配文件名不读内容）。默认关闭；关闭时工具对模型完全不可见',
   'panel.config.save': '保存配置',
@@ -382,6 +392,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'preview': 'Preview',
   'memoryTab.label': 'Memory, Skills & Todos',
   'memoryTab.label.pending': '🔴 Memory, Skills & Todos ({count})',
+  'coiTab.label': 'CLI Dispatch',
+  'scratchTab.label': 'Scratch Pad',
   'memoryTab.feature.guide': 'Guide',
   'memoryTab.feature.suggestions': 'Memory suggestions',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -499,7 +511,9 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.skill.title': 'Skills (skill_manage)',
   'panel.guide.skill.desc': 'Methodologies learned the hard way can be solidified into reusable skills, so the same kind of task runs on a proven process next time. Creation stays restrained: only high-reuse skills; the skill manager lets you browse, search and enable/disable any skill (disabled skills are never loaded by the AI).',
   'panel.guide.search.title': 'Local search (memory_evolve_search_local_files)',
-  'panel.guide.search.desc': 'When memory is not enough and local material is needed, the AI can search by file name — not just documents: images, code, configs, anything relevant to the project (documents only by default; full-type search available when explicitly requested).',
+  'panel.guide.search.desc': 'When memory is not enough and local material is needed, the AI can search by file name — not just documents: images, code, configs, anything relevant to the project (documents only by default; full-type search available when explicitly requested). **Disabled by default**: toggle it on in the runtime config below, or tell the AI “enable local search”.',
+  'panel.guide.coi.title': 'COI dispatch (de_coi)',
+  'panel.guide.coi.desc': 'Dispatch tasks to external CLI agents (kimi/codex/grok/hermes…): unified non-blocking scheduling, live progress, auto-tiered session management with one-click resume, cross-COI relay, archived results that also sink into memory. Just say “have kimi/codex do X”, or open the CLI Dispatch tab to dispatch manually. **Disabled by default**: enable the COI dispatch toggle in the runtime config below (tools take effect immediately; the tab appears after a refresh).',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
@@ -549,6 +563,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.perTurnDailyWrites.hint': 'Require the model to check at the end of every turn and record the day\'s progress; when off, the daily log is read on demand only. ⚠️ Relies on LLM instruction following — weaker models may not comply',
   'panel.config.perTurnKeyWrites': 'Per-turn key-fact check',
   'panel.config.perTurnKeyWrites.hint': 'Require the model to judge at the end of every turn whether an important project fact emerged (long-lived convention/decision/architecture/pitfall); if so, write it to target=key (injected into the context), otherwise skip. When off, key facts are only added manually or read. ⚠️ Relies on LLM instruction following',
+  'panel.config.coiEnabled': 'COI dispatch',
+  'panel.config.coiEnabled.hint': 'Enable the de_coi_* tools and the CLI Dispatch tab: unified dispatch of CLI agents (kimi/codex/grok/hermes…). Off by default — this plugin\'s core is memory/todos/skills, dispatch is an on-demand add-on; when off, the tools and the tab are completely invisible',
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Enable memory_evolve_search_local_files: lets the model search files by name across all local disks/directories (documents md/docx/pdf… by default; all types/folders require explicit parameter confirmation; name matching only, never reads contents). Off by default; when off the tool is completely invisible to the model',
   'panel.config.save': 'Save config',
@@ -618,6 +634,30 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: skill browser stylesheet')
 
+  // COI 调度样式（coi- 前缀，独立注入）。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-coi-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.coiCss = '1'
+    tag.textContent = coiStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: coi stylesheet')
+
+  // 临时信息样式（sp- 前缀，独立注入）。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-scratch-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.scratchCss = '1'
+    tag.textContent = scratchStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: scratch stylesheet')
+
   // Session memory tab (conversation.view): the ONLY memory-management
   // surface now (the settings-panel section was removed). The label carries
   // a red-dot pending count (🔴 记忆 (N)) while suggestions/skills await
@@ -655,6 +695,17 @@ export function apply(ctx: Context): void {
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { config?: { memoryTabEnabled?: boolean } }) => {
+      // 临时信息 tab：跟随 config 探测成功注册（host API 可用即显示，
+      // 不设开关——内容持久化在 scratch.md，属于本插件的常驻能力）。
+      if (!scratchCancelled && disposeScratchTab === undefined) {
+        disposeScratchTab = ctx.slots.inject('conversation.view', () =>
+          ctx.slots.register({
+            name: 'conversation.view',
+            id: 'scratch-pad',
+            order: 40,
+            label: () => t('scratchTab.label'),
+          }, (props) => ScratchView({ ...props, t })))
+      }
       // memoryTabEnabled is a read-only field of /api/config (default true;
       // only config.yaml can turn it off — deliberately NOT a runtime key,
       // since switching it off from inside the tab would hide the tab itself).
@@ -675,4 +726,34 @@ export function apply(ctx: Context): void {
     tabCancelled = true
     disposeTab?.()
   }, 'memory-evolve: memory tab')
+
+  // 临时信息 Tab 的清理（注册本身在 /api/config 探测成功后进行）。
+  let scratchCancelled = false
+  let disposeScratchTab: (() => void) | undefined
+  ctx.effect(() => () => {
+    scratchCancelled = true
+    disposeScratchTab?.()
+  }, 'memory-evolve: scratch tab')
+
+  // COI 调度 Tab（conversation.view 第二个 slot）：探测 host 端 COI API
+  // 存在才注册（coiEnabled=false 时 API 404，Tab 自动隐藏）。
+  let coiCancelled = false
+  let disposeCoiTab: (() => void) | undefined
+  void fetch('/memory-evolve/api/coi/config')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(() => {
+      if (coiCancelled) return
+      disposeCoiTab = ctx.slots.inject('conversation.view', () =>
+        ctx.slots.register({
+          name: 'conversation.view',
+          id: 'coi-hub',
+          order: 30,
+          label: () => t('coiTab.label'),
+        }, (props) => CoIView({ ...props, t })))
+    })
+    .catch(() => { /* COI 未启用：Tab 保持隐藏 */ })
+  ctx.effect(() => () => {
+    coiCancelled = true
+    disposeCoiTab?.()
+  }, 'memory-evolve: coi tab')
 }

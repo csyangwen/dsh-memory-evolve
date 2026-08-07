@@ -78,6 +78,7 @@ interface RuntimeConfig {
   perTurnDailyWrites: boolean
   perTurnKeyWrites: boolean
   searchDocsEnabled: boolean
+  coiEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -204,6 +205,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnDailyWrites: draft.perTurnDailyWrites,
       perTurnKeyWrites: draft.perTurnKeyWrites,
       searchDocsEnabled: draft.searchDocsEnabled,
+      coiEnabled: draft.coiEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -275,6 +277,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.search.title')}</strong>
                 <span>{t('panel.guide.search.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🚀</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.coi.title')}</strong>
+                <span>{t('panel.guide.coi.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -554,6 +563,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.searchDocsEnabled}
                     onChange={(event) => patchDraft({ searchDocsEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.coiEnabled')}
+                    <em className="me-field-hint">{t('panel.config.coiEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.coiEnabled}
+                    onChange={(event) => patchDraft({ coiEnabled: event.target.checked })}
                   />
                 </label>
               </div>
