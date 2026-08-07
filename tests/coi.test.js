@@ -781,6 +781,8 @@ test('snapshot: COI task status block (active notify) injected when coiEnabled',
   assert.ok(block.includes('COI 任务状态'))
   assert.ok(block.includes('coi-run-1'), '本工作区运行中任务注入')
   assert.ok(!block.includes('分钟'), '运行中行不含耗时（固定文本，快照只在状态变化时变）')
+  assert.ok(!block.includes('写一个手表页面'), '运行中行不含用户输入的提示词（隐私克制）')
+  assert.ok(!block.includes('重构登录模块'), '终态行不含用户输入的提示词（隐私克制）')
   assert.ok(block.includes('coi-temp-run-1'), '本会话临时任务注入')
   assert.ok(!block.includes('coi-temp-other-run-1'), '其他会话的临时任务不注入')
   assert.ok(block.includes('coi-done-1'), '本工作区最近完成任务注入')
@@ -803,6 +805,26 @@ test('snapshot: COI task status block (active notify) injected when coiEnabled',
   assert.ok(block2.includes('coi-run-1'), '运行中任务每次注入')
   assert.ok(!block2.includes('coi-done-1'), '终态任务只通知一次')
   assert.ok(!block2.includes('coi-fail-1'), '终态任务只通知一次')
+  // 调度器覆盖模拟：TaskStore 整数组写回（内存副本无 notified 字段，运行中
+  // 任务每 2s flush 一次 update(lastOutputAt) 即整文件覆盖）——通知标记在
+  // 独立 notified.json，覆盖 tasks.json 后仍必须只通知一次（否则反复注入）
+  const rewritten = JSON.parse(readFileSync(join(coiDir, 'tasks.json'), 'utf8'))
+  for (const t of rewritten.tasks) delete t.notified // 模拟调度器内存副本
+  writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify(rewritten, null, 2) + '\n')
+  const block3 = buildCoiSnapshotBlock(config, viewer)
+  assert.ok(block3.includes('coi-run-1'), 'tasks.json 被覆盖后运行中任务仍注入')
+  assert.ok(!block3.includes('coi-done-1'), 'tasks.json 被覆盖后终态仍只通知一次（notified.json 独立存储）')
+  assert.ok(!block3.includes('coi-fail-1'), 'tasks.json 被覆盖后终态仍只通知一次（notified.json 独立存储）')
+  // 旧数据兼容：任务记录里已带 notified:true 的任务不重复通知（整段不注入）
+  const dir3 = tempDir()
+  const coiDir3 = join(dir3, 'coi')
+  mkdirSync(coiDir3, { recursive: true })
+  writeFileSync(join(coiDir3, 'tasks.json'), JSON.stringify([
+    { ...t('legacy-done', now), status: 'completed', prompt: '旧通知', scope: 'global', finishedAt: now - 1000, summary: '旧摘要', notified: true },
+  ]))
+  const config3 = resolveConfig({ memoryDir: dir3, coiEnabled: true })
+  assert.equal(buildCoiSnapshotBlock(config3, {}), null, '旧 notified:true 任务不重复通知')
+  rmSync(dir3, { recursive: true, force: true })
   // 集成：renderSnapshot 注入（agent 提供会话视角）
   const store = new MemoryStore(dir, config)
   const agent = { session: { id: 'sessA', header: { cwd: '/workA' } } }
