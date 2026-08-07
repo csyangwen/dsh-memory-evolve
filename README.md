@@ -81,12 +81,12 @@
 - **存储格式**：§ 分隔 MD 文件（与 MEMORY.md 同构，任何编辑器/模型可直接读取）；**文件头 HTML 注释说明 tag 语法**（人/模型打开文件即可读懂，解析时剥离）；每条待办首行元数据 tag：创建时间（程序盖戳）、`[id: xxxxxxxx]` 唯一标识、`[q1]`~`[q4]` 四象限（重要×紧急）、`[due: YYYY-MM-DD]` 截止、`[status: …]` 状态（pending/doing/done/blocked/cancelled，done 自动盖 `[done: …]` 完成时间）、`[cat: …]` 可选分类；正文可多行；
 - **dtodo 工具**：
   - `dtodo add content=… [target=life|work|project|daily] [quadrant=q1..q4 | important urgent] [due=YYYY-MM-DD] [cat=…]`——**用户口述直写**（target 缺省=project，无 cwd 用 work）；
-  - `dtodo list [target] [status] [quadrant] [due=today|overdue|all] [date=YYYY-MM-DD] [all=true]`——**默认智能视图**：逾期 + 今日到期 + 当前项目未完成 + 全局 Q1/Q2 未完成，排序（逾期 > 今日 > Q1 > Q2 > 其余）后最多 **8 条**；已完成/已取消不进默认视图；全量需显式 `all=true` 或筛选参数（工具层硬过滤，模型只能读到该关心的）；
-  - `dtodo done <id>` / `dtodo update <id> [status|quadrant|due|cat|content]` / `dtodo remove <id>`——按 **id 精确操作**（list 输出带 id）；
+  - `dtodo list [target] [status] [quadrant] [due=today|overdue|all] [date=YYYY-MM-DD] [all=true] [past=true] [expired=true] [cwd=…]`——**默认智能视图**：逾期 + 今日到期 + 当前项目未完成 + 全局 Q1/Q2 未完成，排序（逾期 > 今日 > Q1 > Q2 > 其余）后最多 **8 条**；已完成/已取消不进默认视图；全量需显式 `all=true` 或筛选参数（工具层硬过滤，模型只能读到该关心的）；**`past=true` 同时查询每日待办的过往**（今天之前的 daily 文件，条目带日期、排最后），默认**不返回已过期的遗留**（未完成且无未来截止），`expired=true` 时才全部显示——过往默认不出现、不增加模型负担；**`cwd=路径` 跨项目查询**（在别的会话里查指定项目的 `target=project` 待办，project 轨按该路径定位，缺省=当前会话目录）；
+  - `dtodo done <id>` / `dtodo update <id> [status|quadrant|due|cat|content]` / `dtodo remove <id>`——按 **id 精确操作**（list 输出带 id；每日**过往条目的 id 同样可操作**，写回对应日期的文件）；
 - **写入权限**：你口述的待办直写；模型**自建待办**（审查/工作中发现"值得做"）用 `memory_suggest target=todo-life|todo-work|todo-project|todo-daily` **进待确认队列**，采纳后写入对应轨——模型不能自作主张派活；
 - **注入策略**：待办内容**永不注入**（状态变化不产生任何尾部注入）；快照只带一条**固定提示行**——收尾时 `dtodo list` 检查到期、有到期项在回复末尾提醒用户、不要主动展开全部清单；
 - **归档**：待办建议可归档到 `TODO-archive.md`（条目带「原轨」标记，转正时写回对应待办轨）；已完成待办保留在文件中，随时可查看/恢复；
-- **UI**：「待办」子 Tab 默认显示**全部**四轨（页签：全部 / 生活 / 工作 / 本项目 / 每日，每条带轨徽标），页签下方有一行使用说明小字（各轨含义 + 如何添加）；状态/四象限筛选、快速添加框（全部视图可选目标轨，单轨视图固定当前轨）、每条待办的完成/恢复、行内编辑（内容/象限/截止/状态）、删除（确认）；逾期条目标红。
+- **UI**：「待办」子 Tab 默认显示**全部**四轨（页签：全部 / 生活 / 工作 / 本项目 / 今日 / **过往**，每条带轨徽标；「今日」=当天的每日待办，「过往」=今天之前的每日待办，按日期分组显示），页签下方有一行使用说明小字（各轨含义 + 如何添加）；状态/四象限筛选 + **「显示已过期」开关**（默认关闭：过往的已过期遗留默认隐藏，勾选后全部显示；**历史文件按需读取**——只有点开「过往」页签或勾选「显示已过期」时才请求，其余视图零额外开销）；快速添加框（全部视图可选目标轨，单轨视图固定当前轨，过往视图不提供添加）、每条待办的完成/恢复、行内编辑（内容/象限/截止/状态）、删除（确认）；逾期条目标红。
 
 ## 安装
 

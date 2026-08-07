@@ -149,9 +149,9 @@
 
 - **四轨**：`life` 生活（`TODOS-life.md`）· `work` 工作（`TODOS-work.md`，跨项目）· `project` 项目（`projects/<hash>/TODOS.md`，**按工作目录隔离**，A 项目会话看不到 B 项目）· `daily` 每日（`daily/YYYY-MM-DD.todo.md`，按天分文件，与日志文件分离）；
 - **存储格式**：§ 分隔的 MD 文件（与记忆完全同构，任何编辑器/模型可直接读取），**文件头是 HTML 注释格式说明**（tag 语法自描述，解析时剥离）；每条待办首行是元数据 tag：创建时间（程序盖戳）、`[id: xxxxxxxx]`（唯一标识，工具按 id 操作）、`[q1]`~`[q4]`（四象限：重要×紧急，缺省=未分类）、`[due: YYYY-MM-DD]`（截止，缺省=不限）、`[status: pending|doing|done|blocked|cancelled]`（缺省 pending）、`[done: …]`（完成时间，程序盖戳）、`[cat: …]`（可选分类）；正文可多行写详情；
-- **dtodo 工具**：`add`（用户口述直写；target 缺省=project，无 cwd 用 work；quadrant/important/urgent/due/cat 可选）· `list`（**默认智能视图**：逾期 + 今日到期 + 当前项目未完成 + 全局 Q1/Q2 未完成，排序后最多 8 条——模型只能读到"该关心的"，全量需显式 `all=true` 或 status/quadrant/due 筛选；`date=` 查每日历史）· `done` / `update` / `remove`（按 `id` 精确操作，杜绝文本匹配误删）；
+- **dtodo 工具**：`add`（用户口述直写；target 缺省=project，无 cwd 用 work；quadrant/important/urgent/due/cat 可选）· `list`（**默认智能视图**：逾期 + 今日到期 + 当前项目未完成 + 全局 Q1/Q2 未完成，排序后最多 8 条——模型只能读到"该关心的"，全量需显式 `all=true` 或 status/quadrant/due 筛选；`date=` 查每日某天；**`past=true` 查每日过往**（今天之前的 daily 文件，条目带日期、排最后），默认**不返回已过期的遗留**（未完成且无未来截止），`expired=true` 才全部显示——过往默认不出现，不增加模型负担；**`cwd=路径` 跨项目查询**：在别的会话里查指定项目的 `target=project` 待办，project 轨按该路径定位，缺省=当前会话目录）· `done` / `update` / `remove`（按 `id` 精确操作，杜绝文本匹配误删；**过往条目的 id 同样可操作**，写回对应日期的文件）；
 - **写入权限**：你**口述的待办直写**（你是确认者）；模型**自建待办进待确认队列**（`memory_suggest target=todo-*`），采纳后写入对应轨——模型不能自作主张给你派活；
-- **快照提示**：只注入一条**固定提示行**（文本永不变，缓存友好）——收尾时 `dtodo list` 检查到期，有到期的在回复末尾提醒用户，不要主动展开全部清单；**待办内容永不注入**（与 project/daily 同待遇，状态变化不产生任何尾部注入）；
+- **快照提示**：只注入一条**固定提示行**（文本永不变，缓存友好）——收尾时 `dtodo list` 检查到期，有到期的在回复末尾提醒用户，不要主动展开全部清单；查每日过往待办用 `dtodo list past=true`（默认不含，不增加信息负担）；**待办内容永不注入**（与 project/daily 同待遇，状态变化不产生任何尾部注入）；
 - **归档**：待办建议可归档到 `TODO-archive.md`（条目带「原轨」标记，转正时写回对应待办轨）；已完成待办保留在文件里（`[status: done]` + 完成时间），可随时在 UI 查看/恢复。
 
 ---

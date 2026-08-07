@@ -1162,6 +1162,32 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.me-todo-filter-check {
+  cursor: pointer;
+  user-select: none;
+}
+
+.me-todo-filter-check input {
+  accent-color: var(--dsw-static-blue-5, #3b82f6);
+}
+
+/* 过往 daily 待办的分组标题（如 8月5日） */
+.me-todo-day {
+  list-style: none;
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  border-bottom: 1px dashed var(--dsw-alias-border-l, rgba(128, 128, 128, 0.3));
+  padding-bottom: 2px;
+}
+
+.me-badge-day {
+  color: var(--dsw-static-amber-7, #b45309);
+  background: color-mix(in srgb, var(--dsw-static-amber-5, #f59e0b) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsw-static-amber-5, #f59e0b) 40%, transparent);
+}
+
 .me-todo-item--done .me-todo-text {
   opacity: 0.55;
   text-decoration: line-through;

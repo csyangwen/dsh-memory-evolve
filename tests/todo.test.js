@@ -4,13 +4,35 @@ import { createServer } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { TodoStore, TODO_HEADER, TODO_TARGETS, todoToolDefinition } from '../lib/todo.js'
-import { ArchiveStore, SuggestionQueue, projectHash } from '../lib/store.js'
+import { TodoStore, TODO_HEADER, TODO_TARGETS, stampTodoLine, todoToolDefinition } from '../lib/todo.js'
+import { ArchiveStore, SuggestionQueue, projectHash, todayStamp } from '../lib/store.js'
 import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived } from '../lib/review.js'
 import { installApi } from '../lib/api.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-todo-test-'))
+}
+
+/** 前一天（本地时区）的 YYYY-MM-DD。 */
+function dayBefore(stamp) {
+  const d = new Date(`${stamp}T12:00:00`)
+  d.setDate(d.getDate() - 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 一条直接构造的 raw 条目。 */
+function rawEntry(time, id, text, patch = {}) {
+  return {
+    raw: stampTodoLine({
+      time,
+      id,
+      quadrant: patch.quadrant ?? null,
+      due: patch.due ?? null,
+      status: patch.status ?? 'pending',
+      cat: patch.cat ?? null,
+      doneAt: patch.doneAt ?? null,
+    }, text),
+  }
 }
 
 test('todo store: add writes header + tagged entry; parseAll decodes it', () => {
@@ -208,6 +230,184 @@ test('dtodo tool: add targets project with cwd, work without; list/done/update/r
 
     const badAction = await tool.execute({ action: 'explode' }, exec('/proj/x'))
     assert.equal(badAction.ok, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo store: past daily items — list past=true includes history, expired hidden by default', () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const today = todayStamp()
+    const d1 = dayBefore(today)
+    const d2 = dayBefore(d1)
+    store.addTodo('daily', '今天的待办', {}, undefined)
+    // d2：未完成、无 due（遗留）
+    store.write('daily', undefined, [rawEntry(`2026-08-05 09:00`, 'aaaa0001', '更早的遗留')], d2)
+    // d1：已完成 / 未完成但 due 在未来 / 未完成且 due 已过
+    store.write('daily', undefined, [
+      rawEntry('2026-08-06 10:00', 'aaaa0002', '昨天已完成', { status: 'done', doneAt: '2026-08-06 18:00' }),
+      rawEntry('2026-08-06 11:00', 'aaaa0003', '昨天写的、截止后天', { due: '2026-08-10' }),
+      rawEntry('2026-08-06 12:00', 'aaaa0004', '昨天已过期的', { due: '2026-08-01' }),
+    ], d1)
+
+    // 默认（无 past）：只有今天的
+    const normal = store.listTodos(['daily'], {}, undefined, today)
+    assert.equal(normal.items.length, 1)
+    assert.equal(normal.items[0].text, '今天的待办')
+    assert.equal(normal.defaultView, true)
+
+    // past=true（默认过滤已过期遗留）：今天 + 未过期的过往（已完成、due 在未来）
+    const past = store.listTodos(['daily'], { all: true, past: true }, undefined, today)
+    assert.equal(past.defaultView, false)
+    const texts = past.items.map((i) => i.text)
+    assert.ok(texts.includes('今天的待办'))
+    assert.ok(texts.includes('昨天已完成'))
+    assert.ok(texts.includes('昨天写的、截止后天'))
+    assert.ok(!texts.includes('更早的遗留'))
+    assert.ok(!texts.includes('昨天已过期的'))
+    const pastItem = past.items.find((i) => i.text === '昨天已完成')
+    assert.equal(pastItem.past, true)
+    assert.equal(pastItem.day, d1)
+
+    // expired=true：全部过往都显示
+    const expired = store.listTodos(['daily'], { all: true, past: true, expired: true }, undefined, today)
+    const et = expired.items.map((i) => i.text)
+    assert.ok(et.includes('更早的遗留'))
+    assert.ok(et.includes('昨天已过期的'))
+
+    // past=true 不带 all：显式查询，defaultView=false、不截断
+    const explicit = store.listTodos(['daily'], { past: true }, undefined, today)
+    assert.equal(explicit.defaultView, false)
+    assert.ok(explicit.items.length >= 3)
+    // 排序：今天的在前，过往按日期倒序
+    const order = explicit.items.map((i) => i.text)
+    assert.ok(order.indexOf('今天的待办') < order.indexOf('昨天写的、截止后天'))
+    assert.ok(order.indexOf('昨天写的、截止后天') < order.indexOf('昨天已完成'))
+
+    // 全轨（默认 targets）+ past：life/work 照常，daily 含过往（默认仍过滤遗留）
+    store.addTodo('life', '生活的活', {}, undefined)
+    const mixed = store.listTodos(TODO_TARGETS, { all: true, past: true }, undefined, today)
+    const mt = mixed.items.map((i) => i.text)
+    assert.ok(mt.includes('生活的活'))
+    assert.ok(mt.includes('昨天已完成'))
+    assert.ok(!mt.includes('更早的遗留'))
+    // 加 expired=true 后遗留出现
+    const mixedExpired = store.listTodos(TODO_TARGETS, { all: true, past: true, expired: true }, undefined, today)
+    assert.ok(mixedExpired.items.map((i) => i.text).includes('更早的遗留'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo store: done/update/remove work on past daily items, writing back the right day file', () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const d1 = dayBefore(todayStamp())
+    store.write('daily', undefined, [rawEntry('2026-08-05 09:00', 'aaaa0011', '遗留待办')], d1)
+
+    // 全轨按 id 找到过往条目并 done
+    const done = store.doneTodo(undefined, 'aaaa0011', undefined)
+    assert.equal(done.ok, true)
+    let items = store.itemsOf('daily', undefined, d1)
+    assert.equal(items.length, 1)
+    assert.equal(items[0].status, 'done')
+    assert.match(items[0].doneAt ?? '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+
+    // update：改内容/象限写回原日文件
+    const upd = store.updateTodo('daily', 'aaaa0011', { content: '改过的内容', quadrant: 'q2' }, undefined)
+    assert.equal(upd.ok, true)
+    items = store.itemsOf('daily', undefined, d1)
+    assert.equal(items[0].text, '改过的内容')
+    assert.equal(items[0].quadrant, 'q2')
+
+    // remove
+    const removed = store.removeTodo('daily', 'aaaa0011', undefined)
+    assert.equal(removed.ok, true)
+    assert.equal(store.itemsOf('daily', undefined, d1).length, 0)
+    // 今天的文件不受影响
+    assert.equal(store.itemsOf('daily').length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('dtodo tool: list past=true returns past daily items with day tag', async () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const tool = todoToolDefinition({ todoToolName: 'dtodo' }, store)
+    const exec = (cwd) => ({ agent: { id: 'a', session: { header: { cwd } } } })
+    const d1 = dayBefore(todayStamp())
+    store.write('daily', undefined, [rawEntry('2026-08-05 09:00', 'bbbb0001', '昨日遗留')], d1)
+
+    // 默认（不带 past）不含过往
+    const normal = await tool.execute({ action: 'list', target: 'daily' }, exec(undefined))
+    assert.ok(!normal.message.includes('昨日遗留'))
+
+    // past=true：含过往（未完成遗留默认隐藏 → 需 expired=true）
+    const past = await tool.execute({ action: 'list', target: 'daily', past: true, expired: true }, exec(undefined))
+    assert.equal(past.ok, true)
+    assert.ok(past.message.includes('昨日遗留'))
+    assert.ok(past.message.includes('过往'))
+
+    // done：过往条目按 id 可操作
+    const done = await tool.execute({ action: 'done', id: 'bbbb0001', target: 'daily' }, exec(undefined))
+    assert.equal(done.ok, true)
+    assert.equal(store.itemsOf('daily', undefined, d1)[0].status, 'done')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo API: past/expired params return past daily items over HTTP', async () => {
+  const api = await bootTodoApi()
+  try {
+    const d1 = dayBefore(todayStamp())
+    api.todoStore.write('daily', undefined, [rawEntry('2026-08-05 09:00', 'cccc0001', '遗留')], d1)
+    // 无 past：看不到过往
+    const normal = await api.request('GET', '/memory-evolve/api/todo?sessionId=s1&target=daily&all=1')
+    assert.equal(normal.data.items.length, 0)
+    // past=1：默认过滤已过期遗留
+    const past = await api.request('GET', '/memory-evolve/api/todo?sessionId=s1&target=daily&all=1&past=1')
+    assert.equal(past.data.items.length, 0)
+    // past=1&expired=1：显示遗留，带 day/past 字段
+    const expired = await api.request('GET', '/memory-evolve/api/todo?sessionId=s1&target=daily&all=1&past=1&expired=1')
+    assert.equal(expired.status, 200)
+    assert.equal(expired.data.items.length, 1)
+    assert.equal(expired.data.items[0].text, '遗留')
+    assert.equal(expired.data.items[0].past, true)
+    assert.equal(expired.data.items[0].day, d1)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('dtodo tool: list target=project with cwd= queries another project', async () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const tool = todoToolDefinition({ todoToolName: 'dtodo' }, store)
+    const exec = (cwd) => ({ agent: { id: 'a', session: { header: { cwd } } } })
+    // B 项目有自己的待办
+    store.addTodo('project', 'B 项目的事', {}, '/proj/b')
+    store.addTodo('project', 'A 项目的事', {}, '/proj/a')
+    // 在 A 项目会话里，用 cwd=/proj/b 查 B 项目
+    const cross = await tool.execute({ action: 'list', target: 'project', cwd: '/proj/b' }, exec('/proj/a'))
+    assert.equal(cross.ok, true)
+    assert.ok(cross.message.includes('B 项目的事'))
+    assert.ok(!cross.message.includes('A 项目的事'))
+    // 不带 cwd：只看到当前会话项目
+    const own = await tool.execute({ action: 'list', target: 'project' }, exec('/proj/a'))
+    assert.ok(own.message.includes('A 项目的事'))
+    assert.ok(!own.message.includes('B 项目的事'))
+    // 默认四轨 + cwd：project 轨也切到指定项目
+    const mixed = await tool.execute({ action: 'list', cwd: '/proj/b' }, exec('/proj/a'))
+    assert.ok(mixed.message.includes('B 项目的事'))
+    assert.ok(!mixed.message.includes('A 项目的事'))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

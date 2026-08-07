@@ -7,15 +7,15 @@
  * delete. Data all comes from the host's /memory-evolve/api/todo routes;
  * styling reuses the me-/mt- prefixes from styles.css.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** The four todo tracks. */
 type TodoTarget = 'life' | 'work' | 'project' | 'daily'
 
-/** Track filter: 'all' shows every track (default view). */
-type TodoTargetFilter = TodoTarget | 'all'
+/** Track filter: 'all' shows every track; 'past' shows past daily only. */
+type TodoTargetFilter = TodoTarget | 'all' | 'past'
 
 /** One todo row from GET /api/todo. */
 interface TodoItem {
@@ -28,6 +28,10 @@ interface TodoItem {
   cat: string | null
   text: string
   target: TodoTarget
+  /** daily 条目所属日期（今天或过往某天）。 */
+  day?: string
+  /** 过往 daily 条目（今天之前）。 */
+  past?: boolean
 }
 
 /** Locale-bound props. */
@@ -61,6 +65,12 @@ function quadrantLabel(t: Translate, quadrant: string | null): string {
   return t(`todo.quadrant.${quadrant}`)
 }
 
+/** 'YYYY-MM-DD' → '8月5日'（过往分组标题）。 */
+function dayLabel(day: string): string {
+  const [, month, date] = day.split('-')
+  return `${Number(month)}月${Number(date)}日`
+}
+
 /**
  * The todo view: track tabs, filter bar, quick-add box, item list with
  * per-entry operations. Every mutation reloads the current track.
@@ -74,6 +84,8 @@ export function TodoView(props: TodoViewProps): JSX.Element {
   const [cwd, setCwd] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done'>('active')
   const [quadFilter, setQuadFilter] = useState<string>('all')
+  /** 显示已过期的过往待办（默认 false：过往遗留默认不显示，不增加信息负担）。 */
+  const [showExpired, setShowExpired] = useState(false)
   /** 快速添加框草稿。 */
   const [draft, setDraft] = useState('')
   const [draftQuad, setDraftQuad] = useState<string>('')
@@ -90,7 +102,15 @@ export function TodoView(props: TodoViewProps): JSX.Element {
   const load = useCallback((): void => {
     setItems(null)
     const params = new URLSearchParams({ sessionId, all: '1' })
-    if (target !== 'all') params.set('target', target)
+    if (target === 'past') params.set('target', 'daily')
+    else if (target !== 'all') params.set('target', target)
+    // 按需读取历史：只有点开「过往」页签，或「全部」视图勾选「显示已过期」时
+    // 才请求 past（默认不读任何历史文件，零额外开销）
+    const wantPast = target === 'past' || (target === 'all' && showExpired)
+    if (wantPast) {
+      params.set('past', '1')
+      if (showExpired) params.set('expired', '1')
+    }
     // 状态/象限筛选在前端做（all 视图需要跨轨过滤；active = 未完成的所有状态）
     void api<{ items: TodoItem[]; cwd: string | null }>(`/api/todo?${params.toString()}`)
       .then((res) => {
@@ -103,7 +123,7 @@ export function TodoView(props: TodoViewProps): JSX.Element {
         })
       })
       .catch((error: Error) => setNotice({ kind: 'error', text: error.message }))
-  }, [sessionId, target])
+  }, [sessionId, target, showExpired])
 
   useEffect(() => {
     load()
@@ -214,8 +234,9 @@ export function TodoView(props: TodoViewProps): JSX.Element {
   /** 今天（本地），用于逾期标红。 */
   const today = new Date().toISOString().slice(0, 10)
 
-  /** 前端筛选：状态（active=未完成全部状态）+ 象限。 */
+  /** 前端筛选：状态（active=未完成全部状态）+ 象限 + 过往视图只看过往条目。 */
   const visible = (items ?? []).filter((item) => {
+    if (target === 'past' && item.past !== true) return false
     if (statusFilter === 'active' && DONE_STATUSES.has(item.status)) return false
     if (statusFilter === 'done' && !DONE_STATUSES.has(item.status)) return false
     if (quadFilter === 'none' && item.quadrant !== null) return false
@@ -223,12 +244,21 @@ export function TodoView(props: TodoViewProps): JSX.Element {
     return true
   })
 
+  /** 过往条目按日期分组（倒序，后端已排序）；非过往条目单列一组。 */
+  const groups: { day: string | null; items: TodoItem[] }[] = []
+  for (const item of visible) {
+    const day = item.past === true ? item.day ?? null : null
+    const last = groups[groups.length - 1]
+    if (day !== null && last !== undefined && last.day === day) last.items.push(item)
+    else groups.push({ day, items: [item] })
+  }
+
   return (
     <div className="me-panel">
       {notice !== null && (
         <div className={`me-notice me-notice-${notice.kind}`}>{notice.text}</div>
       )}
-      {/* 轨页签：全部 + 四轨（默认全部） */}
+      {/* 轨页签：全部 + 四轨 + 过往（默认全部） */}
       <div className="me-tabs" role="tablist">
         <button
           type="button"
@@ -251,12 +281,22 @@ export function TodoView(props: TodoViewProps): JSX.Element {
             {t(`todo.track.${track}`)}
           </button>
         ))}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={target === 'past'}
+          className={target === 'past' ? 'me-tab me-tab-active' : 'me-tab'}
+          onClick={() => setTarget('past')}
+        >
+          {t('todo.track.past')}
+        </button>
       </div>
       <p className="me-muted me-todo-help">{t('todo.help')}</p>
       {target === 'project' && cwd === null && (
         <p className="me-muted">{t('todo.projectHint')}</p>
       )}
-      {/* 快速添加：全部视图下可选目标轨（缺省按 cwd 判定），单轨视图固定当前轨 */}
+      {/* 快速添加：全部视图下可选目标轨（缺省按 cwd 判定），单轨视图固定当前轨；过往视图只查看历史不添加 */}
+      {target !== 'past' && (
       <div className="me-todo-add">
         {target === 'all' && (
           <select
@@ -301,6 +341,7 @@ export function TodoView(props: TodoViewProps): JSX.Element {
           {t('todo.add')}
         </button>
       </div>
+      )}
       {/* 筛选 */}
       <div className="me-todo-filters">
         <label className="me-todo-filter">
@@ -322,23 +363,46 @@ export function TodoView(props: TodoViewProps): JSX.Element {
             <option value="none">{t('todo.quadrant.none')}</option>
           </select>
         </label>
+        {(target === 'all' || target === 'past') && (
+          <label className="me-todo-filter me-todo-filter-check">
+            <input
+              type="checkbox"
+              checked={showExpired}
+              onChange={(event) => setShowExpired(event.target.checked)}
+            />
+            <span>{t('todo.showExpired')}</span>
+          </label>
+        )}
       </div>
       {/* 列表 */}
       {items === null ? (
         <p className="me-muted">{t('panel.loading')}</p>
       ) : visible.length === 0 ? (
-        <p className="me-empty">{t('todo.empty')}</p>
+        <p className="me-empty">
+          {t('todo.empty')}
+          {(target === 'all' || target === 'past') && !showExpired && ` ${t('todo.pastHint')}`}
+        </p>
       ) : (
         <ul className="me-list">
-          {visible.map((item) => {
-            const done = DONE_STATUSES.has(item.status)
-            const overdue = item.due !== null && item.due < today && !done
-            return (
-              <li key={item.id} className={`me-item me-todo-item${done ? ' me-todo-item--done' : ''}`}>
-                <div className="me-item-head">
-                  {target === 'all' && (
-                    <span className="me-badge me-badge-target">{t(`todo.track.${item.target}`)}</span>
-                  )}
+          {groups.map((group) => (
+            <Fragment key={group.day ?? group.items[0].id}>
+              {group.day !== null && (
+                <li className="me-todo-day">{dayLabel(group.day)}</li>
+              )}
+              {group.items.map((item) => {
+                const done = DONE_STATUSES.has(item.status)
+                const overdue = item.due !== null && item.due < today && !done
+                return (
+                  <li key={item.id} className={`me-item me-todo-item${done ? ' me-todo-item--done' : ''}`}>
+                    <div className="me-item-head">
+                      {target === 'all' && (
+                        <span className="me-badge me-badge-target">
+                          {item.past === true ? t('todo.track.past') : t(`todo.track.${item.target}`)}
+                        </span>
+                      )}
+                      {item.past === true && target !== 'all' && (
+                        <span className="me-badge me-badge-day">{dayLabel(item.day ?? '')}</span>
+                      )}
                   <span className={`me-badge me-badge-quad me-badge-quad-${item.quadrant ?? 'none'}`}>
                     {quadrantLabel(t, item.quadrant)}
                   </span>
@@ -403,9 +467,11 @@ export function TodoView(props: TodoViewProps): JSX.Element {
                 ) : (
                   <p className="me-todo-text">{item.text}</p>
                 )}
-              </li>
-            )
-          })}
+                </li>
+                )
+              })}
+            </Fragment>
+          ))}
         </ul>
       )}
     </div>
