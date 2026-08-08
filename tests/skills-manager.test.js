@@ -48,9 +48,15 @@ async function bootSkillsManager(overrides = {}) {
   const changeListeners = []
   let providerCtl = null
   const realSkills = new Map()
+  // issue #4：记录最近一次 skills.list 收到的 cwd，用于断言服务端把解析出的
+  // 会话工作目录真正传给了技能扫描（列表/浏览/读/写共用）。
+  let lastListCwd = null
 
   const skillsService = {
-    list: async () => [...catalog.values()],
+    list: async (opts) => {
+      lastListCwd = opts?.cwd ?? null
+      return [...catalog.values()]
+    },
     get: async (name) => catalog.get(name),
     register: (skill) => {
       // Shadow registration: overwrite the same-named catalog entry, restore on dispose.
@@ -84,7 +90,7 @@ async function bootSkillsManager(overrides = {}) {
         return () => {}
       },
     },
-    workspace: { list: () => [] },
+    workspace: overrides.workspace ?? { list: () => [] },
     logger: { warn: () => {} },
     inject(deps, cb) {
       for (const dep of deps) assert.ok(ctx[dep] !== undefined, `missing fake service ${dep}`)
@@ -100,7 +106,7 @@ async function bootSkillsManager(overrides = {}) {
     },
   }
 
-  installSkillsManager(ctx, { stateFile, legacyStateFile })
+  installSkillsManager(ctx, { stateFile, legacyStateFile, resolveCwd: overrides.resolveCwd })
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
@@ -115,6 +121,7 @@ async function bootSkillsManager(overrides = {}) {
   }
   return {
     base, catalog, put, bravo, stateFile, changeListeners, providerCtl, request,
+    lastListCwd: () => lastListCwd,
     close: () => new Promise((resolve) => server.close(resolve)),
     cleanup: () => { rmSync(dir, { recursive: true, force: true }) },
   }
@@ -168,6 +175,95 @@ test('skills-manager: skills list marks protected and non-invocable skills', asy
     assert.equal(gamma.protected, true)
     assert.equal(bravo.invocable, false)
     assert.equal(list.data.cwd, null)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #4：cwd 解析顺序 = 显式 cwd 参数 → sessionId + resolveCwd → workspace[0] 兜底。
+// 列表/浏览/读/写四个接口共用同一解析，且解析结果真正传给技能扫描。
+test('skills-manager: cwd resolves from sessionId via resolveCwd (issue #4)', async () => {
+  const sm = await bootSkillsManager({
+    resolveCwd: (sessionId) => (sessionId === 'sess-1' ? '/proj/alpha' : undefined),
+    workspace: { list: () => [{ path: '/ws/fallback' }] },
+  })
+  try {
+    // 1) sessionId 命中 → 会话 cwd 生效，且真正传给 collectRoots 的技能扫描
+    const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=sess-1')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.cwd, '/proj/alpha')
+    assert.equal(sm.lastListCwd(), '/proj/alpha')
+    // 2) 未知 sessionId（resolveCwd 无结果）→ 回落首个工作区
+    const list2 = await sm.request('GET', '/skills-manager/api/skills?sessionId=unknown')
+    assert.equal(list2.status, 200)
+    assert.equal(list2.data.cwd, '/ws/fallback')
+    // 3) 无任何参数 → 回落首个工作区（与原行为一致）
+    const list3 = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list3.status, 200)
+    assert.equal(list3.data.cwd, '/ws/fallback')
+    // 4) 显式 cwd 参数优先于 sessionId
+    const list4 = await sm.request('GET', '/skills-manager/api/skills?cwd=/explicit&sessionId=sess-1')
+    assert.equal(list4.status, 200)
+    assert.equal(list4.data.cwd, '/explicit')
+    // 5) browse/read/write 同样按 sessionId 解析（collectRoots 收到会话 cwd）
+    await sm.request('GET', '/skills-manager/api/browse?root=%2Fany&path=&sessionId=sess-1')
+    assert.equal(sm.lastListCwd(), '/proj/alpha')
+    await sm.request('GET', '/skills-manager/api/read?path=%2Fany&sessionId=sess-1')
+    assert.equal(sm.lastListCwd(), '/proj/alpha')
+    await sm.request('PUT', '/skills-manager/api/write?path=%2Fany&sessionId=sess-1', 'x')
+    assert.equal(sm.lastListCwd(), '/proj/alpha')
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #4：未装配 resolveCwd 时（旧部署/独立测试），sessionId 被忽略，
+// 行为与修复前完全一致（回退首个工作区）。
+test('skills-manager: sessionId ignored when resolveCwd is not installed', async () => {
+  const sm = await bootSkillsManager({
+    workspace: { list: () => [{ path: '/ws/fallback' }] },
+  })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=whatever')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.cwd, '/ws/fallback')
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #4：空工作区 + sessionId 命中 → 用会话 cwd；空工作区 + 无参数 → cwd 为 null。
+test('skills-manager: empty workspace still resolves cwd from sessionId', async () => {
+  const sm = await bootSkillsManager({
+    resolveCwd: () => '/proj/alpha',
+    workspace: { list: () => [] },
+  })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=sess-1')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.cwd, '/proj/alpha')
+    const noSession = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(noSession.status, 200)
+    assert.equal(noSession.data.cwd, null)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #4：resolveCwd 回调抛异常 → 静默回落首个工作区，接口不报错。
+test('skills-manager: resolveCwd throwing falls back to workspace instead of failing', async () => {
+  const sm = await bootSkillsManager({
+    resolveCwd: () => { throw new Error('boom') },
+    workspace: { list: () => [{ path: '/ws/fallback' }] },
+  })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=sess-1')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.cwd, '/ws/fallback')
   } finally {
     await sm.close()
     sm.cleanup()

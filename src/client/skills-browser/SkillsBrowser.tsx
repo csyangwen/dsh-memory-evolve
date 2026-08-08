@@ -793,7 +793,7 @@ function DirsModal(props: DirsModalProps): JSX.Element {
 // 主组件
 // ---------------------------------------------------------------------------
 
-export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
+export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element {
   // —— 技能列表 ——
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [roots, setRoots] = useState<string[]>([])
@@ -836,6 +836,13 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
   const [refreshing, setRefreshing] = useState(false)
+
+  // —— issue #4：项目技能按当前会话 cwd 扫描 ——
+  // 四个 cwd 敏感请求（列表/浏览/读/写）统一携带 sessionId；服务端据此解析
+  // 当前会话工作目录（缺省回退首个工作区，与旧版行为一致）。
+  // sessionSuffix 带 & 前缀供已有查询参数的接口拼接；列表接口无既有参数，单独组 URL。
+  const sessionSuffix = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''
+  const skillsUrl = sessionId ? `${API}/skills?sessionId=${encodeURIComponent(sessionId)}` : `${API}/skills`
 
   // 请求竞态防护：技能列表 / 文件读取用 AbortController + 序号，目录按路径各持一个
   const skillsAbort = useRef<AbortController | null>(null)
@@ -881,7 +888,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     if (!silent) setSkillsLoading(true)
     setSkillsError(null)
     try {
-      const data = await request<SkillsResponse>(`${API}/skills`, { signal: ctrl.signal })
+      const data = await request<SkillsResponse>(skillsUrl, { signal: ctrl.signal })
       if (skillsAbort.current !== ctrl) return
       setSkills(data.skills)
       setRoots(data.roots)
@@ -892,7 +899,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     } finally {
       if (skillsAbort.current === ctrl && !silent) setSkillsLoading(false)
     }
-  }, [])
+  }, [skillsUrl])
 
   useEffect(() => {
     void loadSkills()
@@ -1005,7 +1012,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     try {
       const rel = relOf(rootPath, absDir)
       const data = await request<BrowseResponse>(
-        `${API}/browse?root=${encodeURIComponent(rootPath)}&path=${encodeURIComponent(rel)}`,
+        `${API}/browse?root=${encodeURIComponent(rootPath)}&path=${encodeURIComponent(rel)}${sessionSuffix}`,
         { signal: ctrl.signal },
       )
       if (browseCtrls.current.get(absDir) !== ctrl) return
@@ -1023,7 +1030,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
         return next
       })
     }
-  }, [])
+  }, [sessionSuffix])
 
   // root 变化后自动拉取根目录
   useEffect(() => {
@@ -1068,7 +1075,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     setSaveState('idle')
     setSaveMessage('')
     try {
-      const data = await request<ReadResponse>(`${API}/read?path=${encodeURIComponent(absPath)}`, {
+      const data = await request<ReadResponse>(`${API}/read?path=${encodeURIComponent(absPath)}${sessionSuffix}`, {
         signal: ctrl.signal,
       })
       if (seq !== fileSeq.current) return
@@ -1092,7 +1099,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     } finally {
       if (seq === fileSeq.current) setFileLoading(false)
     }
-  }, [])
+  }, [sessionSuffix])
 
   const handleFileClick = useCallback(
     (absPath: string) => {
@@ -1215,7 +1222,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
     setSaveMessage('')
     try {
       const data = await request<WriteResponse>(
-        `${API}/write?path=${encodeURIComponent(file.path)}`,
+        `${API}/write?path=${encodeURIComponent(file.path)}${sessionSuffix}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -1232,7 +1239,7 @@ export function SkillsBrowser({ t }: SkillsBrowserProps): JSX.Element {
       setSaveState('error')
       setSaveMessage(err instanceof Error ? err.message : String(err))
     }
-  }, [file, draft, dirty, saveState])
+  }, [file, draft, dirty, saveState, sessionSuffix])
 
   // —— 全局刷新：清空树缓存 + 重拉技能列表 + 重拉已展开目录与当前文件 ——
   const handleRefresh = useCallback(async () => {

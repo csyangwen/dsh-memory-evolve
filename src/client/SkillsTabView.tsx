@@ -105,7 +105,10 @@ function skillsGuideSections(t: Translate): GuideSection[] {
 
 /** The conversation view skills tab component. */
 export function SkillsTabView(props: ConvViewProps & SkillsTabViewProps): JSX.Element {
-  const { t } = props
+  // sessionId：conversation.view 挂载点由宿主注入，透传给 SkillsBrowser——
+  // 其四个 cwd 敏感请求携带 sessionId，服务端据此把项目技能扫描定位到
+  // 当前会话工作目录（issue #4）。
+  const { t, sessionId } = props
   /** 当前激活的子 tab（缺省=待确认技能建议）。 */
   const [feature, setFeature] = useState<SkillsFeature>(persistedSkillsFeature ?? 'skills')
   /** 待确认技能数（子 tab 徽标）。 */
@@ -170,7 +173,7 @@ export function SkillsTabView(props: ConvViewProps & SkillsTabViewProps): JSX.El
       {feature === 'guide' ? (
         <TabGuideView sections={skillsGuideSections(t)} />
       ) : feature === 'skill-browser' ? (
-        <SkillsBrowser t={t} />
+        <SkillsBrowser t={t} sessionId={sessionId} />
       ) : (
         <MemoryQueueView
           t={t}

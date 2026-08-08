@@ -102,4 +102,11 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 export interface SkillsBrowserProps {
   /** Translate a key of the `skills-manager` dictionary (fallback `common`). */
   t: Translate
+  /**
+   * 当前会话 ID（conversation.view 挂载点由 ConvViewProps 注入）。
+   * 随四个 cwd 敏感请求（列表/浏览/读/写）带给服务端，用于把项目技能
+   * 扫描定位到当前会话的工作目录（issue #4）；缺省时不携带——
+   * 服务端回退首个工作区，行为与旧版一致。
+   */
+  sessionId?: string
 }
