@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-08-12 — ⚡ 立即注入：快照变更 + 插话，当前回合立即生效（只注入一次）
+
+### 需求（用户拍板）
+普通注入写入注入轨、**下一轮生效**（模型 idle 时必然如此）；用户要求新增「立即注入」方式——通过**快照变更**立刻生效（会话广播/记忆等模块都是快照段，机制相同）。**立即注入只注入一次，不受次数/间隔两个数字影响**（用户补充拍板，必须写清楚）。
+
+### 机制研究（DSH 核心确认）
+- 所有快照段（memory:snapshot / 会话广播 / prompt:injections）都由 preStep 在**每步 LLM 调用前重新渲染** + RuntimeContextProjection 按整体文本 diff → 变化即追加 user 消息——**回合内（下一步）立即生效**；模型 idle 时下一轮。
+- 问题：模型"注入完就结束回合"（或已 idle）时没有下一步 → 等下一轮。解决：**agent.steer 插话**（send msg 到 next-step inbox，wakeup=true）——回合循环 `turnEnds && nextStep 非空` 不结束，模型被拉住再走一步 → preStep 重新渲染快照 → 注入内容投影追加 → 当前回合看到；idle 会话被唤醒立即开始回合。
+
+### 实现
+- **lib/prompts.js**：
+  - `steerImmediateInjection(ctx, sessionId, promptName)`：向目标会话发 next-step 插话（userMessage 同 de_session 构造，source kind 'user'）；轻量引导文案（内容本体在快照，避免双份重复）；agents 不可用/会话不在本进程返回 false（降级）
+  - de_prompts `inject` 新增 **`immediate`** 参数（默认 false）：true=写一次性注入轨（rounds 强制 1 / every 强制 0，**忽略传入的 rounds/every**）+ 插话调用者会话；message「已立即注入…当前回合生效，仅此一次（不受次数/间隔影响）」；插话失败注明降级
+  - Web API `POST /:id/inject` 新增 `immediate` + `sessionId`（GUI 会话页传入）；返回 `{injection, immediate, steered}`
+  - `promptsToolDefinition` 新增 ctx 参数（execute 的插话需要 agents；直接构造时可省略，立即注入降级）
+- **前端 PromptView**：「⚡ 立即注入」按钮（详情栏 + 临时注入表单），请求带 immediate+sessionId（props.sessionId）；成功提示区分插话送达/降级；DICT 中英文案
+- 测试：tool immediate（忽略 999/5 → every=0/rounds=1、插话留痕 sess-main、turn 结束自动移除）+ Web API immediate（带 sessionId → steered=true；缺 sessionId → steered=false）；全量 236/236 通过 + DSH schema 校验
+
+---
+
 ## 2026-08-12 — de_prompts 新增 create/update：模型可自行创建/修改提示词
 
 ### 需求（用户拍板）

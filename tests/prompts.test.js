@@ -308,6 +308,8 @@ async function bootApi() {
   let turnListener = null
   let snapshotRender = null
   let promptTool = null
+  /** 立即注入插话记录（agents mock：steer 调用留痕供断言）。 */
+  const steered = []
   const ctx = {
     on: (event, listener) => { if (event === 'agent/turn-stopping') turnListener = listener; return () => {} },
     inject: (services, cb) => {
@@ -323,6 +325,12 @@ async function bootApi() {
     effect: (fn) => { fn(); return () => {} },
     tools: {
       register: (def) => { promptTool = def; return () => {} },
+    },
+    // agents mock：立即注入的 steer 插话留痕（真实运行时由插件声明式注入）
+    agents: {
+      get: (sessionId) => ({
+        steer: (msg) => { steered.push({ sessionId, text: msg.content?.[0]?.text ?? '' }) },
+      }),
     },
     systemPrompt: {
       context: ({ name, text }) => { if (name === 'prompt:injections') snapshotRender = text; return () => {} },
@@ -342,7 +350,7 @@ async function bootApi() {
     return { status: res.status, data }
   }
   const close = () => new Promise((resolve) => server.close(resolve))
-  return { dir, base, request, close, turnListener, snapshotRender, promptTool }
+  return { dir, base, request, close, turnListener, snapshotRender, promptTool, steered }
 }
 
 test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async () => {
@@ -482,8 +490,8 @@ test('installPrompts: dispose 可安全调用（开关卸载路径）', async ()
 })
 
 test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、get 详情、inject 闭环', async () => {
-  const { dir, request, close, promptTool } = await bootApi()
-  const exec = () => ({ agent: { session: { header: { cwd: '/proj/x' } } }, callId: 'c1', signal: new AbortController().signal })
+  const { dir, request, close, turnListener, promptTool, steered } = await bootApi()
+  const exec = () => ({ agent: { session: { id: 'sess-main', header: { cwd: '/proj/x' } } }, callId: 'c1', signal: new AbortController().signal })
   try {
     // 工具随模块安装注册（name 来自配置 promptToolName 默认 de_prompts）
     assert.ok(promptTool, 'de_prompts tool registered by installPrompts')
@@ -610,6 +618,40 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.equal((await promptTool.execute({ action: 'update', name: 'x' }, exec())).ok, false)
     assert.equal((await promptTool.execute({ action: 'update', id: created.prompt.id }, exec())).ok, false)
     assert.equal((await promptTool.execute({ action: 'update', id: 'nope', name: 'x' }, exec())).ok, false)
+    // immediate 立即注入（tool）：固定只注入一次——**忽略 rounds/every 两个
+    // 数字**（传 999/5 也被覆盖为 1/0），写一次性注入轨 + 插话踢一步
+    const second = listed.prompts[1] // 启用中的另一条 seed（first 已被禁用）
+    const steeredBefore = steered.length
+    const imm = await promptTool.execute({ action: 'inject', id: second.id, immediate: true, rounds: 999, every: 5 }, exec())
+    assert.equal(imm.ok, true)
+    assert.equal(imm.injection.every, 0, '立即注入固定 every=0（一次性），忽略传入的 every')
+    assert.equal(imm.injection.roundsLeft, 1, '立即注入固定只注入一次，忽略传入的 rounds')
+    assert.match(imm.message, /已立即注入/)
+    assert.match(imm.message, /仅此一次/)
+    assert.equal(imm.message.includes('插话未送达'), false, '插话已送达调用者会话')
+    // 插话留痕：对调用者会话（exec 的 session id）送出 next-step 消息
+    const lastSteer = steered[steered.length - 1]
+    assert.ok(lastSteer, '立即注入后 steer 插话被调用')
+    assert.equal(lastSteer.sessionId, 'sess-main')
+    assert.match(lastSteer.text, /【立即注入】/)
+    assert.match(lastSteer.text, /仅此一次/)
+    // 回合结束 → every=0 一次性条目自动移除（不留存、不再出现）
+    turnListener({ agent: { session: { header: {} } } })
+    assert.equal((await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.some((i) => i.id === imm.injection.id), false)
+    // Web API 立即注入：immediate + sessionId → steered=true + 一次性条目
+    const third = listed.prompts[2]
+    const apiImm = await request('POST', `/memory-evolve/api/prompts/${third.id}/inject`, { immediate: true, sessionId: 'sess-gui', rounds: 8, every: 3 })
+    assert.equal(apiImm.status, 200)
+    assert.equal(apiImm.data.immediate, true)
+    assert.equal(apiImm.data.steered, true)
+    assert.equal(apiImm.data.injection.every, 0)
+    assert.equal(apiImm.data.injection.roundsLeft, 1)
+    assert.ok(steered.some((s) => s.sessionId === 'sess-gui'), 'GUI 立即注入按 sessionId 插话')
+    // Web API 立即注入缺 sessionId：不插话（steered=false），降级下一轮生效
+    const fourth = listed.prompts[3]
+    const apiImmNoSid = await request('POST', `/memory-evolve/api/prompts/${fourth.id}/inject`, { immediate: true })
+    assert.equal(apiImmNoSid.status, 200)
+    assert.equal(apiImmNoSid.data.steered, false)
   } finally {
     await close()
     clean(dir)

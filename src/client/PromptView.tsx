@@ -142,13 +142,19 @@ const DICT = {
     effectFiniteCadence: '共 {n} 次：每 {m} 回合出现一次，用尽自动结束',
     roundsInvalid: '次数必须是 ≥0 的整数（0 = 无限次）',
     everyInvalid: '间隔必须是 ≥0 的整数（0 = 只注入一次）',
-    // 预设注入按钮（覆盖最常见的两种场景，普通用户无需理解次数×间隔）
+    // 预设注入按钮（覆盖最常见的场景，普通用户无需理解次数×间隔）
     injectOnceBtn: '注入一次',
     injectOnceBtnHint: '只注入一次：下一轮出现后自动结束',
     injectInfiniteBtn: '持续注入',
     injectInfiniteBtnHint: '每回合出现，直到手动停止',
     customBtn: '自定义',
     customBtnHint: '自由设置次数与间隔',
+    // 立即注入：通过快照变更当前回合立即生效（会话空闲则马上唤醒）；
+    // 固定只注入一次，不受次数/间隔两个数字影响（用户拍板语义）
+    injectNowBtn: '⚡ 立即注入',
+    injectNowBtnHint: '立刻生效一次（当前回合/马上唤醒），只注入一次，不受次数与间隔影响',
+    injectedNow: '已立即注入「{name}」：当前回合生效，仅此一次（不受次数/间隔影响）',
+    injectedNowFallback: '已立即注入「{name}」（插话未送达，将在下一轮生效）',
     collapseCustom: '收起',
     quickTitle: '临时注入',
     quickDesc: '不建提示词也能注入：直接输入内容点「注入一次」，会自动存入提示词库（分类留空归入「临时」），一次操作同时入库并生效。',
@@ -260,7 +266,7 @@ const DICT = {
     effectFiniteCadence: '{n} times: once every {m} turns, auto-ends when spent',
     roundsInvalid: 'Count must be an integer ≥ 0 (0 = unlimited)',
     everyInvalid: 'Cadence must be an integer ≥ 0 (0 = once only)',
-    // Preset inject buttons (cover the two most common cases; no need to
+    // Preset inject buttons (cover the most common cases; no need to
     // understand count × cadence for everyday use).
     injectOnceBtn: 'Inject once',
     injectOnceBtnHint: 'Once only: appears next turn, then auto-ends',
@@ -268,6 +274,12 @@ const DICT = {
     injectInfiniteBtnHint: 'Every turn, until stopped',
     customBtn: 'Custom',
     customBtnHint: 'Free-form count and cadence',
+    // Immediate injection: takes effect this turn via snapshot change (or
+    // wakes an idle session); fixed to once only, ignores count and cadence.
+    injectNowBtn: '⚡ Inject now',
+    injectNowBtnHint: 'Takes effect immediately (this turn / wakes the session), once only — ignores count and cadence',
+    injectedNow: 'Injected "{name}" now: effective this turn, once only (ignores count/cadence)',
+    injectedNowFallback: 'Injected "{name}" now (steer not delivered — will take effect next turn)',
     collapseCustom: 'Collapse',
     quickTitle: 'Quick inject',
     quickDesc: 'Inject without saving a prompt first: type content and hit "Inject once" — it is auto-saved to the library (empty category goes to Temp) in one step.',
@@ -404,7 +416,7 @@ function NumInput(props: {
  *   顶栏（搜索/筛选/注入中/新建/来源）→ 左分类树 → 中列表 → 右详情表单。
  * 操作成功（保存/删除/注入/移除）后重新拉取列表，保持数据一致。
  */
-export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element {
+export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element {
   const lang: Lang = (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')) ? 'en' : 'zh'
   const D = DICT[lang]
   const say = (key: keyof typeof DICT.zh): string => D[key]
@@ -657,15 +669,37 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   }
 
   /**
+   * 立即注入（⚡ 按钮）：忽略次数/间隔输入框——host 端固定写一次性注入轨
+   * （只注入一次）+ 对当前会话发 next-step 插话，**当前回合立即生效**
+   * （会话空闲则马上唤醒）。steered=false 表示插话未送达（降级下一轮）。
+   */
+  const injectNow = async (promptId: string): Promise<void> => {
+    try {
+      const data = await api<{ injection: Injection; steered: boolean }>(
+        `/memory-evolve/api/prompts/${encodeURIComponent(promptId)}/inject`,
+        { method: 'POST', body: JSON.stringify({ immediate: true, sessionId: props.sessionId }) },
+      )
+      const name = data.injection.title
+      showNotice(data.steered ? say('injectedNow').replace('{name}', name) : say('injectedNowFallback').replace('{name}', name))
+      await load()
+      setShowInjections(true)
+      window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
+    } catch (err) {
+      showError(errText(err))
+    }
+  }
+
+  /**
    * 临时注入（详情栏未选中提示词时）：内容直接注入，一步完成"自动入库 +
    * 注入生效"，解决"必须先把提示词存进库才能注入"的流程问题。
    *   1. 校验内容非空；参数：preset 预设（一键按钮）或输入框解析（自定义区）；
    *   2. POST /prompts 创建（分类留空 → host 自动归入「临时」；名称留空
    *      取内容首行前 20 字，保证注入轨与列表都有可读标题）；
-   *   3. POST /:id/inject 注入 → 选中新条目（表单回填，可继续编辑/改名）。
+   *   3. POST /:id/inject 注入（immediate=true 时立即注入）→ 选中新条目。
    * @param {object} [preset] - 预设参数（{rounds, every}）；缺省读输入框。
+   * @param {boolean} [immediate] - true=立即注入（只注入一次，忽略次数/间隔）。
    */
-  const quickInject = async (preset?: { rounds: number; every: number }): Promise<void> => {
+  const quickInject = async (preset?: { rounds: number; every: number }, immediate = false): Promise<void> => {
     if (busy) return
     const text = content.trim()
     if (!text) {
@@ -699,11 +733,22 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
           enabled,
         }),
       })
-      const data = await api<{ injection: Injection }>(
-        `/memory-evolve/api/prompts/${encodeURIComponent(created.prompt.id)}/inject`,
-        { method: 'POST', body: JSON.stringify(nums) },
-      )
-      await afterInjected(data.injection)
+      // immediate=true：立即注入（只注入一次，忽略次数/间隔）
+      const data = immediate
+        ? await api<{ injection: Injection; steered: boolean }>(
+          `/memory-evolve/api/prompts/${encodeURIComponent(created.prompt.id)}/inject`,
+          { method: 'POST', body: JSON.stringify({ immediate: true, sessionId: props.sessionId }) },
+        )
+        : await api<{ injection: Injection }>(
+          `/memory-evolve/api/prompts/${encodeURIComponent(created.prompt.id)}/inject`,
+          { method: 'POST', body: JSON.stringify(nums) },
+        )
+      if (immediate) {
+        const name = data.injection.title
+        showNotice((data as { steered: boolean }).steered ? say('injectedNow').replace('{name}', name) : say('injectedNowFallback').replace('{name}', name))
+      } else {
+        await afterInjected(data.injection)
+      }
       selectPrompt(created.prompt.id) // 回填表单：新建条目已选中，可改名/改分类
     } catch (err) {
       showError(errText(err))
@@ -1131,8 +1176,8 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   {displayCategories.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </label>
-              {/* 预设注入：一键「注入一次」/「持续注入」，普通用户无需理解
-                  次数×间隔；「自定义」展开自由输入区（高级场景） */}
+              {/* 预设注入：一键「注入一次」/「持续注入」/「⚡ 立即注入」，
+                  普通用户无需理解次数×间隔；「自定义」展开自由输入区 */}
               <div className="pm-actions">
                 <button
                   type="button"
@@ -1151,6 +1196,18 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   disabled={busy}
                 >
                   {say('injectInfiniteBtn')}
+                </button>
+                {/* 立即注入：当前回合立即生效（会话空闲则马上唤醒），只注入
+                    一次——忽略次数/间隔两个数字（与「注入一次」的区别=生效
+                    时机：下一轮 vs 立刻） */}
+                <button
+                  type="button"
+                  className="pm-tool-btn"
+                  title={say('injectNowBtnHint')}
+                  onClick={() => void quickInject(undefined, true)}
+                  disabled={busy}
+                >
+                  {say('injectNowBtn')}
                 </button>
                 <button
                   type="button"
@@ -1283,7 +1340,8 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   return (
                     <>
                       {/* 预设注入：一键「注入一次」/「持续注入」（最常见的两种
-                          场景）；「自定义」展开次数/间隔自由输入（高级场景） */}
+                          场景）；「⚡ 立即注入」当前回合生效（只注入一次，忽略
+                          次数/间隔）；「自定义」展开次数/间隔自由输入 */}
                       <button
                         type="button"
                         className="pm-primary-btn"
@@ -1299,6 +1357,14 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                         onClick={() => void injectPreset(0, 1)}
                       >
                         {say('injectInfiniteBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        className="pm-tool-btn"
+                        title={say('injectNowBtnHint')}
+                        onClick={() => void injectNow(selected.id)}
+                      >
+                        {say('injectNowBtn')}
                       </button>
                       <button
                         type="button"
