@@ -24,7 +24,10 @@
  *   4. **功能开关**（用户拍板：模块内每个功能默认关闭、由用户主动开启，
  *      独立小开关在「综合」子 tab）：setEnabled(false) 时整体停用（移除
  *      筛选条与 html 属性、停止观察），开启时恢复——由 index.ts 监听
- *      功能开关事件驱动。
+ *      功能开关事件驱动；
+ *   5. **运行计数**（用户拍板）：「仅进行中」按钮文字带括号实时显示当前
+ *      正在执行的会话数（如「仅进行中 (3)」）——不管筛选选没选中都显示；
+ *      rAF 节流 + 复用 MutationObserver，会话开始/结束运行即时刷新。
  */
 
 /** 筛选条容器 id（保活查重用）。 */
@@ -86,8 +89,40 @@ export function createSessionFilter(texts: SessionFilterTexts): {
   let enabled = false // 功能开关（「综合」子 tab），默认由 index.ts 同步
   let disposed = false
   let observer: MutationObserver | null = null
+  let countRaf = 0 // rAF 句柄（计数更新节流）
 
-  /** 建筛选条 DOM（分段按钮：「仅进行中」/「全部」）。 */
+  /** 统计当前「正在执行」的会话数：会话行内存在 ongoing 状态点（正在
+   *  生成或子代理在跑；StateDot data-state 属性，与过滤规则同源锚点）。
+   *  DOM 计数只覆盖已渲染的会话行（折叠分组不渲染）——轻量够用。 */
+  const countRunning = (): number => {
+    try {
+      return document.querySelectorAll(
+        '[role="tree"] div[role="treeitem"][aria-selected]:has([data-state="ongoing"])',
+      ).length
+    } catch {
+      return 0
+    }
+  }
+
+  /** 更新「仅进行中」按钮文字：`仅进行中 (N)`——不管筛选选没选中都显示
+   *  当前正在执行的会话数（用户拍板：对用户友好的实时提示）。rAF 节流：
+   *  聊天流高频 mutation 时合并到下一帧只算一次。 */
+  const updateCount = (): void => {
+    if (disposed || !enabled) return
+    if (countRaf !== 0) return
+    countRaf = requestAnimationFrame(() => {
+      countRaf = 0
+      if (disposed || !enabled) return
+      // 按钮可能被 React 重渲染清掉（筛选条保活会重建），重建后重查。
+      const button = document.getElementById(FILTER_BAR_ID)
+        ?.querySelector<HTMLButtonElement>('.dsh-ui-filter-btn[data-mode="on"]')
+      if (button == null) return
+      const n = countRunning()
+      button.textContent = `${texts.on} (${n})`
+    })
+  }
+
+  /** 建筛选条 DOM（分段按钮：「仅进行中 (N)」/「全部」）。 */
   const buildBar = (): HTMLElement => {
     const bar = document.createElement('div')
     bar.id = FILTER_BAR_ID
@@ -118,6 +153,7 @@ export function createSessionFilter(texts: SessionFilterTexts): {
       return button
     }
 
+    // 先建「全部」按钮（其后的计数更新通过 querySelector 定位，顺序无关）。
     bar.appendChild(mkButton('on', texts.on))
     bar.appendChild(mkButton('off', texts.off))
     return bar
@@ -135,14 +171,22 @@ export function createSessionFilter(texts: SessionFilterTexts): {
     const tree = document.querySelector<HTMLElement>('[role="tree"]')
     if (tree === null || tree.parentNode === null) return
     tree.parentNode.insertBefore(buildBar(), tree)
+    // 新建后立即刷一次计数（避免等到下一次 DOM 变化）。
+    updateCount()
   }
 
-  /** 启动保活观察（body childList+subtree；回调先 O(1) 存在性检查）。 */
+  /** 启动保活观察（body childList+subtree；回调先 O(1) 存在性检查）。
+   *  任何 DOM 变化同时触发计数刷新（rAF 节流）——会话开始/结束运行、
+   *  状态点出现/消失都会反映到按钮括号里。 */
   const startObserver = (): void => {
     if (observer !== null || disposed) return
     observer = new MutationObserver(() => {
       if (disposed || !enabled) return
-      if (document.getElementById(FILTER_BAR_ID) === null) ensureBar()
+      if (document.getElementById(FILTER_BAR_ID) === null) {
+        ensureBar()
+        return
+      }
+      updateCount()
     })
     observer.observe(document.body, { childList: true, subtree: true })
   }
@@ -166,6 +210,10 @@ export function createSessionFilter(texts: SessionFilterTexts): {
     },
     dispose(): void {
       disposed = true
+      if (countRaf !== 0) {
+        cancelAnimationFrame(countRaf)
+        countRaf = 0
+      }
       observer?.disconnect()
       observer = null
       document.getElementById(FILTER_BAR_ID)?.remove()
