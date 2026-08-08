@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-08-09 — 会话书签独立子模块（bookmarkEnabled）：每轮星标 + 列表跳转 + 任意轮官方分支
+
+### 需求（用户拍板）
+给对话的**每一轮打标签**（书签），独立列表一键跳回；**从任意轮创建官方分支**（官方 UI 只允许最后一轮分支——调研确认核心层 `session.fork` 支持任意已完成轮，限制仅是 UI 禁用按钮）。先做标记+跳转，分支经用户确认后本期一并实现。
+
+### 调研
+- `docs/会话书签-调研-20260809.md`：双人并行调研（Grok 源码层 + Codex 设计层）综合——fork 在 Core/Host/Client 三层支持任意已完成轮（`fork.spec.ts` "forks from an earlier turn boundary…"）；UI 层按钮每条轮尾都渲染、非最后一条仅 `aria-disabled` + tooltip（产品层收敛非技术限制）；积木：`conversation.chat.turnTail` 槽 / `data-chat-anchor-key` 锚点 / `session.fork` RPC。
+
+### 实现
+- **宿主端** `lib/bookmarks.js`：`BookmarkStore`（sidecar JSON 原子写、按 sessionId 隔离、同轮去重、上限 500/会话）；HTTP API `/memory-evolve/api/bookmarks`（CRUD + `/state` 探测，关闭时 404）；`buildForkSeed`（复刻官方 api-proxy 边界算法：atSeq → ≥ 该 seq 的第一个 `turn/end`，顺延吸收 out-of-band，**DSH 事件 seq 是 0-based**）；`forkSession`（`agents.create(seed, parentSession, seedLength, cwd)` + `workspace.attachSession`，与官方 fork RPC 同路径）；`bookmarkEnabled` 独立开关（默认关，RUNTIME_KEYS/validateRuntimePatch/applyRuntimePatch sync 链）；
+- **客户端**：`bookmark-injector.tsx`——**DOM 注入**（B 方案，用户拍板：不占 turnTail chain 槽，官方 produced-files 行保留）：MutationObserver + rAF 节流扫描 `[data-chat-flow]`，Branch 按钮 `aria-disabled!=='true'` 判轮尾，星标 `afterend` 贴 Branch 旁（官方 Tooltip 是独立 bubble——接管按钮的原生 title 标注 + 隐藏兄弟 `[role="tooltip"]` 气泡 + 移除 `data-unavailable`）；**中间轮官方分支按钮被接管**（启用 + 悬浮标注"Memory Evolve 增强" + 点击弹确认 → fork API），最后一轮不干预；会话 id 经 `header.actions` 隐藏 entry 捕获；`BookmarksView.tsx` 列表 Tab（摘要/时间/搜索过滤/跳转/改名/删除/**分支**）；`TurnBookmarkButton.tsx`（星标 22px、命名/改名/删除、bookmarks-change 事件联动）；zh/en 文案含指南；
+- **测试**：`tests/bookmarks.test.js` 18 个用例（存储/API/fork 边界/全链路/开关），全量 **272/272 全绿** + 构建成功。
+
+### 验证
+- npm test 272 全绿（含修复其他会话 a975013 遗留的 ui-settings.test.js 签名未同步问题）；npm run build 成功；用户重启后实测：星标/列表/跳转/中间轮分支（含确认弹窗与悬浮标注）均正常。
+
+---
+
+## 2026-08-09 — 本地文件搜索扩展：内容检索（RAG 轻量版）
+
+### 需求（用户拍板）
+`memory_evolve_search_local_files` 增加**文件内容**检索（"哪个文档里提过 XX"）。设计原则：**不新增 AI 工具、不改现有参数**（不给模型增加工具负担），只加可选参数。
+
+### 实现
+- `lib/search-docs.js` 新增可选参数 `content`（boolean，默认 false=旧行为完全不变）与 `contentQuery`（内容关键词，缺省复用 query；传了即隐式开启）；rg 字面全文匹配 → 无 rg 降级 Node 逐文件读取；返回命中文件 + 片段（行号/上下文，每文件限 1-3 段）；大文件/二进制安全跳过；description 同步更新；
+- JSON Schema 校验通过（type 单字符串 / required 顶层数组 / 输出与实现严格一致）；
+- 测试 +15 用例（`tests/search-docs.test.js`，含默认行为不变/命中片段/contentQuery 覆盖/未命中/二进制跳过），全量 **272/272 全绿**。
+
+### 验证
+npm test 272 全绿；DSH `assertSupportedJsonSchema` 通过；npm run build 成功。
+
+---
+
 ## 2026-08-09 — DSH UI 设置·功能三：消息气泡加宽（用户信息框占内容框 ~80%）
 
 ### 需求（用户拍板）
