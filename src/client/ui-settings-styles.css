@@ -1,0 +1,64 @@
+/**
+ * dsh-memory-evolve — DSH UI 设置模块样式（ui- 前缀，独立注入）。
+ *
+ * 全部使用 DSH 设计 token（--dsw-alias-*），深浅色主题自动适配；后续
+ * 主题功能（CSS 变量覆盖）可直接接管本文件。
+ */
+
+/* ── 会话筛选：仅显示进行中的会话 ───────────────────────────────
+ *
+ * 过滤规则作用域挂在 <html data-dsh-ui-filter="on">（session-filter.ts
+ * 控制，localStorage 记忆偏好，默认开启）。
+ *
+ * 选择器依据（调研文档 docs/DSH-UI设置模块-调研-20260809.md）：
+ * - 会话行 = div[role="treeitem"][aria-selected]（工作区分组行有
+ *   aria-expanded 无 aria-selected；搜索结果行是 <button>——div 天然排除，
+ *   搜索模式下筛选不生效）；
+ * - 纯 idle 会话行没有任何 data-state 状态点；活跃（ongoing/warning/error）
+ *   与 completed（done）都有状态点 → 只隐藏完全无状态点的行；
+ * - :has() 需 Chrome 105+（2022-08 起，现代浏览器无问题）。
+ *
+ * React 重渲染后选择器实时生效：会话从 idle 变 running 时状态点出现、
+ * 行自动恢复显示，无需 JS 轮询会话状态。
+ */
+html[data-dsh-ui-filter="on"] [role="tree"] div[role="treeitem"][aria-selected]:not(:has([data-state])) {
+  display: none;
+}
+
+/* ── 会话列表顶部筛选条（session-filter.ts 注入的 DOM）────────── */
+.dsh-ui-filter-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l, rgba(128, 128, 128, 0.25));
+  /* 跟随列表区背景（token 兜底），不设固定底色以免深浅主题突兀 */
+  background: transparent;
+}
+
+/* 分段按钮：非激活态弱化、激活态品牌强调（对齐 DSH tool-bar 按钮风格）。 */
+.dsh-ui-filter-btn {
+  flex: 1;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--dsw-alias-button-tool-bar-fill, transparent);
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dsh-ui-filter-btn:hover {
+  background: var(--dsw-alias-button-tool-bar-hover, rgba(128, 128, 128, 0.14));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dsh-ui-filter-btn-active,
+.dsh-ui-filter-btn-active:hover {
+  background: var(--dsw-alias-button-tool-bar-fill-invisible, rgba(128, 128, 128, 0.18));
+  border-color: var(--dsw-alias-border-l, rgba(128, 128, 128, 0.3));
+  color: var(--dsw-alias-brand-primary, inherit);
+  font-weight: 600;
+}

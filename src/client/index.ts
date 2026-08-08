@@ -24,17 +24,20 @@ import { SkillsTabView } from './SkillsTabView.tsx'
 import { TodosTabView } from './TodosTabView.tsx'
 import { SettingsTabView } from './SettingsTabView.tsx'
 import { ModelsTabView } from './ModelsTabView.tsx'
+import { UiSettingsTabView } from './UiSettingsView.tsx'
 import { CoIView } from './CoIView.tsx'
 import { HeaderActions } from './HeaderActions.tsx'
 import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
+import { activateSessionFilter } from './session-filter.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
 import scratchStyles from './scratch-styles.css'
 import promptStyles from './prompt-styles.css'
 import broadcastStyles from './broadcast-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
+import uiSettingsStyles from './ui-settings-styles.css'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
@@ -244,6 +247,25 @@ export const zh = {
   // 模型配置 Tab（models-hub）：表格展示 DSH 供应商/模型 + 每模型
   // 启用/备注/可用思考等级配置（对应 de_models 工具的 Web 数据面）：
   'modelsTab.label': '模型配置',
+  'modelsTab.feature.models': '模型配置',
+  'modelsTab.feature.guide': '指南',
+  'modelsTab.guide.what.title': '模型配置是什么',
+  'modelsTab.guide.what.body': '以表格形式一览 DSH 的全部供应商与模型，并为每个模型维护插件侧配置（启用状态、备注、思考等级）——所有配置归属本插件（models.json），不修改 DSH 配置、不与其他插件耦合。',
+  'modelsTab.guide.what.item1': '表格列：启用开关、供应商（含 DSH 激活状态）、模型（名称 + ID）、上下文/输出容量、思考等级、备注；支持搜索与「显示思考等级」切换；',
+  'modelsTab.guide.what.item2': '每模型可设置：启用/禁用（插件口径的可用性标记，不改变 DSH 实际路由）、备注、是否支持思考、可用思考等级、推荐思考等级、自定义等级；',
+  'modelsTab.guide.what.item3': '配置写入即持久化（<memoryDir>/models.json），重启不丢；',
+  'modelsTab.guide.config.title': '每模型配置项',
+  'modelsTab.guide.config.body': '展开一行（「配置等级」）即可编辑思考相关配置：',
+  'modelsTab.guide.config.item1': '启用/禁用：决定 de_models 工具默认列出的可用模型（默认全部启用）；',
+  'modelsTab.guide.config.item2': '支持思考：关闭后该模型不允许思考（仅 off 等级可用）；',
+  'modelsTab.guide.config.item3': '推荐思考等级：默认「自动」跟随模型自身推荐，可手动指定任一可用等级；',
+  'modelsTab.guide.config.item4': '可用思考等级：勾选哪些等级允许使用（默认全部）；可添加自定义等级（如 ultra），移除自定义等级。',
+  'modelsTab.guide.tool.title': 'de_models 工具（给 AI 用）',
+  'modelsTab.guide.tool.body': '本模块同时注册 de_models 工具，AI 可以直接查询当前可用模型（接口）清单：',
+  'modelsTab.guide.tool.item1': '默认只返回「启用」的模型（all=true 查看全部含禁用），可按供应商过滤；',
+  'modelsTab.guide.tool.item2': '每个模型返回：是否启用、DSH 是否激活、是否支持思考、可用思考等级（含推荐等级与自定义等级）、备注。',
+  'modelsTab.guide.switch.title': '开关',
+  'modelsTab.guide.switch.body': '模型配置默认开启；可在「Memory Evolve 设置」Tab 的「配置」里独立关闭（与其他模块同款开关）——关闭后本 Tab 与 de_models 工具隐藏，配置数据保留。',
   'modelsTab.searchPh': '搜索供应商、模型或备注…',
   'modelsTab.showReasoning': '显示思考等级',
   'modelsTab.refresh': '刷新',
@@ -278,6 +300,27 @@ export const zh = {
   'modelsTab.save': '保存',
   'modelsTab.saving': '保存中…',
   'modelsTab.cancel': '取消',
+  // DSH UI 设置 Tab（ui-settings-hub）：模块说明界面（指南子 Tab）+
+  // 未来扩展位（主题等）。真正的功能（会话筛选）是全局 DOM 增强，不依赖
+  // 本 Tab 打开；筛选条文案（uiSettings.filter.*）由 session-filter.ts
+  // 注入按钮使用（apply 时经 t() 取值）。
+  'uiSettingsTab.label': 'DSH UI 设置',
+  'uiSettingsTab.feature.guide': '指南',
+  'uiSettingsTab.guide.what.title': 'DSH UI 设置是什么',
+  'uiSettingsTab.guide.what.body': '给 DSH web 界面做样式级的小功能——不改框架源码，纯客户端注入（CSS + DOM 增强），随 DSH 更新不掉功能；后期扩展（主题更换等）都收进本模块。',
+  'uiSettingsTab.guide.what.item1': '第一版功能：左侧会话列表「仅显示进行中」筛选——默认只显示进行中的会话，纯 idle 的折叠隐藏，一键切回全部；',
+  'uiSettingsTab.guide.what.item2': '筛选条常驻左侧列表顶部（搜索框下方），状态记忆在浏览器本地，刷新/重开自动恢复；',
+  'uiSettingsTab.guide.what.item3': '筛选是实时的：会话开始生成时状态点出现、行自动恢复显示，跑完空闲后自动隐藏，无需手动刷新。',
+  'uiSettingsTab.guide.filter.title': '会话筛选怎么用',
+  'uiSettingsTab.guide.filter.body': '开启模块后，左侧会话列表顶部出现筛选条（两个分段按钮）：',
+  'uiSettingsTab.guide.filter.item1': '「仅进行中」：只显示活跃会话（正在生成 / 等审批 / 等回答 / 有子代理在跑 / 出错）+ 已完成未查看的——长列表一眼定位正在跑的那一个；',
+  'uiSettingsTab.guide.filter.item2': '「全部」：显示所有会话（含纯 idle），切回原来的浏览方式；',
+  'uiSettingsTab.guide.filter.item3': '搜索会话时筛选自动让位（搜索结果不受影响）；左侧栏收起（rail）状态不显示筛选条。',
+  'uiSettingsTab.guide.switch.title': '开关',
+  'uiSettingsTab.guide.switch.body': '本模块默认关闭；在「Memory Evolve 设置」Tab 的「配置」里独立开启/关闭（与其他模块同款开关）——关闭后筛选条与注入样式全部移除，筛选偏好保留，下次开启自动恢复。',
+  // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
+  'uiSettings.filter.on': '仅进行中',
+  'uiSettings.filter.off': '全部',
   // 以下键保留兼容（旧 memory tab 合并布局的遗留，新 UI 不再引用）：
   'memoryTab.feature.config': '配置',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -483,12 +526,16 @@ export const zh = {
   'panel.guide.coi.desc': '把任务派给外部 CLI 代理（kimi/codex/grok/hermes 等）：统一调度不卡主进程、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并沉淀到记忆。说"派给 kimi/codex 做 XX"即可，或打开「COI 调度」Tab 手动发起。**默认禁用**：与本地搜索一样按需启用——在「Memory Evolve 设置」Tab 的「配置」里打开「COI 调度」开关（工具即时生效，Tab 刷新后出现）。',
   'panel.guide.prompt.title': '提示词管理器（Prompt Manager）',
   'panel.guide.prompt.desc': '把常用的工作范式固化成提示词资产（内置程序员示例：代码审查/调试/架构/测试等，来源以自写为主）：选中一条即可注入——**写入后模型下一轮自动看到、不打断回复**；支持一次性、持续 N 轮、每 M 回合提醒一次（次数/间隔可输入任意数字，按对话回合计数自动过期），「注入中」可随时停止；也支持**临时注入**：不建提示词直接输入内容注入，自动存入提示词库（分类留空归入「临时」）。**默认禁用**：在「Memory Evolve 设置」Tab 的「配置」里打开「提示词管理器」开关，Tab 刷新后出现。',
+  'panel.guide.models.title': '模型配置（de_models）',
+  'panel.guide.models.desc': '「模型配置」Tab + `de_models` 工具：表格一览 DSH 现有供应商与模型，给每个模型设置**插件侧**的启用状态、备注、是否支持思考与可用/推荐思考等级（可勾选等级白名单、添加自定义等级）——**这些配置只对本插件有用**（决定 de_models 查询口径与 Tab 展示），**不修改、也不影响 DSH 自身的模型设置**（DSH 的模型配置仍以官方「设置 → 模型」为准）。**默认禁用**：在「配置」里打开「模型配置」开关后，Tab 刷新出现、de_models 工具生效。',
   'panel.guide.broadcast.title': '会话广播（de_broadcast）',
   'panel.guide.broadcast.desc': 'DSH 会话之间传递消息：先复制本会话 ID（会话头部「⧉ 复制会话ID」按钮），把 ID 发给另一个会话，让它的 AI 用 de_broadcast send 把内容广播给你（recipients 可同时填多个会话 ID，默认一对一）——接收方快照**定点注入**未读提示（收件箱式列出 id+主题+发送者+时间，只有接收者看得到，其他会话无感知），AI 用 list/read 查看全文处理（显式接收者 read 即消费、全员已读自动删除；房间/项目消息保留 30 天供回看）；超过 8KB 的内容自动落文件。**房间（聊天室）**：多会话协作（可跨工作目录）——建群（room-create，创建者自动入房）→ 把房间 id 告诉其他会话（粘贴或广播）→ 对方 room-join 加入 → 之后说"发到群里"全员同时收到；room-leave 退出、room-rm 解散（仅创建者）、room-list 查群；房间 30 天无活动自动删除。**项目群**：recipients 填 project:/路径 发给整个目录（按 cwd 匹配）。**开关**：独立「会话广播」（broadcastEnabled，默认关，可单独开启，与 COI 调度无关）。另：快照最前面有**常驻「你的会话 ID」段**（不随任何开关）——AI 用它比对各模块消息里的 session id 判断收发方，回复广播时把 ID 告知对方。',
   'panel.guide.session.title': '会话搜索（de_session_search）',
   'panel.guide.session.desc': '让 AI 搜索**其他 AI 工具的历史会话**（当前支持 Codex：`~/.codex/sessions` 与 `archived_sessions` 的明文 JSONL，rg 预筛后毫秒级；DSH 会话暂不支持）——"之前 Codex 里做过 XX"直接问 AI，它按关键词搜出命中会话 + 最强消息摘要（snippet）+ 上下文窗口；大小写不敏感的字面匹配（中英文/标点同一规则），只搜用户/助手消息（工具输出不搜）；可用 cwd 限定项目（Codex 会话记录工作目录），sort/limit/window 控制结果规模；**零常驻状态**——无索引、无缓存，每次调用实时只读扫描，不修改任何会话文件。**开关**：独立「会话搜索」（sessionSearchEnabled，默认关，与 COI 调度/广播无关，可单独开启）。',
   'panel.guide.sessionOrch.title': '会话编排（de_session）',
   'panel.guide.sessionOrch.desc': '让 AI **程序化创建/唤醒 DSH 会话**（"会话启动另一个会话"）——spawn：新建**标准会话**（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=**完整提示词**（角色/任务自由组合的长文本，如"你是美工，负责…现在开始执行：…"），创建后立即自动开跑，可选 cwd/加入广播房间（roomId）/覆盖模型（model）；wake：唤醒已有会话（sessionId + 提示词，等价替用户发消息，对方 AI 自动醒来处理，忙则排队；进程重启后自动恢复再唤醒）；status/list：查状态（running=正在生成 / idle=已停止 / offline=不在本进程，附 lastActiveAt 最后活动时间）。**协作纪律**：不会自动唤醒任何会话——由拍板人（如产品经理）**有意识地** list/status 查状态、发现员工停止后主动 wake 派活（避免管理混乱）；**边界**：仅同进程会话可唤醒；唤醒=替用户发消息（对方 GUI 可见全程）。**开关**：独立「会话编排」（sessionEnabled，默认关，与 COI/广播/搜索互不影响，可单独开启）；建议配合「会话广播」房间使用（spawn 带 roomId 自动入房）。',
+  'panel.guide.uiSettings.title': 'DSH UI 设置',
+  'panel.guide.uiSettings.desc': '给 DSH web 界面加样式级小功能（纯客户端注入，不改框架）：左侧会话列表「仅显示进行中」筛选——默认只显示进行中的会话（正在生成/等审批/等回答/有子代理在跑/出错/已完成未查看），一键切回全部；筛选条常驻列表顶部、状态本地记忆；后期扩展主题更换等样式功能。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
@@ -553,6 +600,10 @@ export const zh = {
   'panel.config.sessionEnabled.hint': '启用会话编排（de_session）：让 AI **程序化创建/唤醒 DSH 会话**——spawn 新建标准会话（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=完整提示词（角色/任务自由组合的长文本），创建后立即自动开跑，可选 cwd/加入广播房间/覆盖模型；wake 唤醒已有会话（等价替用户发消息，对方 AI 自动醒来处理，进程重启后自动恢复）；status/list 查状态；**会话头部「⧉ 复制会话ID」「✎ 别名」按钮随本开关**（会话身份功能，曾误挂在广播下）。**独立子模块**（默认关闭；依赖 DSH agents 服务，仅同进程会话可唤醒；关闭时工具对模型不可见）',
   'panel.config.promptsEnabled': '提示词管理器',
   'panel.config.promptsEnabled.hint': '启用「提示词」Tab：提示词库（用户自写范式 + 内置示例）+ 注入轨（一次性/持续 N 轮/每 M 回合一次，次数与间隔可输入任意数字——写入后模型下一轮自动看到，回合递减自动过期，可随时停止；不建提示词也能临时注入，自动入库归入「临时」分类）。默认关闭；关闭时快照段/事件监听/API 全部卸载，Tab 刷新后隐藏',
+  'panel.config.modelsEnabled': '模型配置',
+  'panel.config.modelsEnabled.hint': '启用「模型配置」Tab + de_models 工具：表格展示 DSH 供应商/模型，给每个模型设置启用状态、备注、是否支持思考、可用/推荐思考等级（可加自定义等级）；de_models 供 AI 查询可用模型清单。**默认关闭**（注册即占模型工具列表，需要时再开）；⚠️ 本模块的配置**只对插件自身有用，不修改也不影响 DSH 的模型设置**（DSH 侧仍以官方「设置 → 模型」为准）。关闭时 Tab 与工具隐藏、API 拒绝访问，配置数据保留',
+  'panel.config.uiSettingsEnabled': 'DSH UI 设置',
+  'panel.config.uiSettingsEnabled.hint': '启用「DSH UI 设置」模块：左侧会话列表顶部出现筛选条，默认只显示进行中的会话（正在生成/等审批/等回答/有子代理在跑/出错/已完成未查看——纯 idle 的折叠隐藏），可一键切回全部；纯客户端样式增强（CSS + DOM 注入，不改 DSH 框架）；筛选偏好记在浏览器本地。**默认关闭**；关闭时筛选条与注入样式全部移除',
   'panel.config.save': '保存配置',
   'panel.reveal.title': '打开文件',
   'panel.reveal.help': '用系统工具打开记忆目录与记忆文件。⚠️ 随意编辑可能破坏 § 分隔格式、导致记忆读取错乱，请谨慎修改。',
@@ -765,6 +816,25 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todosTab.feature.todoSuggestions': 'Todo suggestions',
   'todosTab.feature.todo': 'Todos',
   'modelsTab.label': 'Models',
+  'modelsTab.feature.models': 'Models',
+  'modelsTab.feature.guide': 'Guide',
+  'modelsTab.guide.what.title': 'What is Model Config',
+  'modelsTab.guide.what.body': 'A table view of every DSH provider and model, with per-model plugin-side settings (enabled state, note, reasoning levels). All settings belong to this plugin (models.json) — DSH configuration is never touched and nothing couples to other plugins.',
+  'modelsTab.guide.what.item1': 'Columns: enabled toggle, provider (with DSH active state), model (name + ID), context/output capacity, reasoning levels, note; search and a "show reasoning" toggle;',
+  'modelsTab.guide.what.item2': 'Per model: enable/disable (plugin-scope availability marker, does not change DSH routing), note, thinking support, allowed reasoning levels, recommended level, custom levels;',
+  'modelsTab.guide.what.item3': 'Settings persist immediately (<memoryDir>/models.json) and survive restarts;',
+  'modelsTab.guide.config.title': 'Per-model settings',
+  'modelsTab.guide.config.body': 'Expand a row ("Configure levels") to edit reasoning settings:',
+  'modelsTab.guide.config.item1': 'Enable/disable: decides which models de_models lists by default (all enabled by default);',
+  'modelsTab.guide.config.item2': 'Support thinking: when off, the model cannot reason (only the off level stays available);',
+  'modelsTab.guide.config.item3': 'Recommended level: defaults to "Auto" (follow the model), or pick any available level manually;',
+  'modelsTab.guide.config.item4': 'Allowed levels: check which levels may be used (all by default); custom levels (e.g. ultra) can be added and removed.',
+  'modelsTab.guide.tool.title': 'de_models tool (for AI)',
+  'modelsTab.guide.tool.body': 'This module also registers the de_models tool so the AI can query the available model (endpoint) list:',
+  'modelsTab.guide.tool.item1': 'Only "enabled" models are listed by default (all=true shows everything including disabled); filterable by provider;',
+  'modelsTab.guide.tool.item2': 'Each model returns: enabled, DSH active, thinking support, usable reasoning levels (with recommended and custom levels), note.',
+  'modelsTab.guide.switch.title': 'Switch',
+  'modelsTab.guide.switch.body': 'Model config is on by default; it can be turned off independently in the "Memory Evolve Settings" tab ("Config") like other modules — the tab and the de_models tool hide, settings data is kept.',
   'modelsTab.searchPh': 'Search provider, model, or note…',
   'modelsTab.showReasoning': 'Show reasoning levels',
   'modelsTab.refresh': 'Refresh',
@@ -799,6 +869,28 @@ export const en: Record<MemoryEvolveKey, string> = {
   'modelsTab.save': 'Save',
   'modelsTab.saving': 'Saving…',
   'modelsTab.cancel': 'Cancel',
+  // DSH UI Settings tab (ui-settings-hub): module intro (guide sub-tab) +
+  // future extension seat (themes etc.). The real feature (session filter)
+  // is a global DOM enhancement independent of this tab; the filter-bar
+  // strings (uiSettings.filter.*) are consumed by session-filter.ts
+  // (resolved through t() in apply).
+  'uiSettingsTab.label': 'DSH UI Settings',
+  'uiSettingsTab.feature.guide': 'Guide',
+  'uiSettingsTab.guide.what.title': 'What is DSH UI Settings',
+  'uiSettingsTab.guide.what.body': 'Style-level tweaks for the DSH web GUI — no framework source changes, pure client-side injection (CSS + DOM enhancement) that survives DSH updates; future extensions (themes, etc.) all land in this module.',
+  'uiSettingsTab.guide.what.item1': 'First feature: the left session list "Running only" filter — by default only active sessions are shown, purely idle ones are collapsed away, one click switches back to all;',
+  'uiSettingsTab.guide.what.item2': 'The filter bar sits at the top of the session list (below the search box); the choice is remembered in the browser and restored on refresh/relaunch;',
+  'uiSettingsTab.guide.what.item3': 'The filter is live: a session\'s status dot appears the moment it starts generating and the row shows back up; when it goes idle the row hides itself — no manual refresh.',
+  'uiSettingsTab.guide.filter.title': 'How to use the session filter',
+  'uiSettingsTab.guide.filter.body': 'With the module enabled, a filter bar with two segmented buttons appears above the left session list:',
+  'uiSettingsTab.guide.filter.item1': '"Running only": shows only active sessions (generating / awaiting approval / awaiting answer / subagents running / error) plus finished-but-unviewed ones — spot the one session actually working in a long list at a glance;',
+  'uiSettingsTab.guide.filter.item2': '"All": shows every session (including purely idle ones) — back to the usual browsing;',
+  'uiSettingsTab.guide.filter.item3': 'The filter steps aside while searching (results are never filtered); the collapsed rail state shows no filter bar.',
+  'uiSettingsTab.guide.switch.title': 'Switch',
+  'uiSettingsTab.guide.switch.body': 'This module is off by default; enable/disable it independently in the "Config" sub-tab of the "Memory Evolve Settings" tab (same switch pattern as other modules) — when off, the filter bar and injected styles are fully removed; the filter preference is kept and restored when re-enabled.',
+  // Filter-bar button labels (consumed by session-filter.ts injected DOM).
+  'uiSettings.filter.on': 'Running only',
+  'uiSettings.filter.off': 'All',
   // Legacy keys kept for compatibility (old merged memory-tab layout).
   'memoryTab.feature.config': 'Config',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -1004,12 +1096,16 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.coi.desc': 'Dispatch tasks to external CLI agents (kimi/codex/grok/hermes…): unified non-blocking scheduling, live progress, auto-tiered session management with one-click resume, cross-COI relay, archived results that also sink into memory. Just say “have kimi/codex do X”, or open the CLI Dispatch tab to dispatch manually. **Disabled by default**: enable the COI dispatch toggle under "Config" in the "Memory Evolve Settings" tab (tools take effect immediately; the tab appears after a refresh).',
   'panel.guide.prompt.title': 'Prompt manager',
   'panel.guide.prompt.desc': 'Turn recurring working paradigms into prompt assets (built-in programmer examples: code review/debugging/architecture/tests…; write your own as the main source). Pick one and inject — the content becomes visible to the model next turn without interrupting the reply; supports one-shot, N consecutive turns, or once every M turns (count and cadence accept any integers, auto-expiring by turn counting), and can be stopped anytime. Quick inject is also supported: type content and inject without saving a prompt first — it is auto-saved to the library (empty category goes to Temp). **Disabled by default**: enable the prompt manager toggle under "Config" in the "Memory Evolve Settings" tab; the tab appears after a refresh.',
+  'panel.guide.models.title': 'Model config (de_models)',
+  'panel.guide.models.desc': 'The "Model Config" tab + `de_models` tool: a table of every DSH provider and model, with **plugin-side** per-model settings (enabled state, note, thinking support, allowed/recommended reasoning levels — checkable level whitelist, custom levels). **These settings only affect this plugin** (they define the de_models query view and the tab display); **they do not modify or affect DSH\'s own model settings** — DSH model configuration remains whatever the official "Settings → Models" says. **Disabled by default**: turn on "Model config" under "Config" and the tab appears after a refresh, with the de_models tool active.',
   'panel.guide.broadcast.title': 'Session broadcast (de_broadcast)',
   'panel.guide.broadcast.desc': 'Pass messages between DSH sessions: copy this session\'s ID (the "⧉ Copy session ID" button in the session header), send the ID to another session, and let its AI broadcast content back to you via de_broadcast send (recipients can be an array of session IDs; one-to-one by default) — the receiver\'s snapshot gets a targeted unread hint (inbox-style: id + subject + sender + time; visible only to the receiver) and the AI reads/processes it with list/read (explicit-recipient messages are consumed on read and auto-deleted once every recipient read; room/project messages stay 30 days for review); content over 8 KB spills to a file. **Rooms (chat rooms)**: multi-session collaboration (cross-directory) — room-create (creator joins automatically) → share the room id (paste or broadcast) → others room-join → then just say "post to the room" and everyone gets it; room-leave to exit, room-rm to dissolve (creator only), room-list to view; idle rooms are auto-deleted after 30 days. **Project group**: recipients project:/path posts to the whole directory (matched by cwd). **Switch**: independent "Session broadcast" (broadcastEnabled, off by default, can be enabled alone — unrelated to COI dispatch). Also, the snapshot always leads with a persistent "Your session ID" section (regardless of any switch) — the AI uses it to tell who is who in message sender/recipients and shares its ID when replying to a broadcast.',
   'panel.guide.session.title': 'Session search (de_session_search)',
   'panel.guide.session.desc': 'Lets the AI search historical sessions of other local AI tools (Codex for now: plain JSONL under ~/.codex/sessions and archived_sessions — rg prefilter keeps it millisecond-fast; DSH sessions not supported yet) — just ask "did Codex do X before" and the AI finds matching sessions with the strongest message snippet and a context window; case-insensitive literal matching over user/assistant messages only (tool output excluded); cwd filters by project (Codex sessions record their working directory), sort/limit/window control result scale; **zero resident state** — no index, no cache, every call scans read-only in real time and never modifies session files. **Switch**: independent "Session search" (sessionSearchEnabled, off by default, unrelated to COI dispatch/broadcast, can be enabled alone).',
   'panel.guide.sessionOrch.title': 'Session orchestration (de_session)',
   'panel.guide.sessionOrch.desc': 'Lets the AI **programmatically create/wake DSH sessions** ("a session starts another session") — spawn: creates a **standard session** (identical to one opened manually: system prompt/tools/memory snapshot/persistence; appears in the left session list and can be taken over), prompt = the **full instruction text** (role/task freely composed, e.g. "You are the designer… now execute: …"), it starts running immediately; optional cwd / join a broadcast room (roomId) / model override (model); wake: wakes an existing session (sessionId + prompt, equivalent to sending a message on its behalf — its AI wakes up and processes it; queues while busy; auto-resumed after process restart); status/list: inspect state (running = generating / idle = stopped / offline = not in this process, with lastActiveAt). **Collaboration discipline**: nothing auto-wakes sessions — the decision-maker (e.g. a PM session) **deliberately** runs list/status and actively wakes stopped workers (avoids management chaos); **boundary**: only same-process sessions can be woken; waking = sending a message on their behalf (fully visible in their GUI). **Switch**: independent "Session orchestration" (sessionEnabled, off by default, unrelated to COI/broadcast/search, can be enabled alone); pairs well with "Session broadcast" rooms (spawn with roomId joins automatically).',
+  'panel.guide.uiSettings.title': 'DSH UI Settings',
+  'panel.guide.uiSettings.desc': 'Style-level tweaks for the DSH web GUI (pure client-side injection, no framework changes): the left session list "Running only" filter — by default only active sessions are shown (generating / awaiting approval / awaiting answer / subagents running / error / finished-but-unviewed), one click switches back to all; the filter bar stays at the top of the list and the choice is remembered locally; themes and more style features come later.',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
@@ -1074,6 +1170,10 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.sessionEnabled.hint': 'Enable session orchestration (de_session): lets AI **programmatically create/wake DSH sessions** — spawn creates a standard session (identical to one opened manually: system prompt/tools/memory snapshot/persistence, appears in the left session list and can be taken over), prompt = the full instruction text (role/task freely composed), it starts running immediately; optional cwd / join a broadcast room / model override; wake wakes an existing session (equivalent to sending a message on its behalf — its AI wakes up and processes it, auto-resumed after process restart); status/list inspect state; the header **"⧉ Copy session ID" / "✎ alias" buttons follow this switch** (session-identity features, previously mis-housed under broadcast). **Independent submodule** (off by default; depends on the DSH agents service, only same-process sessions can be woken; when off the tool is invisible to the model)',
   'panel.config.promptsEnabled': 'Prompt manager',
   'panel.config.promptsEnabled.hint': 'Enable the Prompts tab: a prompt library (user-written paradigms + built-in examples) plus an injection track (once / N consecutive turns / every M turns — count and cadence accept any integers; injected content is visible to the model next turn, expires automatically by turn counting, and can be stopped anytime; quick inject works without saving a prompt first, auto-saved to the Temp category). Off by default; when off the snapshot section, event listener and API are fully uninstalled and the tab hides after refresh',
+  'panel.config.modelsEnabled': 'Model config',
+  'panel.config.modelsEnabled.hint': 'Enable the "Model Config" tab + de_models tool: a table of DSH providers/models with per-model settings (enabled, note, thinking support, allowed/recommended reasoning levels, custom levels); de_models lets the AI query the available model list. **Off by default** (registering takes a slot in the model tool list; turn it on when needed). ⚠️ These settings **only affect this plugin and never modify or affect DSH\'s own model settings** (DSH side stays as the official "Settings → Models" says). When off the tab and tool hide and the API refuses access, settings data is kept',
+  'panel.config.uiSettingsEnabled': 'DSH UI Settings',
+  'panel.config.uiSettingsEnabled.hint': 'Enable the "DSH UI Settings" module: a filter bar appears above the left session list, showing only active sessions by default (generating / awaiting approval / awaiting answer / subagents running / error / finished-but-unviewed — purely idle ones collapse away), one click switches back to all; pure client-side styling (CSS + DOM injection, no DSH framework changes); the filter preference is remembered in the browser. **Off by default**; when off, the filter bar and injected styles are fully removed',
   'panel.config.save': 'Save config',
   'panel.reveal.title': 'Open files',
   'panel.reveal.help': 'Open the memory directories and files with your system tools. ⚠️ Careless edits can break the §-delimited format and corrupt memory reads — edit with caution.',
@@ -1189,6 +1289,21 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: prompt stylesheet')
 
+  // DSH UI 设置样式（ui- 前缀，独立注入）。样式本身无副作用：过滤规则
+  // 依赖 html[data-dsh-ui-filter] 属性（session-filter.ts 激活后才设置），
+  // 无属性时不生效——因此样式常驻注入（与其他模块样式同款），真正的开关
+  // 控制在下方：探测 /api/ui-settings/state 成功才激活筛选与注册 Tab。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-ui-settings-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.uiSettingsCss = '1'
+    tag.textContent = uiSettingsStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: ui-settings stylesheet')
+
   // 会话页三个核心 tab：记忆 / 技能 / 待办（conversation.view，依次排列）。
   // 每个 label 携带各自的待确认红点计数（记忆=记忆建议数、技能=技能建议数、
   // 待办=待办建议数），badge 变化时重新注册触发 label 重求值。
@@ -1244,8 +1359,10 @@ export function apply(ctx: Context): void {
       }, (props) => SettingsTabView({ ...props, t })))
   }
   // 模型配置 Tab（order 23，紧挨待办之后）：表格展示 DSH 供应商/模型 +
-  // 每模型启用/备注/可用思考等级配置（de_models 工具的 Web 数据面）。
-  // 常驻无开关无红点，注册一次即可。
+  // 每模型启用/备注/思考等级配置（de_models 工具的 Web 数据面）。
+  // 与其他模块同款独立开关 modelsEnabled（默认开）：开关在「设置」Tab 的
+  // 「配置」里切换，开启后刷新页面出现；关闭时 Tab 完全不可见（host 的
+  // /api/models 路由在模块关闭时返回"未启用"）。
   let disposeModelsTab: (() => void) | undefined
   const registerModelsTab = (): void => {
     disposeModelsTab?.()
@@ -1257,7 +1374,6 @@ export function apply(ctx: Context): void {
         label: () => t('modelsTab.label'),
       }, (props) => ModelsTabView({ ...props, t })))
   }
-  registerModelsTab()
   const pollBadge = (): void => {
     // 三个 tab 未注册前不轮询（registerMemoryTab 是探测成功的标志）。
     if (tabCancelled || disposeMemoryTab === undefined) return
@@ -1285,7 +1401,12 @@ export function apply(ctx: Context): void {
 
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-    .then((data: { config?: { memoryTabEnabled?: boolean; scratchEnabled?: boolean } }) => {
+    .then((data: { config?: { memoryTabEnabled?: boolean; scratchEnabled?: boolean; modelsEnabled?: boolean } }) => {
+      // 模型配置 tab：跟随 modelsEnabled 运行时开关（默认开，与其他模块
+      // 同款独立开关，在「设置」Tab 的「配置」里切换；开启后刷新页面出现）。
+      if (!tabCancelled && data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
+        registerModelsTab()
+      }
       // 临时信息 tab：受 scratchEnabled 运行时开关控制（默认关闭，与
       // COI/提示词一致）。开关在「Memory Evolve 设置」Tab 的「配置」里切换，
       // 开启后刷新页面即出现；关闭时 Tab 完全不可见（host 的
@@ -1334,6 +1455,12 @@ export function apply(ctx: Context): void {
     scratchCancelled = true
     disposeScratchTab?.()
   }, 'memory-evolve: scratch tab')
+
+  // 模型配置 Tab 的清理（注册本身在 /api/config 探测成功后进行——
+  // 与其他模块同款独立开关 modelsEnabled）。
+  ctx.effect(() => () => {
+    disposeModelsTab?.()
+  }, 'memory-evolve: models tab')
 
   // COI 调度 Tab（conversation.view 第二个 slot）：探测 host 端 COI API
   // 存在才注册（coiEnabled=false 时 API 404，Tab 自动隐藏）。label 带红点
@@ -1444,6 +1571,42 @@ export function apply(ctx: Context): void {
     broadcastTabCancelled = true
     disposeBroadcastTab?.()
   }, 'memory-evolve: broadcast tab')
+
+  // DSH UI 设置模块（dsh-ui-settings）：**独立子模块**。探测宿主端
+  // /api/ui-settings/state（uiSettingsEnabled 开关，默认关）——成功才：
+  //   1. 激活左侧会话列表「仅显示进行中」筛选（session-filter.ts：注入
+  //      筛选条 + MutationObserver 保活 + localStorage 偏好，默认只显示
+  //      进行中的会话）；
+  //   2. 注册「DSH UI 设置」Tab（conversation.view，模块说明界面）。
+  // 模块关闭（端点 404）时全部不注入；清理 effect 一并卸载。
+  let uiSettingsCancelled = false
+  let disposeUiSettingsTab: (() => void) | undefined
+  let disposeSessionFilter: (() => void) | undefined
+  void fetch('/memory-evolve/api/ui-settings/state')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then((data: { enabled?: boolean }) => {
+      if (uiSettingsCancelled || data.enabled !== true) return
+      // 1. 激活会话筛选（全局 DOM 增强，不依赖任何 Tab 打开）。
+      disposeSessionFilter = activateSessionFilter({
+        barTitle: t('uiSettingsTab.guide.filter.body'),
+        on: t('uiSettings.filter.on'),
+        off: t('uiSettings.filter.off'),
+      })
+      // 2. 注册「DSH UI 设置」Tab。
+      disposeUiSettingsTab = ctx.slots.inject('conversation.view', () =>
+        ctx.slots.register({
+          name: 'conversation.view',
+          id: 'ui-settings-hub',
+          order: 46,
+          label: () => t('uiSettingsTab.label'),
+        }, (props) => UiSettingsTabView({ ...props, t })))
+    })
+    .catch(() => { /* DSH UI 设置未启用：不注入任何东西 */ })
+  ctx.effect(() => () => {
+    uiSettingsCancelled = true
+    disposeUiSettingsTab?.()
+    disposeSessionFilter?.()
+  }, 'memory-evolve: ui-settings tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
   // API 探测注册（prompts 模块为插件常驻能力，无独立开关）。label 带红点

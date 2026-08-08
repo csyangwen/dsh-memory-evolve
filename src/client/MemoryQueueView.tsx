@@ -84,6 +84,8 @@ interface RuntimeConfig {
   sessionEnabled: boolean
   scratchEnabled: boolean
   promptsEnabled: boolean
+  modelsEnabled: boolean
+  uiSettingsEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -216,6 +218,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       sessionEnabled: draft.sessionEnabled,
       scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
+      modelsEnabled: draft.modelsEnabled,
+      uiSettingsEnabled: draft.uiSettingsEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -304,6 +308,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               </span>
             </div>
             <div className="me-guide-row">
+              <span className="me-guide-icon">🧩</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.models.title')}</strong>
+                <span>{t('panel.guide.models.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
               <span className="me-guide-icon">📨</span>
               <span className="me-guide-body">
                 <strong>{t('panel.guide.broadcast.title')}</strong>
@@ -322,6 +333,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.sessionOrch.title')}</strong>
                 <span>{t('panel.guide.sessionOrch.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🎨</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.uiSettings.title')}</strong>
+                <span>{t('panel.guide.uiSettings.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -674,6 +692,30 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.promptsEnabled}
                     onChange={(event) => patchDraft({ promptsEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.modelsEnabled')}
+                    <em className="me-field-hint">{t('panel.config.modelsEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.modelsEnabled}
+                    onChange={(event) => patchDraft({ modelsEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.uiSettingsEnabled')}
+                    <em className="me-field-hint">{t('panel.config.uiSettingsEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.uiSettingsEnabled}
+                    onChange={(event) => patchDraft({ uiSettingsEnabled: event.target.checked })}
                   />
                 </label>
               </div>
