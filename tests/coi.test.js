@@ -1365,10 +1365,14 @@ test('broadcast rooms: create/join/leave/list/remove + 伪接收者可见性', (
   assert.equal(rooms.get(rid).members.length, 1)
   assert.equal(rooms.leave(rid, 'A').ok, true)
   assert.equal(rooms.get(rid), undefined, '最后一个成员退出后房间删除')
-  // remove：仅创建者可删
+  // dissolve：仅创建者可解散（软删除：记录保留 status=dissolved 供追溯）
   const r2 = rooms.create({ name: '组2', createdBy: 'A' })
-  assert.equal(rooms.remove(r2.room.id, 'B').ok, false, '非创建者不能删房间')
-  assert.equal(rooms.remove(r2.room.id, 'A').ok, true)
+  assert.equal(rooms.dissolve(r2.room.id, 'B').ok, false, '非创建者不能解散')
+  assert.equal(rooms.dissolve(r2.room.id, 'A').ok, true)
+  const dissolved = rooms.get(r2.room.id)
+  assert.equal(dissolved.status, 'dissolved', '软删除：记录保留带状态')
+  assert.ok(dissolved.dissolvedAt > 0, '记录解散时间')
+  assert.equal(rooms.join(r2.room.id, 'C').ok, false, '已解散房间拒绝加入')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1466,6 +1470,11 @@ test('broadcast snapshot block: 房间成员与项目内会话的未读清单注
   assert.ok(blockB.includes('msg-p'), '同目录注入项目消息')
   assert.ok(blockB.includes('msg-d'), '直接接收者注入')
   assert.ok(blockB.includes('未读消息 3 条'))
+  // from/to 可读标注：发件人 + 消息类型（私信/房间名/项目路径）
+  assert.ok(blockB.includes('来自 sessA'), '标注发件人')
+  assert.ok(blockB.includes('房间：审核组'), '房间消息标注群名')
+  assert.ok(blockB.includes('项目：/workA'), '项目消息标注路径')
+  assert.ok(blockB.includes('（私信）'), '直接消息标注私信')
   // 非成员且跨目录 sessC：只看到直接接收者？sessC 无任何关系 → null
   assert.equal(buildBroadcastBlock(config, 'sessC', '/workB'), null, '无关会话无感知')
   // 房间非成员但同目录 sessD：只看到项目消息
@@ -1505,4 +1514,200 @@ test('broadcast prune: 30 天无活动房间自动删除（连同其消息）', 
   broadcast.prune()
   assert.equal(broadcast.rooms.get(fresh.room.id) !== undefined, true, '活跃房间保留')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------------ 在线状态
+
+test('presence tracker: agent/status 维护在线状态 + 工具查询', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  // fake ctx：捕获 agent/status 监听器，手动触发
+  let statusListener = null
+  const fakeCtxPresence = {
+    on: (name, fn) => { if (name === 'agent/status') statusListener = fn; return () => {} },
+    effect: (fn) => { fn(); return () => {} },
+  }
+  const { PresenceTracker } = await import('../lib/coi/presence.js')
+  const tracker = new PresenceTracker(fakeCtxPresence)
+  // 初始 unknown：未记录 = 不在线
+  assert.deepEqual(tracker.get('sA').status, 'unknown')
+  assert.equal(tracker.get('sA').online, false)
+  // 触发 running → 在线（DSH 事件为单对象 payload { agent, status }）
+  statusListener({ agent: { session: { id: 'sA' } }, status: 'running' })
+  assert.equal(tracker.get('sA').status, 'running')
+  assert.equal(tracker.get('sA').online, true)
+  assert.ok(tracker.get('sA').lastActiveAt > 0)
+  // 触发 idle → 结束回合 = 不在线（不应傻等）
+  statusListener({ agent: { session: { id: 'sA' } }, status: 'idle' })
+  assert.equal(tracker.get('sA').online, false, 'idle=等用户驱动，视为不在线')
+  // 工具 presence：房间成员查询 + 单个查询
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast, tracker)
+  const execA = { agent: { session: { id: 'sA', header: { cwd: '/p' } } } }
+  const created = await msgTool.execute({ action: 'room-create', name: '协作组' }, execA)
+  await msgTool.execute({ action: 'room-join', roomId: created.rooms[0].id }, { agent: { session: { id: 'sB' } } })
+  statusListener({ agent: { session: { id: 'sB' } }, status: 'running' })
+  const roomPresence = await msgTool.execute({ action: 'presence', roomId: created.rooms[0].id }, execA)
+  assert.equal(roomPresence.ok, true)
+  assert.equal(roomPresence.presence.length, 2)
+  assert.equal(roomPresence.presence.find((p) => p.sessionId === 'sB').online, true)
+  assert.equal(roomPresence.presence.find((p) => p.sessionId === 'sA').online, false, 'A 已 idle 不在线')
+  const single = await msgTool.execute({ action: 'presence', sessionId: 'sB' }, execA)
+  assert.equal(single.presence[0].online, true)
+  assert.equal((await msgTool.execute({ action: 'presence', roomId: 'room-nope' }, execA)).ok, false)
+  // 不带 tracker：presence 报不可用
+  const msgToolNoPresence = messageToolDefinition(broadcast)
+  const noP = await msgToolNoPresence.execute({ action: 'presence', roomId: created.rooms[0].id }, execA)
+  assert.equal(noP.ok, false)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('presence tracker: lastActiveAt 落盘持久化（模拟重启后保留，不退化 unknown）', async () => {
+  const dir = tempDir()
+  // 第一段生命周期：捕获 agent/status 监听器，触发事件后 dispose（flush 落盘）
+  let statusListener = null
+  const fakeCtx1 = {
+    on: (name, fn) => { if (name === 'agent/status') statusListener = fn; return () => {} },
+    effect: (fn) => { fn(); return () => {} },
+  }
+  const { PresenceTracker } = await import('../lib/coi/presence.js')
+  const tracker1 = new PresenceTracker(fakeCtx1, dir)
+  statusListener({ agent: { session: { id: 'sA' } }, status: 'running' })
+  statusListener({ agent: { session: { id: 'sB' } }, status: 'idle' })
+  tracker1.dispose() // 强制写盘
+  // 断言 presence.json 已生成且内容正确
+  const saved = JSON.parse(readFileSync(join(dir, 'presence.json'), 'utf8'))
+  assert.equal(saved.sA.status, 'running')
+  assert.ok(saved.sB.lastActiveAt > 0)
+  // 第二段生命周期：同目录新建 tracker = 模拟 dsh 重启
+  const fakeCtx2 = {
+    on: () => () => {},
+    effect: (fn) => { fn(); return () => {} },
+  }
+  const tracker2 = new PresenceTracker(fakeCtx2, dir)
+  assert.equal(tracker2.get('sA').status, 'running', '重启后仍记得 sA 状态')
+  assert.equal(tracker2.get('sA').online, true)
+  assert.equal(tracker2.get('sB').status, 'idle', '重启后仍记得 sB 状态')
+  assert.ok(tracker2.get('sB').lastActiveAt > 0)
+  assert.equal(tracker2.get('never-seen').status, 'unknown', '从未记录的会话保持 unknown')
+  tracker2.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------------ 踢人/解散/管理 API
+
+test('broadcast tools: room-kick 踢人 + 系统通知；room-rm 软删除 + 全员通知', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast)
+  const execA = { agent: { session: { id: 'sA', header: { cwd: '/p' } } } }
+  const execB = { agent: { session: { id: 'sB', header: { cwd: '/p' } } } }
+  const execC = { agent: { session: { id: 'sC', header: { cwd: '/p' } } } }
+  // 建房：A 创建，B、C 加入
+  const created = await msgTool.execute({ action: 'room-create', name: '协作组' }, execA)
+  const rid = created.rooms[0].id
+  await msgTool.execute({ action: 'room-join', roomId: rid }, execB)
+  await msgTool.execute({ action: 'room-join', roomId: rid }, execC)
+  // 房间消息（踢人后断言对被踢者不可见）
+  const roomMsg = await msgTool.execute({ action: 'send', recipients: [rid], content: '协作消息' }, execA)
+  assert.equal(roomMsg.ok, true)
+  // 踢人：非创建者拒绝；创建者踢 B → B 收到系统通知
+  const kickDenied = await msgTool.execute({ action: 'room-kick', roomId: rid, member: 'sC' }, execB)
+  assert.equal(kickDenied.ok, false, '非创建者不能踢人')
+  const kick = await msgTool.execute({ action: 'room-kick', roomId: rid, member: 'sB' }, execA)
+  assert.equal(kick.ok, true)
+  assert.equal(broadcast.rooms.get(rid).members.includes('sB'), false, 'B 已被移出')
+  // 系统通知：sender=system，显式接收者 B；B 的未读可见
+  const notices = broadcast.items.filter((m) => m.sender === 'system')
+  assert.equal(notices.length, 1, '踢人产生系统通知')
+  assert.ok(notices[0].content.includes('你已被移出房间'), '通知内容可感知')
+  assert.deepEqual(notices[0].recipients, ['sB'])
+  assert.equal(broadcast.unreadCount('sB'), 1, '被踢者收到通知（未读）')
+  // 被踢后：房间消息不可见、send 被拒
+  assert.equal(broadcast.send({ sender: 'sB', recipients: [rid], content: '还想说' }).ok, false, '被踢者不能发房间消息')
+  const roomMsgRec = broadcast.items.find((m) => m.recipients.includes('room:' + rid))
+  assert.equal(broadcast.visibleTo(roomMsgRec, 'sB'), false, '被踢者看不到房间消息')
+  // 解散：创建者 room-rm → 软删除 + 全员（C）收到通知
+  const rm = await msgTool.execute({ action: 'room-rm', roomId: rid }, execA)
+  assert.equal(rm.ok, true)
+  const room = broadcast.rooms.get(rid)
+  assert.equal(room.status, 'dissolved', '软删除：记录保留带状态')
+  assert.ok(room.dissolvedAt > 0)
+  const dissolveNotices = broadcast.items.filter((m) => m.sender === 'system' && m.content.includes('已解散'))
+  assert.equal(dissolveNotices.length, 1, '解散产生系统通知')
+  assert.deepEqual(dissolveNotices[0].recipients.sort(), ['sA', 'sC'].sort(), '通知发给解散时全体成员（B 已被踢）')
+  assert.equal(broadcast.send({ sender: 'sC', recipients: [rid], content: 'x' }).ok, false, '已解散房间拒绝发消息')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast api: 消息列表/全文/删除 + 房间列表/在线/踢人/解散（超管）', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const { installBroadcastApi } = await import('../lib/coi/broadcast-api.js')
+  // fake presence：sB 在线
+  const presence = {
+    get: (sid) => ({ sessionId: sid, status: sid === 'sB' ? 'running' : 'idle', online: sid === 'sB', lastActiveAt: Date.now() }),
+    roomStatus: (room) => (room.members ?? []).map((sid) => presence.get(sid)),
+  }
+  const ctx = { httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } } }
+  installBroadcastApi(ctx, { broadcast, presence })
+  const server = createServer((req, res) => ctx.handler(req, res))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${server.address().port}`
+  const request = async (method, path, body) => {
+    const res = await fetch(base + path, {
+      method,
+      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+    const data = await res.json().catch(() => ({}))
+    return { status: res.status, data }
+  }
+  try {
+    // 建房 + 消息（A 建，B 加入；一条房间消息 + 一条私信）
+    const room = broadcast.rooms.create({ name: '管理组', createdBy: 'sA' }).room
+    broadcast.rooms.join(room.id, 'sB')
+    broadcast.send({ sender: 'sA', recipients: [room.id], content: '房间消息' })
+    const dm = broadcast.send({ sender: 'sA', recipients: ['sB'], content: '私信内容' })
+    // 消息列表（超管全量）
+    const list = await request('GET', '/memory-evolve/api/broadcast/messages')
+    assert.equal(list.status, 200)
+    assert.equal(list.data.messages.length, 2)
+    // 全文
+    const full = await request('GET', `/memory-evolve/api/broadcast/messages/${dm.item.id}/content`)
+    assert.ok(full.data.content.includes('私信内容'))
+    // 删除任意消息（超管）
+    const del = await request('DELETE', `/memory-evolve/api/broadcast/messages/${dm.item.id}`)
+    assert.equal(del.data.ok, true)
+    assert.equal((await request('GET', '/memory-evolve/api/broadcast/messages')).data.messages.length, 1)
+    // 房间列表：含状态与在线聚合
+    const rooms = await request('GET', '/memory-evolve/api/broadcast/rooms')
+    assert.equal(rooms.data.rooms.length, 1)
+    assert.equal(rooms.data.rooms[0].onlineCount, 1, 'sB 在线聚合')
+    assert.equal(rooms.data.rooms[0].status, 'active')
+    // 房间在线状态
+    const pres = await request('GET', `/memory-evolve/api/broadcast/rooms/${room.id}/presence`)
+    assert.equal(pres.data.presence.find((p) => p.sessionId === 'sB').online, true)
+    // 踢人（超管，不校验创建者）→ 系统通知
+    const kick = await request('POST', `/memory-evolve/api/broadcast/rooms/${room.id}/kick`, { member: 'sB' })
+    assert.equal(kick.data.ok, true)
+    assert.equal(broadcast.rooms.get(room.id).members.includes('sB'), false)
+    assert.ok(broadcast.items.some((m) => m.sender === 'system' && m.recipients.includes('sB')), '踢人系统通知')
+    // 解散（超管）→ 软删除 + 全员通知
+    const dissolve = await request('POST', `/memory-evolve/api/broadcast/rooms/${room.id}/dissolve`)
+    assert.equal(dissolve.data.ok, true)
+    assert.equal(broadcast.rooms.get(room.id).status, 'dissolved')
+    assert.ok(broadcast.items.some((m) => m.sender === 'system' && m.content.includes('已解散')), '解散系统通知')
+    // 已解散房间仍在列表（追溯）
+    const rooms2 = await request('GET', '/memory-evolve/api/broadcast/rooms')
+    assert.equal(rooms2.data.rooms[0].status, 'dissolved')
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

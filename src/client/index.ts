@@ -24,13 +24,15 @@ import { SkillsTabView } from './SkillsTabView.tsx'
 import { TodosTabView } from './TodosTabView.tsx'
 import { SettingsTabView } from './SettingsTabView.tsx'
 import { CoIView } from './CoIView.tsx'
-import { CopySessionIdButton } from './CopySessionIdButton.tsx'
+import { HeaderActions } from './HeaderActions.tsx'
+import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
 import scratchStyles from './scratch-styles.css'
 import promptStyles from './prompt-styles.css'
+import broadcastStyles from './broadcast-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
 
 /** Locale namespace owned by this plugin. */
@@ -132,9 +134,90 @@ export const zh = {
   'todosTab.label': '待办',
   'todosTab.label.pending': '🔴 待办 ({count})',
   'coiTab.label': 'COI调度',
+  'broadcastTab.label': '会话广播',
+  'broadcast.tab.guide': '指南',
+  'broadcast.tab.messages': '消息',
+  'broadcast.tab.rooms': '房间',
+  'broadcast.guide.intro.title': '会话广播是什么',
+  'broadcast.guide.intro.body': '会话广播 = DSH 会话之间的消息通道：给其他会话发消息（AI 用 de_broadcast send 发送），对方下次生成前快照自动出现「会话广播」提示；消息按收件箱管理——主题 + 简介，全员已读后自动删除。',
+  'broadcast.guide.send.title': '怎么发消息',
+  'broadcast.guide.send.body': '直接对 AI 说「给 XX 会话发广播…」即可（默认一对一，收件人=对方的会话 ID）：',
+  'broadcast.guide.send.item1': '一对一：指定接收方会话 ID（把「复制会话 ID」的结果发给对方，对方 AI 就能给你发）；',
+  'broadcast.guide.send.item2': '房间：多人聊天室，跨工作目录，成员都能看到（发送给 room:<房间id>）；',
+  'broadcast.guide.send.item3': '项目：该工作目录内所有会话可见（发送给 project:/绝对路径）。',
+  'broadcast.guide.inbox.title': '收件箱（消息页）',
+  'broadcast.guide.inbox.body': '消息列表默认只看**未读**的非房间消息（已读自动隐藏；房间消息进对应房间查看）：',
+  'broadcast.guide.inbox.item1': '筛选：未读 / 全部 / 已读；搜索主题、发件人、内容；分页 20 条/页；',
+  'broadcast.guide.inbox.item2': '点「展开全文」看完整内容；红色「删除」= 超管删除（对所有人不可见）；',
+  'broadcast.guide.inbox.item3': '一对一消息全部接收方已读后自动删除（已消费，不占列表）。',
+  'broadcast.guide.room.title': '房间页',
+  'broadcast.guide.room.body': '房间 = 多人协作聊天室：',
+  'broadcast.guide.room.item1': '展开房间看成员在线状态：🟢 running=正在生成（可等它/它回合内可见），⚪ idle/unknown=已结束回合或未记录（不要傻等）；',
+  'broadcast.guide.room.item2': '房间消息与收件箱同款筛选/搜索/分页；创建者可踢人、解散房间（触发系统通知）；',
+  'broadcast.guide.room.item3': '已解散房间保留记录可追溯，成员不能再加入/发消息。',
+  'broadcast.guide.alias.title': '会话别名',
+  'broadcast.guide.alias.body': '给会话设置友好名（≤10 字）——快照、列表、消息里都显示别名（短ID），一眼认出是谁：',
+  'broadcast.guide.alias.item1': '顶部「我的会话」行：复制会话 ID / 复制别名，把结果发给对方就能开聊；',
+  'broadcast.guide.alias.item2': '会话页右上角 ⧉ 复制会话ID / ✎ 别名 按钮也可设置。',
+  'broadcast.guide.switch.title': '开关',
+  'broadcast.guide.switch.body': '会话广播默认关闭：在「设置」Tab 的「配置」里打开「会话广播」开关，刷新后本 Tab 出现。',
+  'broadcast.mySessionId': '我的会话 ID',
+  'broadcast.copyId': '复制',
+  'broadcast.copied': '已复制',
+  'broadcast.loading': '加载中…',
+  'broadcast.refresh': '刷新',
+  'broadcast.messages.empty': '（暂无消息）',
+  'broadcast.messages.sender': '来自',
+  'broadcast.messages.to': '收件人',
+  'broadcast.messages.direct': '私信',
+  'broadcast.messages.room': '房间',
+  'broadcast.messages.project': '项目',
+  'broadcast.messages.unread': '未读',
+  'broadcast.messages.long': '长内容',
+  'broadcast.message.expand': '展开全文',
+  'broadcast.message.collapse': '收起',
+  'broadcast.message.delete': '删除',
+  'broadcast.message.deleteConfirm': '删除这条消息？（超管操作，消息对所有人不可见）\n\n{subject}',
+  'broadcast.message.deleted': '已删除',
+  'broadcast.copyAlias': '复制别名',
+  'broadcast.msg.unread': '未读',
+  'broadcast.msg.read': '已读',
+  'broadcast.filter.unread': '未读',
+  'broadcast.filter.all': '全部',
+  'broadcast.filter.read': '已读',
+  'broadcast.searchPh': '搜索主题/发件人/内容…',
+  'broadcast.pagePrev': '上一页',
+  'broadcast.pageNext': '下一页',
+  'broadcast.pageInfo': '{page}/{total} 页',
+  'broadcast.room.detail': '详情',
+  'broadcast.room.messages': '房间消息',
+  'broadcast.room.messages.empty': '（暂无房间消息）',
+  'broadcast.messages.roomInRooms': '房间消息请在「房间」页进入对应房间查看',
+  'broadcast.rooms.empty': '（暂无房间）',
+  'broadcast.room.status.active': '活跃',
+  'broadcast.room.status.idle': '空闲',
+  'broadcast.room.status.dissolved': '已解散',
+  'broadcast.room.online': '{online}/{total} 在线',
+  'broadcast.room.members': '成员',
+  'broadcast.room.kick': '踢出',
+  'broadcast.room.kickConfirm': '踢出成员 {member}？（将发送系统通知，该会话失去房间访问）',
+  'broadcast.room.dissolve': '解散',
+  'broadcast.room.dissolveConfirm': '解散房间「{name}」？（软删除：记录保留可追溯，成员收到系统通知，之后无法加入/发消息）',
+  'broadcast.room.dissolved': '已解散',
+  'broadcast.room.copyId': '复制房间 id',
+  'broadcast.room.lastActive': '最后活动',
+  'broadcast.room.created': '创建于',
+  'broadcast.room.presence.unknown': 'unknown · 无活动记录',
   'header.copySessionId': '⧉ 复制会话ID',
   'header.copySessionId.done': '✓ 已复制',
   'header.copySessionId.title': '复制当前会话 ID（发给其他会话：告诉对方 AI 你的会话 ID，让它用 de_broadcast 给你发广播）',
+  'header.setAlias': '✎ 别名',
+  'header.setAlias.title': '设置会话别名（≤10 字）——快照/广播面板/消息中显示为你的友好名称',
+  'header.setAlias.placeholder': '输入别名（≤10 字）',
+  'header.setAlias.save': '保存',
+  'header.setAlias.clear': '清除',
+  'header.setAlias.saved': '别名已保存',
+  'header.setAlias.cleared': '别名已清除',
   'scratchTab.label': '临时信息',
   'promptTab.label': '提示词注入',
   'promptTab.label.active': '🔴 提示词注入 ({count})',
@@ -525,9 +608,90 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todosTab.label': 'Todos',
   'todosTab.label.pending': '🔴 Todos ({count})',
   'coiTab.label': 'COI Dispatch',
+  'broadcastTab.label': 'Broadcast',
+  'broadcast.tab.guide': 'Guide',
+  'broadcast.tab.messages': 'Messages',
+  'broadcast.tab.rooms': 'Rooms',
+  'broadcast.guide.intro.title': 'What is Session Broadcast',
+  'broadcast.guide.intro.body': 'Session broadcast = a message channel between DSH sessions: send messages to other sessions (AI sends them via the de_broadcast send tool), and the receiver sees a "Session broadcast" notice in its next snapshot. Messages are managed like an inbox — subject + summary, auto-deleted once every recipient has read them.',
+  'broadcast.guide.send.title': 'How to send',
+  'broadcast.guide.send.body': 'Just tell the AI "broadcast to session XX…" (default is one-to-one; recipient = the other session\'s ID):',
+  'broadcast.guide.send.item1': 'One-to-one: specify the recipient session ID (send your "copy session ID" result to the other side so its AI can reach you);',
+  'broadcast.guide.send.item2': 'Room: multi-member chat room, cross-working-directory, visible to all members (send to room:<roomId>);',
+  'broadcast.guide.send.item3': 'Project: visible to all sessions in that working directory (send to project:/absolute/path).',
+  'broadcast.guide.inbox.title': 'Inbox (Messages tab)',
+  'broadcast.guide.inbox.body': 'The list shows only **unread** non-room messages by default (read ones are hidden; room messages live inside the room):',
+  'broadcast.guide.inbox.item1': 'Filters: unread / all / read; search by subject, sender, content; 20 per page;',
+  'broadcast.guide.inbox.item2': '"Expand" shows the full content; red "Delete" = admin delete (invisible to everyone);',
+  'broadcast.guide.inbox.item3': 'One-to-one messages auto-delete once all recipients have read them (consumed, no clutter).',
+  'broadcast.guide.room.title': 'Rooms tab',
+  'broadcast.guide.room.body': 'Rooms = multi-member collaboration chat rooms:',
+  'broadcast.guide.room.item1': 'Expand a room to see member presence: 🟢 running = generating now (you may wait for it / it sees new messages this turn), ⚪ idle/unknown = turn finished or never seen (don\'t wait);',
+  'broadcast.guide.room.item2': 'Room messages support the same filter/search/pagination; creators can kick members and dissolve rooms (system notice sent);',
+  'broadcast.guide.room.item3': 'Dissolved rooms keep their records for audit; members can no longer join or send.',
+  'broadcast.guide.alias.title': 'Session aliases',
+  'broadcast.guide.alias.body': 'Give a session a friendly name (≤10 chars) — shown in snapshots, lists and messages as alias (short ID):',
+  'broadcast.guide.alias.item1': 'The "My session" row at top: copy session ID / copy alias, share it to start chatting;',
+  'broadcast.guide.alias.item2': 'Or use ⧉ copy session ID / ✎ alias in the session header (top-right).',
+  'broadcast.guide.switch.title': 'Switch',
+  'broadcast.guide.switch.body': 'Session broadcast is off by default: enable the "Session broadcast" toggle under "Config" in the "Settings" tab, then refresh to reveal this tab.',
+  'broadcast.mySessionId': 'My session ID',
+  'broadcast.copyId': 'Copy',
+  'broadcast.copied': 'Copied',
+  'broadcast.loading': 'Loading…',
+  'broadcast.refresh': 'Refresh',
+  'broadcast.messages.empty': '(no messages)',
+  'broadcast.messages.sender': 'From',
+  'broadcast.messages.to': 'To',
+  'broadcast.messages.direct': 'direct',
+  'broadcast.messages.room': 'room',
+  'broadcast.messages.project': 'project',
+  'broadcast.messages.unread': 'unread',
+  'broadcast.messages.long': 'long',
+  'broadcast.message.expand': 'Expand',
+  'broadcast.message.collapse': 'Collapse',
+  'broadcast.message.delete': 'Delete',
+  'broadcast.message.deleteConfirm': 'Delete this message? (admin action, invisible to everyone)\n\n{subject}',
+  'broadcast.message.deleted': 'Deleted',
+  'broadcast.copyAlias': 'Copy alias',
+  'broadcast.msg.unread': 'unread',
+  'broadcast.msg.read': 'read',
+  'broadcast.filter.unread': 'Unread',
+  'broadcast.filter.all': 'All',
+  'broadcast.filter.read': 'Read',
+  'broadcast.searchPh': 'Search subject/sender/content…',
+  'broadcast.pagePrev': 'Prev',
+  'broadcast.pageNext': 'Next',
+  'broadcast.pageInfo': 'Page {page}/{total}',
+  'broadcast.room.detail': 'Details',
+  'broadcast.room.messages': 'Room messages',
+  'broadcast.room.messages.empty': '(no room messages)',
+  'broadcast.messages.roomInRooms': 'Room messages live inside their room — open it from the Rooms view',
+  'broadcast.rooms.empty': '(no rooms)',
+  'broadcast.room.status.active': 'active',
+  'broadcast.room.status.idle': 'idle',
+  'broadcast.room.status.dissolved': 'dissolved',
+  'broadcast.room.online': '{online}/{total} online',
+  'broadcast.room.members': 'Members',
+  'broadcast.room.kick': 'Kick',
+  'broadcast.room.kickConfirm': 'Kick member {member}? (a system notice is sent; the session loses room access)',
+  'broadcast.room.dissolve': 'Dissolve',
+  'broadcast.room.dissolveConfirm': 'Dissolve room "{name}"? (soft delete: record kept for traceability, members get a system notice, no further joins/messages)',
+  'broadcast.room.dissolved': 'dissolved',
+  'broadcast.room.copyId': 'Copy room id',
+  'broadcast.room.lastActive': 'Last active',
+  'broadcast.room.created': 'Created',
+  'broadcast.room.presence.unknown': 'unknown · no activity recorded',
   'header.copySessionId': '⧉ Copy session ID',
   'header.copySessionId.done': '✓ Copied',
   'header.copySessionId.title': 'Copy this session\'s ID (send it to another session: tell its AI your session ID so it can broadcast to you via de_broadcast)',
+  'header.setAlias': '✎ Alias',
+  'header.setAlias.title': 'Set a session alias (≤10 chars) — shown as your friendly name in the snapshot / broadcast panel / messages',
+  'header.setAlias.placeholder': 'alias (≤10 chars)',
+  'header.setAlias.save': 'Save',
+  'header.setAlias.clear': 'Clear',
+  'header.setAlias.saved': 'Alias saved',
+  'header.setAlias.cleared': 'Alias cleared',
   'scratchTab.label': 'Scratch Pad',
   'promptTab.label': 'Prompt Injection',
   'promptTab.label.active': '🔴 Prompt Injection ({count})',
@@ -892,6 +1056,18 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: coi stylesheet')
 
+  // 会话广播样式（bb- 前缀，独立注入）。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-broadcast-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.broadcastCss = '1'
+    tag.textContent = broadcastStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: broadcast stylesheet')
+
   // 临时信息样式（sp- 前缀，独立注入）。
   ctx.effect(() => {
     if (typeof document === 'undefined') return () => {}
@@ -1084,13 +1260,35 @@ export function apply(ctx: Context): void {
           name: 'conversation.session.header.actions',
           id: 'copy-session-id',
           order: 0,
-        }, (props) => CopySessionIdButton({ ...props, t })))
+        }, (props) => HeaderActions({ ...props, t })))
     })
     .catch(() => { /* 广播未启用：复制按钮保持隐藏 */ })
   ctx.effect(() => () => {
     broadcastCancelled = true
     disposeCopyId?.()
   }, 'memory-evolve: broadcast copy-id button')
+
+  // 会话广播管理 Tab（conversation.view）：跟随 broadcastEnabled——探测
+  // /memory-evolve/api/broadcast 存在才注册（未启用时 API 404，Tab 隐藏）。
+  let broadcastTabCancelled = false
+  let disposeBroadcastTab: (() => void) | undefined
+  void fetch('/memory-evolve/api/broadcast/messages')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(() => {
+      if (broadcastTabCancelled) return
+      disposeBroadcastTab = ctx.slots.inject('conversation.view', () =>
+        ctx.slots.register({
+          name: 'conversation.view',
+          id: 'broadcast-hub',
+          order: 32,
+          label: () => t('broadcastTab.label'),
+        }, (props) => BroadcastView({ ...props, t })))
+    })
+    .catch(() => { /* 广播未启用：Tab 保持隐藏 */ })
+  ctx.effect(() => () => {
+    broadcastTabCancelled = true
+    disposeBroadcastTab?.()
+  }, 'memory-evolve: broadcast tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
   // API 探测注册（prompts 模块为插件常驻能力，无独立开关）。label 带红点

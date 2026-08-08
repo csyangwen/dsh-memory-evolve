@@ -176,6 +176,11 @@ CLI 任务完成后，其**结果摘要（输出尾部 1KB）**会自动注入�
 - **房间（room，聊天室）**：多会话协作群聊——`room-create`（创建者自动入房）→ 告诉其他人房间 id → `room-join` 加入 → `send` 时 recipients 传房间 id（`room-xxx` 或 `room:<id>` 均可）→ **所有成员同时收到**（快照定点注入）；`room-leave` 退出（最后一人退出自动删房）、`room-list` 查我所在的房间、`room-rm` 解散（仅创建者）。**成员=会话 ID 数组，与工作目录无关——天然跨工作目录协作**；发送者须是成员；房间消息是共享讨论，read 不自动删（保留回看）。**自动清理**：房间 30 天无活动（无人发消息/加入）自动删除，连同其消息（每日 prune 执行；活跃房间发消息/加人即刷新计时）
 - **项目群（project:<路径>）**：recipients 传 `project:/绝对路径` → 该目录内所有会话可见（按会话 cwd 匹配，跨目录不可见；公告语义，read 不自动删）
 - **默认一对一**：AI 只按用户明确要求使用房间/项目群（工具描述约束，防误扩散）
+- **在线状态（presence）**：`de_broadcast presence`——roomId 列出房间成员谁在线（running=正在生成，发消息它回合内可见）/ 谁已结束回合（idle=等用户驱动，相当于离线，**不要傻等**）；sessionId 查单个；返回 lastActiveAt 供判断多久没动（数据来自 agent/status 事件监听；**最近活动时间持久化**到 `broadcast/presence.json`，dsh 重启后保留；unknown=从未在本进程活跃过）
+- **系统通知（可感知操作）**：踢人（`room-kick`，创建者）/ 解散（`room-rm`，创建者）都会向受影响成员发**系统通知**（sender=system，快照/面板显示「来自 系统」）——被踢者/成员 read 即知情，操作不会无声发生
+- **软删除（可追溯）**：解散 = 标记 status=dissolved（记录保留 30 天供面板追溯），已解散房间拒绝加入/发消息；管理面板可查看已解散房间及其历史
+- **管理面板 Tab「会话广播」**（用户超管视角，跟随 broadcastEnabled）：消息收件箱（全部消息/全文/删除任意消息）+ 房间列表（成员在线 🟢/⚪、活跃/空闲/已解散、最后活动）+ 踢人/解散按钮（发系统通知）+ 我的会话 ID 复制；管理 API `/memory-evolve/api/broadcast/*`
+- **会话别名（友好名称）**：会话头部「✎ 别名」按钮设置（≤10 字）——快照「你的会话」段注入别名行（AI 知道自己的友好名称），广播面板/快照/工具显示**别名优先**（`别名（短ID）`，完整 ID 悬停可见；无别名回退短 ID）；存储 `<memoryDir>/aliases.json`（全局属性，不随模块开关），API `/memory-evolve/api/aliases`
 - **长内容**：超 8KB 自动写入 `broadcast/broadcasts/<id>.txt`，read 时返回全文
 - **清理**：30 天自动过期（启动 + 每日定时 prune）
 - **存储**：`<memoryDir>/broadcast/broadcast.json`（消息）+ `rooms.json`（房间成员表）（独立目录，配置项 `broadcastDataDir`）；**独立开关 `broadcastEnabled`**（默认关，记忆 Tab 运行时配置「会话广播」）——**不依赖 COI 调度开关**，可单独开启；开启 = de_broadcast 工具 + 会话头部复制会话 ID 按钮 + 快照「会话广播」段

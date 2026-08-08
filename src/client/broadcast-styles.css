@@ -1,0 +1,476 @@
+/* 会话广播管理 Tab（bb- 前缀，独立注入；广播模块独立样式）。
+   全部颜色走 --dsw-alias-*/--dsw-static-* token，跟随明暗主题。
+   子 Tab 直接复用全局 mt-file-tabs / mt-file-tab / mt-file-tab-active
+   （与记忆/待办/技能等 Tab 的子 Tab 零差异），此处不再定义。 */
+
+/* ---------- 根面板 ---------- */
+
+.bb-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 20px;
+  font-family: var(--dsw-font-family, inherit);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.bb-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------- 会话 ID 行（位于子 Tab 下方） ---------- */
+
+.bb-session-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+
+.bb-session-label {
+  color: var(--dsw-alias-label-secondary);
+  flex: none;
+}
+
+.bb-session-line code,
+.bb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ---------- 列表与卡片 ---------- */
+
+.bb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bb-card:hover {
+  border-color: var(--dsw-alias-border-l, rgba(128, 128, 128, 0.4));
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+}
+
+/* 展开中的房间卡片：略抬升层次 */
+.bb-card-open {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+}
+
+.bb-card-dissolved {
+  opacity: 0.78;
+}
+
+.bb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bb-strong {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.bb-muted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bb-small {
+  font-size: 12px;
+}
+
+/* 房间元信息行（id / 创建时间 / 复制） */
+.bb-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 分区小标题（成员 / 房间消息） */
+.bb-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  margin-bottom: 2px;
+}
+
+.bb-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--dsw-alias-state-business-primary, var(--dsw-alias-label-secondary));
+  background: var(--dsw-alias-state-business-tertiary, var(--dsw-alias-interactive-bg-hover));
+}
+
+/* ---------- 徽标 ---------- */
+
+.bb-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 8px;
+  border-radius: 9px;
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  white-space: nowrap;
+}
+
+.bb-badge-long {
+  color: var(--dsw-static-amber-5, #f59e0b);
+  background: color-mix(in srgb, var(--dsw-static-amber-5, #f59e0b) 14%, transparent);
+}
+
+.bb-badge-unread {
+  color: var(--dsw-static-red-900, #c53030);
+  background: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 12%, transparent);
+}
+
+.bb-badge-read {
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.bb-badge-online {
+  color: var(--dsw-alias-state-success-primary, #2f9e44);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #2f9e44) 14%, transparent);
+}
+
+.bb-badge-dissolved {
+  color: var(--dsw-alias-state-error-primary, #e5484d);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #e5484d) 12%, transparent);
+}
+
+/* ---------- 在线状态点 ---------- */
+
+.bb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.bb-dot-on {
+  background: var(--dsw-alias-state-success-primary, #2f9e44);
+  color: var(--dsw-alias-state-success-primary, #2f9e44);
+}
+
+.bb-dot-idle {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.5));
+  color: var(--dsw-alias-label-tertiary);
+  box-shadow: none;
+}
+
+.bb-dot-off {
+  background: var(--dsw-alias-state-error-primary, #e5484d);
+  color: var(--dsw-alias-state-error-primary, #e5484d);
+}
+
+/* ---------- 消息全文 ---------- */
+
+.bb-content {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ---------- 成员列表 ---------- */
+
+.bb-members {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+}
+
+.bb-member {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+
+.bb-member:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ---------- 按钮 ---------- */
+
+.bb-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.35));
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.bb-btn:hover:not(:disabled) {
+  border-color: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.6));
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.bb-btn:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+}
+
+.bb-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bb-btn:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+  outline-offset: 1px;
+}
+
+.bb-btn-mini {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+/* 房间详情主操作：正常尺寸，易点 */
+.bb-btn-detail {
+  font-size: 12px;
+  padding: 6px 12px;
+  font-weight: 500;
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 40%, transparent);
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
+}
+
+.bb-btn-detail:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.bb-btn-primary {
+  border-color: var(--dsw-alias-state-accent-primary, #4c8dff);
+  color: var(--dsw-alias-state-accent-primary, #4c8dff);
+}
+
+/* 危险按钮：**实底红 + 白字**（用户反馈浅红底/红字在暗色主题下看不清；
+   实底保证任何主题下都醒目），hover 加深 */
+.bb-btn-danger {
+  color: #fff;
+  border-color: var(--dsw-static-red-900, #c53030);
+  background: var(--dsw-static-red-900, #c53030);
+}
+
+.bb-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 82%, #000);
+  border-color: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 82%, #000);
+  color: #fff;
+}
+
+/* ---------- 筛选芯片（消息/房间消息工具栏；非主 Tab） ---------- */
+
+.bb-chip {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.bb-chip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.bb-chip-active {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  font-weight: 500;
+}
+
+.bb-chip-active:hover {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
+}
+
+/* ---------- 工具栏（筛选 + 搜索）与分页 ---------- */
+
+.bb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.bb-search {
+  flex: 1 1 160px;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.bb-search::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bb-search:hover {
+  border-color: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.5));
+}
+
+.bb-search:focus {
+  border-color: var(--dsw-alias-state-accent-primary, #4c8dff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-accent-primary, #4c8dff) 18%, transparent);
+}
+
+.bb-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+/* ---------- 空状态 ---------- */
+
+.bb-empty {
+  margin: 0;
+  padding: 22px 14px;
+  border: 1px dashed var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent);
+}
+
+.bb-empty-sm {
+  padding: 14px 10px;
+}
+
+.bb-hint {
+  margin-top: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+/* ---------- 房间消息区块（展开后，实线卡片层次，告别虚线框） ---------- */
+
+.bb-room-msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* 房间消息内的卡片略降级，避免与外层房间卡双重阴影过重 */
+.bb-room-msgs .bb-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.bb-room-msgs .bb-card:hover {
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+}
+
+/* ---------- 通知 / 错误 ---------- */
+
+.bb-notice {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.bb-notice-ok {
+  color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-tertiary);
+  border: 1px solid var(--dsw-alias-state-success-primary);
+}
+
+.bb-notice-error {
+  color: var(--dsw-static-red-900, #c53030);
+  background: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 10%, transparent);
+  border: 1px solid var(--dsw-alias-state-error-secondary);
+}
+
+.bb-error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-static-red-900, #c53030);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 8%, transparent);
+  border: 1px solid var(--dsw-alias-state-error-secondary, color-mix(in srgb, var(--dsw-static-red-900, #c53030) 35%, transparent));
+}

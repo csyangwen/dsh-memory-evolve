@@ -1446,3 +1446,37 @@
   border-color: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.6));
   color: var(--dsw-alias-label-primary, inherit);
 }
+
+/* 会话别名按钮（header actions，复制会话 ID 按钮旁）：内联编辑区 */
+.me-alias-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.me-alias-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.me-alias-input {
+  width: 110px;
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.35));
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.me-alias-input:focus {
+  border-color: var(--dsw-alias-state-accent-primary, #4c8dff);
+}
+
+.me-alias-notice {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
