@@ -81,6 +81,7 @@ interface RuntimeConfig {
   coiEnabled: boolean
   broadcastEnabled: boolean
   sessionSearchEnabled: boolean
+  sessionEnabled: boolean
   scratchEnabled: boolean
   promptsEnabled: boolean
 }
@@ -212,6 +213,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       coiEnabled: draft.coiEnabled,
       broadcastEnabled: draft.broadcastEnabled,
       sessionSearchEnabled: draft.sessionSearchEnabled,
+      sessionEnabled: draft.sessionEnabled,
       scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
     }
@@ -313,6 +315,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.session.title')}</strong>
                 <span>{t('panel.guide.session.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🧭</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.sessionOrch.title')}</strong>
+                <span>{t('panel.guide.sessionOrch.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -617,6 +626,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.broadcastEnabled}
                     onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.sessionEnabled')}
+                    <em className="me-field-hint">{t('panel.config.sessionEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.sessionEnabled}
+                    onChange={(event) => patchDraft({ sessionEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">

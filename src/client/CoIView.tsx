@@ -887,6 +887,8 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
       setTemplateId('')
       setRefTaskId('')
       void loadTasks()
+      // 通知宿主层重查 COI Tab 红点（新任务立即可见，不等 30s 轮询）。
+      window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
     } catch (err) {
       setNotice({ kind: 'error', text: errText(err) })
     } finally {

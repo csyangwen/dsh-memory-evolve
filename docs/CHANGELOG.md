@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-08-09 — 会话编排迭代修复（实测排坑）
+
+### 🎯 实测中发现并修复（产品经理协作实跑）
+- **status 无返回**：live 分支返回缺 `message` 字段 → render 输出空字符串（表现为"查询没有返回"）——补 message 文案 + render 兜底（status 结果始终渲染 🟢/⚪/⚫ 状态行）
+- **新会话无工作目录**：spawn 不传 cwd 时新会话落默认工作区、不在发起会话项目里——**cwd 默认继承发起会话**（header.cwd），显式 cwd 优先；spawn 记录留档 cwd
+- **新会话缺模型**：spawn 继承发起会话 provider/model（曾 {{model}} 无值回合失败）；**wake 用会话自己的模型配置**（log 里最后的 provider/model，含 webUI 改过的——resume 不传 agentOptions，天然用它自己的）
+- **README 同步**：插件简介、30 秒了解、特性列表补齐「会话编排」；协作纪律（不自动唤醒、人类最终拍板）写清
+- **测试**：继承（cwd/model）、render 兜底断言、记录留档；全量 219/219 通过
+
+---
+
+## 2026-08-09 — 会话编排模块（de_session）：AI 程序化创建/唤醒会话
+
+### 🎯 新能力（用户协作痛点：手动开 5 个会话太麻烦）
+- **spawn**：程序化创建**标准 DSH 会话**（与 GUI 手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管）——`prompt` = 完整提示词（角色/任务自由组合的长文本，**不需要单独角色提示词**），创建后立即自动开跑（等价替用户发消息）；可选 `cwd` / `roomId`（加入广播房间，松耦合桥接：广播未启用只提示不阻断）/ `model`
+- **wake**：唤醒已有会话——`sessionId` + 提示词，等价替用户发消息，对方 AI 自动醒来处理（忙则排队）；进程重启后自动 resume 再唤醒；跨实例/不存在明确报错
+- **status / list**：running / idle / offline 状态查询 + spawn 记录追溯（谁建的/任务/房间/时间）
+- **独立子模块**（用户拍板纪律）：独立开关 `sessionEnabled`（默认关）+ 独立存储目录 `sessionDataDir`（`<memoryDir>/session-orch`）+ 独立装配 `installSession`；与广播仅 `getBroadcastStore` 桥接；模块卸载只清理自己 spawn 的 agent，用户会话不受影响
+- **边界**：仅同进程会话可唤醒；唤醒 = 替用户发消息（GUI 可见可审计）
+- **测试**：新增 tests/session-orch.test.js 6 项（store 落盘/spawn 派发/wake live+resume+失败/status/list/卸载清理）；全量 219/219 通过；de_session schema 过 DSH assertSupportedJsonSchema 校验
+
+---
+
 ## 2026-08-09 — 会话广播收件箱 UI + 指南 + presence 持久化
 
 ### 🎯 管理面板迭代（用户反馈驱动）

@@ -134,6 +134,7 @@ export const zh = {
   'todosTab.label': '待办',
   'todosTab.label.pending': '🔴 待办 ({count})',
   'coiTab.label': 'COI调度',
+  'coiTab.label.pending': '🔴 COI调度 ({count})',
   'broadcastTab.label': '会话广播',
   'broadcast.tab.guide': '指南',
   'broadcast.tab.messages': '消息',
@@ -441,6 +442,8 @@ export const zh = {
   'panel.guide.broadcast.desc': 'DSH 会话之间传递消息：先复制本会话 ID（会话头部「⧉ 复制会话ID」按钮），把 ID 发给另一个会话，让它的 AI 用 de_broadcast send 把内容广播给你（recipients 可同时填多个会话 ID，默认一对一）——接收方快照**定点注入**未读提示（收件箱式列出 id+主题+发送者+时间，只有接收者看得到，其他会话无感知），AI 用 list/read 查看全文处理（显式接收者 read 即消费、全员已读自动删除；房间/项目消息保留 30 天供回看）；超过 8KB 的内容自动落文件。**房间（聊天室）**：多会话协作（可跨工作目录）——建群（room-create，创建者自动入房）→ 把房间 id 告诉其他会话（粘贴或广播）→ 对方 room-join 加入 → 之后说"发到群里"全员同时收到；room-leave 退出、room-rm 解散（仅创建者）、room-list 查群；房间 30 天无活动自动删除。**项目群**：recipients 填 project:/路径 发给整个目录（按 cwd 匹配）。**开关**：独立「会话广播」（broadcastEnabled，默认关，可单独开启，与 COI 调度无关）。另：快照最前面有**常驻「你的会话 ID」段**（不随任何开关）——AI 用它比对各模块消息里的 session id 判断收发方，回复广播时把 ID 告知对方。',
   'panel.guide.session.title': '会话搜索（de_session_search）',
   'panel.guide.session.desc': '让 AI 搜索**其他 AI 工具的历史会话**（当前支持 Codex：`~/.codex/sessions` 与 `archived_sessions` 的明文 JSONL，rg 预筛后毫秒级；DSH 会话暂不支持）——"之前 Codex 里做过 XX"直接问 AI，它按关键词搜出命中会话 + 最强消息摘要（snippet）+ 上下文窗口；大小写不敏感的字面匹配（中英文/标点同一规则），只搜用户/助手消息（工具输出不搜）；可用 cwd 限定项目（Codex 会话记录工作目录），sort/limit/window 控制结果规模；**零常驻状态**——无索引、无缓存，每次调用实时只读扫描，不修改任何会话文件。**开关**：独立「会话搜索」（sessionSearchEnabled，默认关，与 COI 调度/广播无关，可单独开启）。',
+  'panel.guide.sessionOrch.title': '会话编排（de_session）',
+  'panel.guide.sessionOrch.desc': '让 AI **程序化创建/唤醒 DSH 会话**（"会话启动另一个会话"）——spawn：新建**标准会话**（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=**完整提示词**（角色/任务自由组合的长文本，如"你是美工，负责…现在开始执行：…"），创建后立即自动开跑，可选 cwd/加入广播房间（roomId）/覆盖模型（model）；wake：唤醒已有会话（sessionId + 提示词，等价替用户发消息，对方 AI 自动醒来处理，忙则排队；进程重启后自动恢复再唤醒）；status/list：查状态（running=正在生成 / idle=已停止 / offline=不在本进程，附 lastActiveAt 最后活动时间）。**协作纪律**：不会自动唤醒任何会话——由拍板人（如产品经理）**有意识地** list/status 查状态、发现员工停止后主动 wake 派活（避免管理混乱）；**边界**：仅同进程会话可唤醒；唤醒=替用户发消息（对方 GUI 可见全程）。**开关**：独立「会话编排」（sessionEnabled，默认关，与 COI/广播/搜索互不影响，可单独开启）；建议配合「会话广播」房间使用（spawn 带 roomId 自动入房）。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
@@ -501,6 +504,8 @@ export const zh = {
   'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——会话头部「⧉ 复制会话ID」按钮 + 快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响',
   'panel.config.sessionSearchEnabled': '会话搜索',
   'panel.config.sessionSearchEnabled.hint': '启用 de_session_search：让模型搜索本机其他 AI 工具的历史会话（当前支持 Codex：~/.codex/sessions 与 archived_sessions 的明文 JSONL——rg 预筛后毫秒级；DSH 会话暂不支持）。大小写不敏感的字面匹配，只搜用户/助手消息；支持 cwd 项目过滤、relevance/newest/oldest 排序、limit/window 控制规模。**独立子模块**（默认关闭，可单独开启，与 COI 调度/广播无关）；零常驻状态：无索引、无缓存，每次调用实时只读扫描，不修改任何会话文件；关闭时工具对模型完全不可见',
+  'panel.config.sessionEnabled': '会话编排',
+  'panel.config.sessionEnabled.hint': '启用会话编排（de_session）：让 AI **程序化创建/唤醒 DSH 会话**——spawn 新建标准会话（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=完整提示词（角色/任务自由组合的长文本），创建后立即自动开跑，可选 cwd/加入广播房间/覆盖模型；wake 唤醒已有会话（等价替用户发消息，对方 AI 自动醒来处理，进程重启后自动恢复）；status/list 查状态。**独立子模块**（默认关闭；依赖 DSH agents 服务，仅同进程会话可唤醒；关闭时工具对模型不可见）',
   'panel.config.promptsEnabled': '提示词管理器',
   'panel.config.promptsEnabled.hint': '启用「提示词」Tab：提示词库（用户自写范式 + 内置示例）+ 注入轨（一次性/持续 N 轮/每 M 回合一次，次数与间隔可输入任意数字——写入后模型下一轮自动看到，回合递减自动过期，可随时停止；不建提示词也能临时注入，自动入库归入「临时」分类）。默认关闭；关闭时快照段/事件监听/API 全部卸载，Tab 刷新后隐藏',
   'panel.config.save': '保存配置',
@@ -608,6 +613,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todosTab.label': 'Todos',
   'todosTab.label.pending': '🔴 Todos ({count})',
   'coiTab.label': 'COI Dispatch',
+  'coiTab.label.pending': '🔴 COI Dispatch ({count})',
   'broadcastTab.label': 'Broadcast',
   'broadcast.tab.guide': 'Guide',
   'broadcast.tab.messages': 'Messages',
@@ -915,6 +921,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.broadcast.desc': 'Pass messages between DSH sessions: copy this session\'s ID (the "⧉ Copy session ID" button in the session header), send the ID to another session, and let its AI broadcast content back to you via de_broadcast send (recipients can be an array of session IDs; one-to-one by default) — the receiver\'s snapshot gets a targeted unread hint (inbox-style: id + subject + sender + time; visible only to the receiver) and the AI reads/processes it with list/read (explicit-recipient messages are consumed on read and auto-deleted once every recipient read; room/project messages stay 30 days for review); content over 8 KB spills to a file. **Rooms (chat rooms)**: multi-session collaboration (cross-directory) — room-create (creator joins automatically) → share the room id (paste or broadcast) → others room-join → then just say "post to the room" and everyone gets it; room-leave to exit, room-rm to dissolve (creator only), room-list to view; idle rooms are auto-deleted after 30 days. **Project group**: recipients project:/path posts to the whole directory (matched by cwd). **Switch**: independent "Session broadcast" (broadcastEnabled, off by default, can be enabled alone — unrelated to COI dispatch). Also, the snapshot always leads with a persistent "Your session ID" section (regardless of any switch) — the AI uses it to tell who is who in message sender/recipients and shares its ID when replying to a broadcast.',
   'panel.guide.session.title': 'Session search (de_session_search)',
   'panel.guide.session.desc': 'Lets the AI search historical sessions of other local AI tools (Codex for now: plain JSONL under ~/.codex/sessions and archived_sessions — rg prefilter keeps it millisecond-fast; DSH sessions not supported yet) — just ask "did Codex do X before" and the AI finds matching sessions with the strongest message snippet and a context window; case-insensitive literal matching over user/assistant messages only (tool output excluded); cwd filters by project (Codex sessions record their working directory), sort/limit/window control result scale; **zero resident state** — no index, no cache, every call scans read-only in real time and never modifies session files. **Switch**: independent "Session search" (sessionSearchEnabled, off by default, unrelated to COI dispatch/broadcast, can be enabled alone).',
+  'panel.guide.sessionOrch.title': 'Session orchestration (de_session)',
+  'panel.guide.sessionOrch.desc': 'Lets the AI **programmatically create/wake DSH sessions** ("a session starts another session") — spawn: creates a **standard session** (identical to one opened manually: system prompt/tools/memory snapshot/persistence; appears in the left session list and can be taken over), prompt = the **full instruction text** (role/task freely composed, e.g. "You are the designer… now execute: …"), it starts running immediately; optional cwd / join a broadcast room (roomId) / model override (model); wake: wakes an existing session (sessionId + prompt, equivalent to sending a message on its behalf — its AI wakes up and processes it; queues while busy; auto-resumed after process restart); status/list: inspect state (running = generating / idle = stopped / offline = not in this process, with lastActiveAt). **Collaboration discipline**: nothing auto-wakes sessions — the decision-maker (e.g. a PM session) **deliberately** runs list/status and actively wakes stopped workers (avoids management chaos); **boundary**: only same-process sessions can be woken; waking = sending a message on their behalf (fully visible in their GUI). **Switch**: independent "Session orchestration" (sessionEnabled, off by default, unrelated to COI/broadcast/search, can be enabled alone); pairs well with "Session broadcast" rooms (spawn with roomId joins automatically).',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
@@ -975,6 +983,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "⧉ Copy session ID" button in the session header + the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup). **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected',
   'panel.config.sessionSearchEnabled': 'Session search',
   'panel.config.sessionSearchEnabled.hint': 'Enable de_session_search: lets the model search historical sessions of other local AI tools (Codex for now: plain JSONL under ~/.codex/sessions and archived_sessions — rg prefilter keeps it millisecond-fast; DSH sessions not supported yet). Case-insensitive literal matching over user/assistant messages only; supports cwd project filter, relevance/newest/oldest sorting, and limit/window result control. **Independent submodule** (off by default, can be enabled alone — unrelated to COI dispatch/broadcast); zero resident state: no index, no cache, every call scans read-only in real time and never modifies session files; when off the tool is completely invisible to the model',
+  'panel.config.sessionEnabled': 'Session orchestration',
+  'panel.config.sessionEnabled.hint': 'Enable session orchestration (de_session): lets AI **programmatically create/wake DSH sessions** — spawn creates a standard session (identical to one opened manually: system prompt/tools/memory snapshot/persistence, appears in the left session list and can be taken over), prompt = the full instruction text (role/task freely composed), it starts running immediately; optional cwd / join a broadcast room / model override; wake wakes an existing session (equivalent to sending a message on its behalf — its AI wakes up and processes it, auto-resumed after process restart); status/list inspect state. **Independent submodule** (off by default; depends on the DSH agents service, only same-process sessions can be woken; when off the tool is invisible to the model)',
   'panel.config.promptsEnabled': 'Prompt manager',
   'panel.config.promptsEnabled.hint': 'Enable the Prompts tab: a prompt library (user-written paradigms + built-in examples) plus an injection track (once / N consecutive turns / every M turns — count and cadence accept any integers; injected content is visible to the model next turn, expires automatically by turn counting, and can be stopped anytime; quick inject works without saving a prompt first, auto-saved to the Temp category). Off by default; when off the snapshot section, event listener and API are fully uninstalled and the tab hides after refresh',
   'panel.config.save': 'Save config',
@@ -1224,20 +1234,61 @@ export function apply(ctx: Context): void {
   }, 'memory-evolve: scratch tab')
 
   // COI 调度 Tab（conversation.view 第二个 slot）：探测 host 端 COI API
-  // 存在才注册（coiEnabled=false 时 API 404，Tab 自动隐藏）。
+  // 存在才注册（coiEnabled=false 时 API 404，Tab 自动隐藏）。label 带红点
+  // 计数：有运行中/排队中任务（按当前会话可见性）时显示「🔴 COI调度 (N)」
+  // ——30s 轮询任务列表 + 监听 badge-change 事件（派发任务后即时刷新）；
+  // 计数变化时重新注册触发 label 重求值（与记忆/技能/待办 Tab 同机制）。
   let coiCancelled = false
   let disposeCoiTab: (() => void) | undefined
+  let coiRunningCount = 0
+  /** 当前会话 id：由 COI Tab 渲染时缓存（任务可见性按会话过滤的依据）。 */
+  let currentCoiSessionId: string | undefined
+
+  const registerCoiTab = (): void => {
+    disposeCoiTab?.()
+    disposeCoiTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'coi-hub',
+        order: 30,
+        label: () => (coiRunningCount > 0 ? t('coiTab.label.pending', { count: coiRunningCount }) : t('coiTab.label')),
+      }, (props) => {
+        currentCoiSessionId = (props as { sessionId?: string }).sessionId
+        return CoIView({ ...props, t })
+      }))
+  }
+
+  const pollCoiRunning = (): void => {
+    if (coiCancelled || disposeCoiTab === undefined) return
+    // 带会话视角查询（与任务列表同规则：temporary/session=本会话、project=本
+    // 工作区、global=全显）；limit 放宽到 200，运行中任务不可能超此量。
+    const q = currentCoiSessionId !== undefined
+      ? `?limit=200&sessionId=${encodeURIComponent(currentCoiSessionId)}`
+      : '?limit=200'
+    void fetch(`/memory-evolve/api/coi/tasks${q}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data: { tasks?: Array<{ status?: string }> }) => {
+        const running = (data.tasks ?? []).filter((t) => t.status === 'running' || t.status === 'queued').length
+        if (running !== coiRunningCount) {
+          coiRunningCount = running
+          registerCoiTab()
+        }
+      })
+      .catch(() => { /* 红点是尽力而为；Tab 本身不受影响 */ })
+  }
+
   void fetch('/memory-evolve/api/coi/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then(() => {
       if (coiCancelled) return
-      disposeCoiTab = ctx.slots.inject('conversation.view', () =>
-        ctx.slots.register({
-          name: 'conversation.view',
-          id: 'coi-hub',
-          order: 30,
-          label: () => t('coiTab.label'),
-        }, (props) => CoIView({ ...props, t })))
+      registerCoiTab()
+      pollCoiRunning()
+      const coiTimer = setInterval(pollCoiRunning, BADGE_POLL_MS)
+      ctx.effect(() => () => clearInterval(coiTimer), 'memory-evolve: coi tab badge poller')
+      // 派发任务/任务状态变化后（CoIView 触发 badge-change）立即重查红点。
+      const onCoiBadgeChange = (): void => pollCoiRunning()
+      window.addEventListener('dsh-memory-evolve:badge-change', onCoiBadgeChange)
+      ctx.effect(() => () => window.removeEventListener('dsh-memory-evolve:badge-change', onCoiBadgeChange), 'memory-evolve: coi tab badge listener')
     })
     .catch(() => { /* COI 未启用：Tab 保持隐藏 */ })
   ctx.effect(() => () => {
