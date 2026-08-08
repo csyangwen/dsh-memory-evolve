@@ -22,6 +22,22 @@
 
 ---
 
+## 2026-08-09 — 本地文件搜索：内容检索修复（候选全量枚举）+ 四档模式（用户拍板）
+
+### 内容检索 bug 修复（用户实测暴露）
+- 症状：`镇江陆军军事学院.md`（UTF-8、内容含关键词、文件名/元数据正常）文件名模式能搜到、内容检索找不到；
+- 根因：内容模式候选被 `CONTENT_CANDIDATE_CAP=500` 按 mtime 截断——全盘 md 10613 个，目标文件排在 500 名外**永远扫不到**；
+- 修复（`lib/search-docs.js`）：`finalize` 支持 `limit=Infinity`（内容模式**枚举全量候选**，防御上限 `CONTENT_ENUM_CAP=20000`，不按 mtime 截断）；rg 批次 80→200 + 并发 6（全盘 1 万文件内容检索 1.2s）；
+- 验证：10612 候选 230ms + 命中目标文件；新增防回归测试（600 候选 + 最旧目标命中，断言 provider 收到 Infinity）。
+
+### 四档模式（用户拍板：内容检索可能用别人的实现）
+- `searchDocsMode`：`all`=文件名+内容 / `filename`=仅文件名（content/contentQuery 忽略，不读任何文件内容）/ `content`=仅内容（query 视为内容关键词，文件名过滤停用）/ `off`=工具不注册；
+- 工具 description 随 mode 动态生成（controller 在 mode 切换时重注册）；三级解析：运行时 mode → 配置 mode → 旧布尔开关兼容推断（`searchDocsEnabled` 保留兼容）；
+- 配置 UI：checkbox → 四档 select（「配置」区，即时生效）；设置 Tab 指南与 README 同步更新；
+- 测试 +3（filename 忽略内容参数 / content 强制内容检索 / controller 注册与重注册），全量 **276/276 全绿** + 构建成功。
+
+---
+
 ## 2026-08-09 — 本地文件搜索扩展：内容检索（RAG 轻量版）
 
 ### 需求（用户拍板）
