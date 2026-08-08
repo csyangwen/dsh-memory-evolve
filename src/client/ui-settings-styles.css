@@ -89,3 +89,20 @@ html[data-dsh-ui-wide-bubble="on"] [data-time-hover-root] > div:first-of-type {
   color: var(--dsw-alias-brand-primary, inherit);
   font-weight: 600;
 }
+
+/* ── 折叠工作区行的运行徽标（session-filter.ts 注入的 DOM）────────────
+ * 折叠的分组行上看不到会话运行状态，徽标「● N 运行中」补上这个信息；
+ * 行是 flex 布局，徽标追加在行尾自然靠右。状态色用业务主色 token
+ * （--dsw-alias-state-business-primary，深浅主题自动适配）。 */
+.dsh-ui-ws-run-badge {
+  align-self: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-secondary, rgba(64, 128, 255, 0.16));
+  color: var(--dsw-alias-state-business-primary, #3b82f6);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  flex: none;
+}

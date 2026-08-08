@@ -1,5 +1,5 @@
 /**
- * dsh-memory-evolve — 左侧会话列表「仅显示进行中」筛选注入。
+ * dsh-memory-evolve — 左侧会话列表「仅显示进行中」筛选 + 运行状态提示注入。
  *
  * 纯客户端 DOM 增强（不改 DSH 框架源码）。原理（调研文档
  * docs/DSH-UI设置模块-调研-20260809.md）：
@@ -27,7 +27,13 @@
  *      功能开关事件驱动；
  *   5. **运行计数**（用户拍板）：「仅进行中」按钮文字带括号实时显示当前
  *      正在执行的会话数（如「仅进行中 (3)」）——不管筛选选没选中都显示；
- *      rAF 节流 + 复用 MutationObserver，会话开始/结束运行即时刷新。
+ *   6. **折叠工作区运行徽标**（用户拍板）：工作区折叠后看不到里面会话的
+ *      运行状态，在折叠的分组行上注入「● N 运行中」徽标。
+ *
+ * **数据源**：运行计数与徽标数据来自宿主端 GET /api/ui-settings/running
+ * （agents.roots 状态 + workspace.sessionIds 归属，5 秒轮询）——折叠的
+ * 工作区分组不渲染会话行（tree.ts：sessions: expanded ? ... : []），DOM
+ * 计数会漏，必须宿主端精确统计。
  */
 
 /** 筛选条容器 id（保活查重用）。 */
@@ -36,8 +42,17 @@ export const FILTER_BAR_ID = 'dsh-ui-filter-bar'
 /** localStorage 偏好键。 */
 const PREF_KEY = 'dsh-memory-evolve:ui-settings:filter'
 
+/** 运行快照轮询间隔（ms）。 */
+const RUNNING_POLL_MS = 5000
+
 /** 筛选状态：on=仅显示进行中（默认） / off=显示全部。 */
 export type FilterMode = 'on' | 'off'
+
+/** 宿主端运行快照（GET /api/ui-settings/running）。 */
+export interface RunningSnapshot {
+  total: number
+  groups: Array<{ title: string | null; workspaceId: string | null; running: number }>
+}
 
 /** 已翻译文案（由调用方经 t() 取得，zh/en 跟随界面语言）。 */
 export interface SessionFilterTexts {
@@ -47,6 +62,10 @@ export interface SessionFilterTexts {
   on: string
   /** 「全部」按钮文案。 */
   off: string
+  /** 折叠行运行徽标模板（{count} 运行中）。 */
+  runningLabel: string
+  /** 未分组（ungrouped）工作区行的显示名（行标题匹配用）。 */
+  ungroupedLabel: string
 }
 
 /** 读取筛选条模式偏好；无记录 → 'on'（功能开启后默认只显示进行中）。 */
@@ -73,6 +92,19 @@ function applyToDocument(mode: FilterMode): void {
   else delete root.dataset.dshUiFilter
 }
 
+/** 拉取宿主端运行快照；失败返回空（界面按 0 处理，不影响使用）。 */
+async function fetchRunning(): Promise<RunningSnapshot> {
+  try {
+    const res = await fetch('/memory-evolve/api/ui-settings/running', { cache: 'no-store' })
+    if (!res.ok) return { total: 0, groups: [] }
+    const data = await res.json() as RunningSnapshot
+    if (!Array.isArray(data.groups)) return { total: data.total ?? 0, groups: [] }
+    return { total: data.total ?? 0, groups: data.groups }
+  } catch {
+    return { total: 0, groups: [] }
+  }
+}
+
 /**
  * 创建会话筛选控制器（模块启用时调用一次）。
  *
@@ -89,24 +121,15 @@ export function createSessionFilter(texts: SessionFilterTexts): {
   let enabled = false // 功能开关（「综合」子 tab），默认由 index.ts 同步
   let disposed = false
   let observer: MutationObserver | null = null
+  let pollTimer: ReturnType<typeof setInterval> | null = null
   let countRaf = 0 // rAF 句柄（计数更新节流）
-
-  /** 统计当前「正在执行」的会话数：会话行内存在 ongoing 状态点（正在
-   *  生成或子代理在跑；StateDot data-state 属性，与过滤规则同源锚点）。
-   *  DOM 计数只覆盖已渲染的会话行（折叠分组不渲染）——轻量够用。 */
-  const countRunning = (): number => {
-    try {
-      return document.querySelectorAll(
-        '[role="tree"] div[role="treeitem"][aria-selected]:has([data-state="ongoing"])',
-      ).length
-    } catch {
-      return 0
-    }
-  }
+  /** 最近一次运行快照（缓存：observer 保活重注入徽标时直接用，不重复 fetch）。 */
+  let snapshot: RunningSnapshot = { total: 0, groups: [] }
 
   /** 更新「仅进行中」按钮文字：`仅进行中 (N)`——不管筛选选没选中都显示
-   *  当前正在执行的会话数（用户拍板：对用户友好的实时提示）。rAF 节流：
-   *  聊天流高频 mutation 时合并到下一帧只算一次。 */
+   *  当前正在执行的会话数（用户拍板：对用户友好的实时提示）。N 来自宿主
+   *  端快照 total（含折叠组，比 DOM 计数准确）。rAF 节流：高频 mutation
+   *  合并到下一帧只算一次。 */
   const updateCount = (): void => {
     if (disposed || !enabled) return
     if (countRaf !== 0) return
@@ -117,8 +140,62 @@ export function createSessionFilter(texts: SessionFilterTexts): {
       const button = document.getElementById(FILTER_BAR_ID)
         ?.querySelector<HTMLButtonElement>('.dsh-ui-filter-btn[data-mode="on"]')
       if (button == null) return
-      const n = countRunning()
-      button.textContent = `${texts.on} (${n})`
+      button.textContent = `${texts.on} (${snapshot.total})`
+    })
+  }
+
+  /**
+   * 折叠工作区行的运行徽标维护（数据 = snapshot.groups）：
+   * - 行匹配：工作区行文本以其标题开头（workspace title 全局唯一，行文本
+   *   = 标题 + 会话数，取最长匹配防前缀串味）；未分组行以 ungroupedLabel
+   *   开头匹配（title=null 的组）；
+   * - 折叠行（aria-expanded="false"）且该组 running>0 → 注入/更新
+   *   「● N 运行中」徽标；否则移除已注入徽标（展开行不注入——会话行
+   *   可见，无需冗余提示）。
+   * React 重渲染会清掉徽标（行重建），observer 保活时重注入。
+   */
+  const ensureBadges = (): void => {
+    if (disposed || !enabled) return
+    const rows = document.querySelectorAll<HTMLElement>('div[role="treeitem"][aria-expanded]')
+    for (const row of rows) {
+      const collapsed = row.getAttribute('aria-expanded') === 'false'
+      // 行文本匹配组（最长 title 命中，防 "a" 误配 "ab" 行）。
+      const text = row.textContent ?? ''
+      let matched: RunningSnapshot['groups'][number] | null = null
+      let bestLen = -1
+      for (const group of snapshot.groups) {
+        const prefix = group.title ?? texts.ungroupedLabel
+        if (prefix !== '' && text.startsWith(prefix) && prefix.length > bestLen) {
+          matched = group
+          bestLen = prefix.length
+        }
+      }
+      const need = collapsed && matched !== null && matched.running > 0
+      const badge = row.querySelector<HTMLElement>('.dsh-ui-ws-run-badge')
+      if (need) {
+        const label = texts.runningLabel.replace('{count}', String(matched!.running))
+        if (badge !== null) {
+          if (badge.textContent !== label) badge.textContent = label
+        } else {
+          const el = document.createElement('span')
+          el.className = 'dsh-ui-ws-run-badge'
+          el.textContent = label
+          row.appendChild(el)
+        }
+      } else if (badge !== null) {
+        badge.remove()
+      }
+    }
+  }
+
+  /** 刷新数据 + 界面（轮询与功能开启时调用）。 */
+  const refresh = (): void => {
+    if (disposed || !enabled) return
+    void fetchRunning().then((next) => {
+      if (disposed || !enabled) return
+      snapshot = next
+      updateCount()
+      ensureBadges()
     })
   }
 
@@ -153,7 +230,6 @@ export function createSessionFilter(texts: SessionFilterTexts): {
       return button
     }
 
-    // 先建「全部」按钮（其后的计数更新通过 querySelector 定位，顺序无关）。
     bar.appendChild(mkButton('on', texts.on))
     bar.appendChild(mkButton('off', texts.off))
     return bar
@@ -171,13 +247,15 @@ export function createSessionFilter(texts: SessionFilterTexts): {
     const tree = document.querySelector<HTMLElement>('[role="tree"]')
     if (tree === null || tree.parentNode === null) return
     tree.parentNode.insertBefore(buildBar(), tree)
-    // 新建后立即刷一次计数（避免等到下一次 DOM 变化）。
+    // 新建后立即刷一次计数（避免等到下一次 DOM 变化/轮询）。
     updateCount()
   }
 
-  /** 启动保活观察（body childList+subtree；回调先 O(1) 存在性检查）。
-   *  任何 DOM 变化同时触发计数刷新（rAF 节流）——会话开始/结束运行、
-   *  状态点出现/消失都会反映到按钮括号里。 */
+  /**
+   * 启动保活观察（body childList+subtree；回调先 O(1) 存在性检查）。
+   * 任何 DOM 变化：筛选条缺失 → 重建；徽标被 React 重渲染清掉 → 用缓存
+   * 快照重注入（不重复 fetch）。数据刷新由轮询负责。
+   */
   const startObserver = (): void => {
     if (observer !== null || disposed) return
     observer = new MutationObserver(() => {
@@ -186,9 +264,15 @@ export function createSessionFilter(texts: SessionFilterTexts): {
         ensureBar()
         return
       }
-      updateCount()
+      ensureBadges()
     })
     observer.observe(document.body, { childList: true, subtree: true })
+  }
+
+  /** 启动运行快照轮询（5s；会话状态变化秒级感知足够）。 */
+  const startPolling = (): void => {
+    if (pollTimer !== null || disposed) return
+    pollTimer = setInterval(refresh, RUNNING_POLL_MS)
   }
 
   return {
@@ -200,11 +284,22 @@ export function createSessionFilter(texts: SessionFilterTexts): {
         applyToDocument(mode)
         ensureBar()
         startObserver()
+        startPolling()
+        refresh() // 立即拉一次数据（计数 + 徽标）
       } else {
-        // 停用：摘掉过滤属性与筛选条（观察停止，下次开启时重新建立）。
+        // 停用：摘掉过滤属性、筛选条、徽标，停观察与轮询。
+        if (countRaf !== 0) {
+          cancelAnimationFrame(countRaf)
+          countRaf = 0
+        }
+        if (pollTimer !== null) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
         observer?.disconnect()
         observer = null
         document.getElementById(FILTER_BAR_ID)?.remove()
+        document.querySelectorAll('.dsh-ui-ws-run-badge').forEach((el) => el.remove())
         delete document.documentElement.dataset.dshUiFilter
       }
     },
@@ -214,9 +309,14 @@ export function createSessionFilter(texts: SessionFilterTexts): {
         cancelAnimationFrame(countRaf)
         countRaf = 0
       }
+      if (pollTimer !== null) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
       observer?.disconnect()
       observer = null
       document.getElementById(FILTER_BAR_ID)?.remove()
+      document.querySelectorAll('.dsh-ui-ws-run-badge').forEach((el) => el.remove())
       delete document.documentElement.dataset.dshUiFilter
     },
   }
