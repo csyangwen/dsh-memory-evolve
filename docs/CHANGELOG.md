@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-08 — 会话广播房间/项目群（聊天室 + 自动清理）
+
+### 🎯 新能力：多会话协作群聊
+- **房间（room，聊天室）**：`de_broadcast` 新增 `room-create` / `room-join` / `room-leave` / `room-list` / `room-rm`（解散，仅创建者）——房间 = { id, name, members: [会话ID...] }（`rooms.json`），**成员=会话 ID 数组与工作目录无关，天然跨工作目录协作**；`send` 的 recipients 可传房间 id（`room-xxx` 裸 id 或 `room:<id>` 均宽容识别）→ **所有成员同时收到**（快照定点注入）；发送者须是成员；最后一人退出自动删房
+- **项目群（project:<路径> 伪接收者）**：`send recipients: ['project:/绝对路径']` → 该目录内所有会话可见（按会话 cwd 匹配，跨目录不可见，公告语义）
+- **默认一对一**：工具描述约束"仅用户明确要求时用房间/项目群，不擅自扩大发送范围"（防 AI 误扩散）
+- **语义区分**：显式接收者消息保持"全员已读自动删除"（read 即消费）；房间/项目消息是共享讨论——read 只清未读、**保留 30 天供回看**（list 已读也显示，unread 标记区分）
+- **自动清理**：房间 `lastActiveAt`（发消息/加入即刷新），**30 天无活动自动删除连同其消息**（每日 prune + 启动时）
+- **可见性全链路**：快照未读清单 / list / read / delete 均按"直接接收者 / 房间成员 / 项目 cwd"过滤，非成员/跨目录完全无感知
+- **Grok 审查修复**：P0 room 输出剥离 `createdBy` 等内部字段（超 schema 会被模型 API 拒）；P1 房间消息已读后保留在列表（回看语义）；schema 经 DSH assertSupportedJsonSchema 校验通过
+- **测试**：41 → 42 项 COI 测试（RoomStore 生命周期 / 伪接收者可见性 / 工具 actions / 快照注入 / prune 房间清理）；全量 206/206
+- **文档**：README（30 秒了解 + 广播章节）、设置 Tab 指南（zh/en）、docs/COI-调度.md §12.5 同步
+
 ## 2026-08-08 — 会话搜索独立模块（de_session_search）
 
 ### 🎯 新能力：搜索其他 AI 工具的历史会话（当前仅 Codex）

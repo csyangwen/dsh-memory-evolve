@@ -1322,3 +1322,187 @@ test('coi tools: de_broadcast send/list/read/delete via session id', async () =>
   assert.deepEqual(toolsPlain.map((t) => t.name), ['de_coi_dispatch', 'de_coi_adapters', 'de_coi_status', 'de_coi_wait', 'de_coi_cancel'])
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ------------------------------------------------------------ 房间与项目群
+
+test('broadcast rooms: create/join/leave/list/remove + 伪接收者可见性', () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const rooms = broadcast.rooms
+  // 创建：创建者自动入房；名字缺省=id
+  const created = rooms.create({ name: '审核组', createdBy: 'A' })
+  assert.equal(created.ok, true)
+  const rid = created.room.id
+  assert.ok(rid.startsWith('room-'))
+  assert.deepEqual(created.room.members, ['A'])
+  // join 幂等 + 非成员校验
+  assert.equal(rooms.join(rid, 'B').ok, true)
+  assert.equal(rooms.join(rid, 'B').ok, true, '重复加入幂等')
+  assert.equal(rooms.join('room-nope', 'B').ok, false, '不存在房间拒绝')
+  assert.equal(rooms.list('B').length, 1, 'B 加入后可见房间')
+  assert.equal(rooms.list('X').length, 0)
+  // 发消息到房间：非成员被拒、成员成功
+  assert.equal(broadcast.send({ sender: 'X', recipients: [`${rid}`], content: '潜入' }).ok, false, '非成员不能发房间消息')
+  const sent = broadcast.send({ sender: 'A', recipients: [rid], content: '开始审核', subject: '同步' })
+  assert.equal(sent.ok, true)
+  const msgId = sent.item.id
+  // 可见性：成员 B 未读可见；非成员 X 不可见（forSession/unreadCount）
+  assert.equal(broadcast.unreadCount('B'), 1, '房间成员看到未读')
+  assert.equal(broadcast.unreadCount('X'), 0, '非成员无感知')
+  assert.equal(broadcast.forSession('B').length, 1)
+  // read：成员可读；房间消息不自动删除（共享语义，30 天清理）
+  const read = broadcast.read(msgId, 'B')
+  assert.equal(read.ok, true)
+  assert.ok(read.item.content.includes('开始审核'))
+  assert.equal(broadcast.items.some((m) => m.id === msgId), true, '房间消息 read 后保留（回看）')
+  assert.equal(broadcast.unreadCount('B'), 0, '已读后未读归零')
+  // remove：房间成员可删（B 可删 A 发的房间消息）
+  assert.equal(broadcast.remove(msgId, 'B').ok, true, '房间成员可删除房间消息')
+  // leave：退出后不可见；最后一个退出房间删除
+  assert.equal(rooms.leave(rid, 'B').ok, true)
+  assert.equal(rooms.get(rid).members.length, 1)
+  assert.equal(rooms.leave(rid, 'A').ok, true)
+  assert.equal(rooms.get(rid), undefined, '最后一个成员退出后房间删除')
+  // remove：仅创建者可删
+  const r2 = rooms.create({ name: '组2', createdBy: 'A' })
+  assert.equal(rooms.remove(r2.room.id, 'B').ok, false, '非创建者不能删房间')
+  assert.equal(rooms.remove(r2.room.id, 'A').ok, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast project:<路径> 伪接收者：同目录会话可见 + 跨目录不可见', () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  // A（/proj1）发给 project:/proj1
+  const sent = broadcast.send({ sender: 'A', recipients: ['project:/proj1'], content: '项目公告', subject: '公告' })
+  assert.equal(sent.ok, true)
+  const msgId = sent.item.id
+  // 同目录会话 B（cwd=/proj1）可见；跨目录 C（cwd=/proj2）不可见
+  assert.equal(broadcast.unreadCount('B', '/proj1'), 1, '同目录会话看到项目消息')
+  assert.equal(broadcast.unreadCount('C', '/proj2'), 0, '跨目录会话无感知')
+  assert.equal(broadcast.unreadCount('B'), 0, '无 cwd 信息时 project 消息不可见')
+  // 发送者视角：留痕可见
+  assert.equal(broadcast.forSession('A', '/proj1').some((m) => m.id === msgId), true, '发送者留痕')
+  // read：同目录可读；跨目录拒绝；不自动删除（公告语义）
+  assert.equal(broadcast.read(msgId, 'C', '/proj2').ok, false, '跨目录不可读')
+  const read = broadcast.read(msgId, 'B', '/proj1')
+  assert.equal(read.ok, true)
+  assert.equal(broadcast.items.some((m) => m.id === msgId), true, 'project 消息 read 后保留（公告）')
+  assert.equal(broadcast.unreadCount('B', '/proj1'), 0)
+  // 显式会话消息仍"全员已读自动删除"（伪接收者不影响旧语义）
+  const direct = broadcast.send({ sender: 'A', recipients: ['D'], content: '一对一' })
+  assert.equal(broadcast.read(direct.item.id, 'D').ok, true)
+  assert.equal(broadcast.items.some((m) => m.id === direct.item.id), false, '显式消息 read 即删不受影响')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast tools: room-create/join/leave/list + send 到房间', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast)
+  const execA = { agent: { session: { id: 'sA', header: { cwd: '/p' } } } }
+  const execB = { agent: { session: { id: 'sB', header: { cwd: '/p' } } } }
+  // A 建房（room 输出必须剥离 createdBy 等内部字段——P0：超 schema 会被模型 API 拒）
+  const created = await msgTool.execute({ action: 'room-create', name: '协作组' }, execA)
+  assert.equal(created.ok, true)
+  assert.equal(created.rooms.length, 1)
+  assert.deepEqual(Object.keys(created.rooms[0]).sort(), ['createdAt', 'id', 'members', 'name'], 'room 输出不含 createdBy 等内部字段')
+  const rid = created.rooms[0].id
+  // B 加入（用户告知 room id）
+  const joined = await msgTool.execute({ action: 'room-join', roomId: rid }, execB)
+  assert.equal(joined.ok, true)
+  // room-list：A/B 都看到
+  const listA = await msgTool.execute({ action: 'room-list' }, execA)
+  assert.equal(listA.rooms.length, 1)
+  assert.equal(listA.rooms[0].members.length, 2)
+  // A 发房间消息 → B 未读
+  const sent = await msgTool.execute({ action: 'send', recipients: [rid], content: '第一条讨论' }, execA)
+  assert.equal(sent.ok, true)
+  const listB = await msgTool.execute({ action: 'list' }, execB)
+  assert.equal(listB.messages.length, 1)
+  assert.equal(listB.messages[0].unread, true)
+  // B 读后未读提示消失；房间消息保留在列表（回看语义，unread=false）
+  const read = await msgTool.execute({ action: 'read', id: listB.messages[0].id }, execB)
+  assert.equal(read.ok, true)
+  const listB2 = await msgTool.execute({ action: 'list' }, execB)
+  assert.equal(listB2.messages.length, 1, '房间消息已读后保留（回看）')
+  assert.equal(listB2.messages[0].unread, false)
+  // 解散权限：非创建者拒绝；创建者 room-rm 解散
+  const rmDenied = await msgTool.execute({ action: 'room-rm', roomId: rid }, execB)
+  assert.equal(rmDenied.ok, false, '非创建者不能解散房间')
+  // B 退出
+  const left = await msgTool.execute({ action: 'room-leave', roomId: rid }, execB)
+  assert.equal(left.ok, true)
+  const listB3 = await msgTool.execute({ action: 'room-list' }, execB)
+  assert.equal(listB3.rooms.length, 0)
+  // 重新建房给 A 测试解散
+  const created2 = await msgTool.execute({ action: 'room-create', name: '待解散' }, execA)
+  const rmOk = await msgTool.execute({ action: 'room-rm', roomId: created2.rooms[0].id }, execA)
+  assert.equal(rmOk.ok, true, '创建者可解散房间')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast snapshot block: 房间成员与项目内会话的未读清单注入', () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const now = Date.now()
+  writeFileSync(join(bdir, 'rooms.json'), JSON.stringify({ 'room-1': { id: 'room-1', name: '审核组', members: ['sessA', 'sessB'], createdAt: now, createdBy: 'sessA' } }))
+  writeFileSync(join(bdir, 'broadcast.json'), JSON.stringify([
+    { id: 'msg-r', sender: 'sessA', recipients: ['room-1'], content: '房间消息', subject: '房间', createdAt: now, readBy: [] },
+    { id: 'msg-p', sender: 'sessA', recipients: ['project:/workA'], content: '项目消息', subject: '项目', createdAt: now, readBy: [] },
+    { id: 'msg-d', sender: 'sessA', recipients: ['sessB'], content: '单聊', subject: '单聊', createdAt: now, readBy: [] },
+  ]))
+  const config = resolveConfig({ memoryDir: dir, broadcastEnabled: true, broadcastDataDir: bdir })
+  // 房间成员 sessB（cwd=/workA）：三条全可见（房间成员 + 项目同目录 + 直接接收者）
+  const blockB = buildBroadcastBlock(config, 'sessB', '/workA')
+  assert.ok(blockB.includes('msg-r'), '房间成员注入房间消息')
+  assert.ok(blockB.includes('msg-p'), '同目录注入项目消息')
+  assert.ok(blockB.includes('msg-d'), '直接接收者注入')
+  assert.ok(blockB.includes('未读消息 3 条'))
+  // 非成员且跨目录 sessC：只看到直接接收者？sessC 无任何关系 → null
+  assert.equal(buildBroadcastBlock(config, 'sessC', '/workB'), null, '无关会话无感知')
+  // 房间非成员但同目录 sessD：只看到项目消息
+  const blockD = buildBroadcastBlock(config, 'sessD', '/workA')
+  assert.ok(blockD !== null)
+  assert.ok(!blockD.includes('msg-r'), '非房间成员看不到房间消息')
+  assert.ok(blockD.includes('msg-p'), '同目录看到项目消息')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast prune: 30 天无活动房间自动删除（连同其消息）', () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  // 建房 + 发消息（房内 2 人）
+  const created = broadcast.rooms.create({ name: '协作组', createdBy: 'A' })
+  broadcast.rooms.join(created.room.id, 'B')
+  const sent = broadcast.send({ sender: 'A', recipients: [created.room.id], content: '第一条' })
+  assert.equal(sent.ok, true)
+  const activeRoomId = created.room.id
+  // 建房但不拉人（空房间）
+  const lonely = broadcast.rooms.create({ name: '废群', createdBy: 'X' })
+  const lonelyRoomId = lonely.room.id
+  // 把两个房间的 lastActiveAt 拨回 31 天前（模拟长期无活动）
+  broadcast.rooms.rooms[activeRoomId].lastActiveAt = Date.now() - 31 * 24 * 3600 * 1000
+  broadcast.rooms.rooms[lonelyRoomId].lastActiveAt = Date.now() - 31 * 24 * 3600 * 1000
+  // prune：两个房间都删除；房间消息一并删除
+  const pruned = broadcast.prune()
+  assert.equal(broadcast.rooms.get(activeRoomId), undefined, '无活动房间删除')
+  assert.equal(broadcast.rooms.get(lonelyRoomId), undefined, '空房间删除')
+  assert.equal(broadcast.items.length, 0, '房间消息一并删除')
+  assert.ok(pruned >= 1, '统计清理数')
+  // 活跃房间（lastActiveAt 近期）不受影响
+  const fresh = broadcast.rooms.create({ name: '活跃', createdBy: 'A' })
+  broadcast.send({ sender: 'A', recipients: [fresh.room.id], content: '新消息' })
+  broadcast.prune()
+  assert.equal(broadcast.rooms.get(fresh.room.id) !== undefined, true, '活跃房间保留')
+  rmSync(dir, { recursive: true, force: true })
+})
