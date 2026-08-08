@@ -35,6 +35,8 @@ interface ReasoningLevel {
 /** 一个模型的思考等级信息（null = adapter 无等级且无自定义）。 */
 interface ModelReasoning {
   recommended?: string
+  /** 用户手动覆盖的推荐等级（undefined = 跟随模型自动推荐）。 */
+  recommendedOverride?: string
   levels: ReasoningLevel[]
 }
 
@@ -46,6 +48,8 @@ interface ModelRow {
   contextWindow?: number
   maxTokens?: number
   enabled: boolean
+  /** 是否支持思考（插件开关，默认 true）。 */
+  thinking: boolean
   note: string
   configured: boolean
   reasoning: ModelReasoning | null
@@ -172,8 +176,15 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
     })
   }, [update, applyLocal])
 
-  /** 保存思考等级白名单 + 自定义列表。 */
-  const saveReasoning = useCallback((provider: string, model: string, enabledIds: string[], custom: { id: string; name: string }[]): void => {
+  /** 保存思考配置：是否支持思考 + 推荐等级（''=自动）+ 等级白名单 + 自定义列表。 */
+  const saveReasoning = useCallback((
+    provider: string,
+    model: string,
+    thinking: boolean,
+    recommended: string,
+    enabledIds: string[],
+    custom: { id: string; name: string }[],
+  ): void => {
     const row = findRow(snapshot, provider, model)
     if (row === null || row.reasoning === null) return
     // 全选 = 未配置（null），与默认语义一致（adapter 等级全部可用）。
@@ -181,12 +192,24 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
     const enabled = enabledIds.length === allIds.length && allIds.every((id) => enabledIds.includes(id))
       ? null
       : enabledIds
-    void update(provider, model, { reasoning: { enabled, custom } }).then((ok) => {
+    void update(provider, model, {
+      thinking,
+      reasoning: {
+        enabled,
+        // '' = 跟随模型自动推荐（null 清除覆盖）。
+        recommended: recommended === '' ? null : recommended,
+        custom,
+      },
+    }).then((ok) => {
       if (ok) {
         setExpanded(undefined)
         applyLocal(provider, model, (r) => {
           const reasoning = r.reasoning
           if (reasoning === null) return
+          r.thinking = thinking
+          reasoning.recommendedOverride = recommended === '' ? undefined : recommended
+          // 手动覆盖优先；自动 = 保持 adapter 默认（本地快照已含）。
+          if (recommended !== '') reasoning.recommended = recommended
           const enabledSet = new Set(enabledIds)
           const customById = new Map(custom.map((c) => [c.id, c]))
           reasoning.levels = [
@@ -281,7 +304,9 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
                     : keyOf(group.provider, row.id))
                 }}
                 onSaveNote={(note) => { saveNote(group.provider, row.id, note) }}
-                onSaveReasoning={(enabledIds, custom) => { saveReasoning(group.provider, row.id, enabledIds, custom) }}
+                onSaveReasoning={(thinking, recommended, enabledIds, custom) => {
+                  saveReasoning(group.provider, row.id, thinking, recommended, enabledIds, custom)
+                }}
               />
             ))}
           </tbody>
@@ -312,12 +337,15 @@ function RowView(props: {
   onToggle: () => void
   onExpand: () => void
   onSaveNote: (note: string) => void
-  onSaveReasoning: (enabledIds: string[], custom: { id: string; name: string }[]) => void
+  onSaveReasoning: (thinking: boolean, recommended: string, enabledIds: string[], custom: { id: string; name: string }[]) => void
 }): JSX.Element {
   const { t, group, row, showReasoning, expanded, saving, onToggle, onExpand, onSaveNote, onSaveReasoning } = props
   // 备注草稿（失焦才提交；展开/刷新不影响输入）。
   const [noteDraft, setNoteDraft] = useState(row.note)
-  // 思考等级编辑草稿：勾选集合 + 自定义列表（打开时从行数据初始化）。
+  // 思考等级编辑草稿：是否支持思考 + 推荐等级（''=自动）+ 勾选集合 + 自定义列表
+  // （打开时从行数据初始化）。
+  const [thinkingDraft, setThinkingDraft] = useState(row.thinking)
+  const [recommendedDraft, setRecommendedDraft] = useState(row.reasoning?.recommendedOverride ?? '')
   const [levelDraft, setLevelDraft] = useState<ReadonlySet<string>>(
     () => new Set((row.reasoning?.levels ?? []).filter((l) => l.enabled).map((l) => l.id)),
   )
@@ -335,6 +363,21 @@ function RowView(props: {
   const levels = row.reasoning?.levels ?? []
   const recommended = row.reasoning?.recommended
   const usable = levels.filter((l) => l.enabled)
+
+  /** 切换「支持思考」：关闭时非 off 等级自动取消勾选（off = 不思考仍可用）。 */
+  const toggleThinking = (next: boolean): void => {
+    setThinkingDraft(next)
+    if (!next) {
+      setLevelDraft((current) => {
+        const filtered = new Set<string>()
+        for (const id of current) {
+          const level = levels.find((l) => l.id === id)
+          if (level !== undefined && level.id === 'off') filtered.add(id)
+        }
+        return filtered
+      })
+    }
+  }
 
   return (
     <tr className={row.enabled ? 'mt-models-row' : 'mt-models-row mt-models-row-muted'}>
@@ -367,28 +410,30 @@ function RowView(props: {
       {showReasoning
         ? (
           <td className="mt-models-cell mt-models-col-reasoning">
-            {levels.length === 0
-              ? <span className="mt-models-muted-cell">—</span>
-              : (
-                <>
-                  <div className="mt-models-levels">
-                    {usable.length === 0
-                      ? <span className="mt-models-level-none">{t('modelsTab.levelsNone')}</span>
-                      : usable.slice(0, 4).map((l) => (
-                        <span
-                          key={l.id}
-                          className={l.id === recommended ? 'mt-models-tag mt-models-tag-rec' : 'mt-models-tag'}
-                        >
-                          {l.name}
-                        </span>
-                      ))}
-                    {usable.length > 4 ? <span className="mt-models-level-more">+{usable.length - 4}</span> : null}
-                  </div>
-                  <button type="button" className="mt-models-link" onClick={onExpand} aria-expanded={expanded}>
-                    {expanded ? t('modelsTab.closeEditor') : t('modelsTab.editLevels')}
-                  </button>
-                </>
-              )}
+            {!row.thinking
+              ? <span className="mt-models-tag mt-models-tag-off">{t('modelsTab.thinkingOff')}</span>
+              : levels.length === 0
+                ? <span className="mt-models-muted-cell">—</span>
+                : (
+                  <>
+                    <div className="mt-models-levels">
+                      {usable.length === 0
+                        ? <span className="mt-models-level-none">{t('modelsTab.levelsNone')}</span>
+                        : usable.slice(0, 4).map((l) => (
+                          <span
+                            key={l.id}
+                            className={l.id === recommended ? 'mt-models-tag mt-models-tag-rec' : 'mt-models-tag'}
+                          >
+                            {l.name}
+                          </span>
+                        ))}
+                      {usable.length > 4 ? <span className="mt-models-level-more">+{usable.length - 4}</span> : null}
+                    </div>
+                    <button type="button" className="mt-models-link" onClick={onExpand} aria-expanded={expanded}>
+                      {expanded ? t('modelsTab.closeEditor') : t('modelsTab.editLevels')}
+                    </button>
+                  </>
+                )}
           </td>
         )
         : null}
@@ -409,13 +454,39 @@ function RowView(props: {
           <td className="mt-models-expanded" colSpan={showReasoning ? 6 : 5}>
             <div className="mt-models-editor">
               <div className="mt-models-editor-title">{t('modelsTab.editorTitle')}</div>
+              {/* 是否支持思考（关闭后仅 off 可用）。 */}
+              <label className="mt-models-editor-level">
+                <input
+                  type="checkbox"
+                  checked={thinkingDraft}
+                  disabled={saving}
+                  onChange={(event) => { toggleThinking(event.target.checked) }}
+                />
+                <span className="mt-models-editor-level-name">{t('modelsTab.thinking')}</span>
+                <span className="mt-models-editor-hint">{t('modelsTab.thinkingHint')}</span>
+              </label>
+              {/* 推荐等级：手动选择（默认自动 = 跟随模型推荐）。 */}
+              <label className="mt-models-editor-level">
+                <span className="mt-models-editor-label">{t('modelsTab.recommendedLevel')}</span>
+                <select
+                  className="mt-models-select"
+                  value={thinkingDraft ? recommendedDraft : ''}
+                  disabled={saving || !thinkingDraft || usable.length === 0}
+                  onChange={(event) => { setRecommendedDraft(event.target.value) }}
+                >
+                  <option value="">{t('modelsTab.recommendedAuto')}</option>
+                  {levels.filter((l) => l.enabled).map((l) => (
+                    <option key={l.id} value={l.id}>{l.name} ({l.id})</option>
+                  ))}
+                </select>
+              </label>
               <div className="mt-models-editor-levels">
                 {levels.map((l) => (
                   <label key={l.id} className="mt-models-editor-level">
                     <input
                       type="checkbox"
                       checked={levelDraft.has(l.id)}
-                      disabled={saving}
+                      disabled={saving || (!thinkingDraft && l.id !== 'off')}
                       onChange={() => {
                         setLevelDraft((current) => {
                           const next = new Set(current)
@@ -426,7 +497,9 @@ function RowView(props: {
                     />
                     <span className="mt-models-editor-level-name">{l.name}</span>
                     <span className="mt-models-editor-level-id">{l.id}</span>
-                    {l.id === recommended ? <span className="mt-models-tag mt-models-tag-rec">{t('modelsTab.recommended')}</span> : null}
+                    {l.id === recommended && thinkingDraft
+                      ? <span className="mt-models-tag mt-models-tag-rec">{t('modelsTab.recommended')}</span>
+                      : null}
                     {l.custom
                       ? (
                         <button
@@ -490,7 +563,7 @@ function RowView(props: {
                   type="button"
                   className="mt-btn"
                   disabled={saving}
-                  onClick={() => { onSaveReasoning([...levelDraft], customDraft) }}
+                  onClick={() => { onSaveReasoning(thinkingDraft, recommendedDraft, [...levelDraft], customDraft) }}
                 >
                   {saving ? t('modelsTab.saving') : t('modelsTab.save')}
                 </button>

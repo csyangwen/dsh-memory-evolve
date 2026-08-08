@@ -1725,3 +1725,40 @@
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* 思考关闭标记（模型配置表格行内）。 */
+.mt-models-tag-off {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+
+/* 推荐等级下拉（思考等级编辑器内）。 */
+.mt-models-select {
+  appearance: none;
+  max-width: 260px;
+  padding: 3px 24px 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  outline: none;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mt-models-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mt-models-editor-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mt-models-editor-hint {
+  font-size: 11px;
+  color: var(--dsw-alias-label-dimmed);
+}
