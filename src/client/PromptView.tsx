@@ -121,12 +121,26 @@ const DICT = {
     neverUsed: '从未注入过',
     rounds: '次数',
     cadence: '间隔',
-    roundsHint: '0 = 无限次',
-    everyHint: '1 = 每回合',
+    roundsHint: '0=无限；1=只注入一次',
+    everyHint: '0=只注入一次；1=每回合；N=每 N 回合一次',
+    onceOnly: '只注入一次',
+    effectOnce: '一次性：下一轮出现一次后自动结束',
+    effectInfinite: '无限次：每回合出现，持续到手动停止',
+    effectInfiniteCadence: '无限次：每 {n} 回合出现一次，持续到手动停止',
+    effectFinite: '共 {n} 次：每回合出现，用尽自动结束',
+    effectFiniteCadence: '共 {n} 次：每 {m} 回合出现一次，用尽自动结束',
     roundsInvalid: '次数必须是 ≥0 的整数（0 = 无限次）',
-    everyInvalid: '间隔必须是 ≥1 的整数',
+    everyInvalid: '间隔必须是 ≥0 的整数（0 = 只注入一次）',
+    // 预设注入按钮（覆盖最常见的两种场景，普通用户无需理解次数×间隔）
+    injectOnceBtn: '注入一次',
+    injectOnceBtnHint: '只注入一次：下一轮出现后自动结束',
+    injectInfiniteBtn: '持续注入',
+    injectInfiniteBtnHint: '每回合出现，直到手动停止',
+    customBtn: '自定义',
+    customBtnHint: '自由设置次数与间隔',
+    collapseCustom: '收起',
     quickTitle: '临时注入',
-    quickDesc: '不建提示词也能注入：直接输入内容点「注入」，会自动存入提示词库（分类留空归入「临时」），一次操作同时入库并生效。',
+    quickDesc: '不建提示词也能注入：直接输入内容点「注入一次」，会自动存入提示词库（分类留空归入「临时」），一次操作同时入库并生效。',
     quickNamePh: '名称（可选，留空取内容首行）',
     quickCategoryPh: '分类（可选，留空归入「临时」）',
     contentRequired: '内容不能为空',
@@ -212,12 +226,27 @@ const DICT = {
     neverUsed: 'Never injected',
     rounds: 'Count',
     cadence: 'Cadence',
-    roundsHint: '0 = unlimited',
-    everyHint: '1 = every turn',
+    roundsHint: '0=unlimited; 1=once only',
+    everyHint: '0=once only; 1=every turn; N=every N turns',
+    onceOnly: 'once only',
+    effectOnce: 'Once: appears next turn, then auto-ends',
+    effectInfinite: 'Unlimited: every turn, until stopped',
+    effectInfiniteCadence: 'Unlimited: once every {n} turns, until stopped',
+    effectFinite: '{n} times: every turn, auto-ends when spent',
+    effectFiniteCadence: '{n} times: once every {m} turns, auto-ends when spent',
     roundsInvalid: 'Count must be an integer ≥ 0 (0 = unlimited)',
-    everyInvalid: 'Cadence must be an integer ≥ 1',
+    everyInvalid: 'Cadence must be an integer ≥ 0 (0 = once only)',
+    // Preset inject buttons (cover the two most common cases; no need to
+    // understand count × cadence for everyday use).
+    injectOnceBtn: 'Inject once',
+    injectOnceBtnHint: 'Once only: appears next turn, then auto-ends',
+    injectInfiniteBtn: 'Keep injecting',
+    injectInfiniteBtnHint: 'Every turn, until stopped',
+    customBtn: 'Custom',
+    customBtnHint: 'Free-form count and cadence',
+    collapseCustom: 'Collapse',
     quickTitle: 'Quick inject',
-    quickDesc: 'Inject without saving a prompt first: type content and hit Inject — it is auto-saved to the library (empty category goes to Temp) in one step.',
+    quickDesc: 'Inject without saving a prompt first: type content and hit "Inject once" — it is auto-saved to the library (empty category goes to Temp) in one step.',
     quickNamePh: 'Name (optional; defaults to first content line)',
     quickCategoryPh: 'Category (optional; empty = Temp)',
     contentRequired: 'Content is required',
@@ -278,7 +307,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 /**
  * 解析注入参数输入框文本 → 合法数字。
  *   rounds：空 = 0（无限）；必须 ≥0 整数。
- *   every：空 = 1（每回合）；必须 ≥1 整数。
+ *   every：空 = 1（每回合）；必须 ≥0 整数（**0 = 只注入一次**，host 端
+ *   会把次数覆盖为 1、出现一次即结束——用户"间隔 0"的直觉语义）。
  * host 端有同样的校验兜底，这里先拦一次给出友好文案。
  * @returns {{rounds: number, every: number}} 解析后的数字。
  */
@@ -286,8 +316,31 @@ function parseInjectNums(roundsText: string, everyText: string, say: (k: keyof t
   const rounds = roundsText.trim() === '' ? 0 : Number(roundsText)
   const every = everyText.trim() === '' ? 1 : Number(everyText)
   if (!Number.isInteger(rounds) || rounds < 0) throw new Error(say('roundsInvalid'))
-  if (!Number.isInteger(every) || every < 1) throw new Error(say('everyInvalid'))
+  if (!Number.isInteger(every) || every < 0) throw new Error(say('everyInvalid'))
   return { rounds, every }
+}
+
+/** 注入效果即时预览：次数 × 间隔 → 实际行为，帮用户理解组合语义。 */
+function EffectHint(props: {
+  roundsText: string
+  everyText: string
+  say: (k: keyof typeof DICT.zh) => string
+}): JSX.Element | null {
+  const r = props.roundsText.trim() === '' ? 0 : Number(props.roundsText)
+  const e = props.everyText.trim() === '' ? 1 : Number(props.everyText)
+  if (!Number.isInteger(r) || r < 0 || !Number.isInteger(e) || e < 0) return null
+  const D = props.say
+  let text: string
+  if (e === 0) {
+    text = D('effectOnce') // 间隔 0 = 一次性（次数被覆盖为 1）
+  } else if (r === 0) {
+    text = e === 1 ? D('effectInfinite') : D('effectInfiniteCadence').replace('{n}', String(e))
+  } else if (r === 1) {
+    text = D('effectOnce')
+  } else {
+    text = e === 1 ? D('effectFinite').replace('{n}', String(r)) : D('effectFiniteCadence').replace('{n}', String(r)).replace('{m}', String(e))
+  }
+  return <div className="pm-effect-hint">{text}</div>
 }
 
 /** 注入次数/间隔数字输入框（type=number，任意整数；hint 展示语义说明）。 */
@@ -343,6 +396,8 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   /** 注入参数输入框文本（自由数字；'' 表示未输入，解析时回默认）。 */
   const [roundsText, setRoundsText] = useState('0') // 默认无限次
   const [everyText, setEveryText] = useState('1') // 默认每回合
+  /** 自定义注入区是否展开（默认收起——普通用户用预设按钮即可）。 */
+  const [customOpen, setCustomOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   /** 分类管理：正在添加新分类（显示输入框）。 */
   const [addingCategory, setAddingCategory] = useState(false)
@@ -490,9 +545,11 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
 
   /** 注入成功后的统一收尾：提示 + 重拉 + 打开注入浮层 + 通知 Tab 红点刷新。 */
   const afterInjected = async (injection: Injection): Promise<void> => {
-    const cadence = (injection.every ?? 1) === 1
-      ? say('everyTurn')
-      : say('injectCadence').replace('{n}', String(injection.every))
+    const cadence = injection.every === 0
+      ? say('onceOnly')
+      : (injection.every ?? 1) === 1
+        ? say('everyTurn')
+        : say('injectCadence').replace('{n}', String(injection.every))
     const times = injection.roundsLeft === null
       ? say('injectInfinite')
       : say('injectRound').replace('{n}', String(injection.roundsLeft))
@@ -505,7 +562,7 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
   }
 
-  /** 注入选中提示词（次数/间隔来自自由数字输入框）。 */
+  /** 注入选中提示词（次数/间隔来自自由数字输入框，自定义区用）。 */
   const injectPrompt = async (): Promise<void> => {
     if (selectedId === null) return
     let nums: { rounds: number; every: number }
@@ -527,14 +584,34 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   }
 
   /**
+   * 预设注入（一键按钮，不读输入框）：覆盖最常见场景——「注入一次」
+   * （rounds=1, every=0，下一轮出现一次即结束）与「持续注入」
+   * （rounds=0, every=1，每回合出现直到手动停止）。普通用户无需理解
+   * 次数×间隔的模型，点按钮即用。
+   */
+  const injectPreset = async (rounds: number, every: number): Promise<void> => {
+    if (selectedId === null) return
+    try {
+      const data = await api<{ injection: Injection }>(
+        `/memory-evolve/api/prompts/${encodeURIComponent(selectedId)}/inject`,
+        { method: 'POST', body: JSON.stringify({ rounds, every }) },
+      )
+      await afterInjected(data.injection)
+    } catch (err) {
+      showError(errText(err))
+    }
+  }
+
+  /**
    * 临时注入（详情栏未选中提示词时）：内容直接注入，一步完成"自动入库 +
    * 注入生效"，解决"必须先把提示词存进库才能注入"的流程问题。
-   *   1. 校验内容非空、参数合法；
+   *   1. 校验内容非空；参数：preset 预设（一键按钮）或输入框解析（自定义区）；
    *   2. POST /prompts 创建（分类留空 → host 自动归入「临时」；名称留空
    *      取内容首行前 20 字，保证注入轨与列表都有可读标题）；
    *   3. POST /:id/inject 注入 → 选中新条目（表单回填，可继续编辑/改名）。
+   * @param {object} [preset] - 预设参数（{rounds, every}）；缺省读输入框。
    */
-  const quickInject = async (): Promise<void> => {
+  const quickInject = async (preset?: { rounds: number; every: number }): Promise<void> => {
     if (busy) return
     const text = content.trim()
     if (!text) {
@@ -542,11 +619,15 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
       return
     }
     let nums: { rounds: number; every: number }
-    try {
-      nums = parseInjectNums(roundsText, everyText, say)
-    } catch (err) {
-      showError(errText(err))
-      return
+    if (preset !== undefined) {
+      nums = preset // 一键按钮：不读输入框
+    } else {
+      try {
+        nums = parseInjectNums(roundsText, everyText, say)
+      } catch (err) {
+        showError(errText(err))
+        return
+      }
     }
     setBusy(true)
     try {
@@ -590,11 +671,13 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   const activeInjectionOf = (promptId: string): Injection | undefined =>
     injections.find((i) => i.sourcePromptId === promptId)
 
-  /** 注入节奏文案（每回合 / 每 N 回合一次）。 */
-  const cadenceLabel = (inj: Injection): string =>
-    (inj.every ?? 1) === 1
+  /** 注入节奏文案（只注入一次 / 每回合 / 每 N 回合一次）。 */
+  const cadenceLabel = (inj: Injection): string => {
+    if (inj.every === 0) return say('onceOnly')
+    return (inj.every ?? 1) === 1
       ? say('everyTurn')
       : say('injectCadence').replace('{n}', String(inj.every))
+  }
 
   /** 剩余次数文案（null = 无限）。 */
   const remainingLabel = (inj: Injection): string =>
@@ -973,27 +1056,65 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   {displayCategories.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </label>
-              <div className="pm-num-row">
-                <NumInput
-                  label={say('rounds')}
-                  hint={say('roundsHint')}
-                  value={roundsText}
-                  min={0}
-                  onChange={setRoundsText}
-                />
-                <NumInput
-                  label={say('cadence')}
-                  hint={say('everyHint')}
-                  value={everyText}
-                  min={1}
-                  onChange={setEveryText}
-                />
-              </div>
+              {/* 预设注入：一键「注入一次」/「持续注入」，普通用户无需理解
+                  次数×间隔；「自定义」展开自由输入区（高级场景） */}
               <div className="pm-actions">
-                <button type="button" className="pm-primary-btn" onClick={() => void quickInject()} disabled={busy}>
-                  {busy ? say('saving') : say('inject')}
+                <button
+                  type="button"
+                  className="pm-primary-btn"
+                  title={say('injectOnceBtnHint')}
+                  onClick={() => void quickInject({ rounds: 1, every: 0 })}
+                  disabled={busy}
+                >
+                  {busy ? say('saving') : say('injectOnceBtn')}
+                </button>
+                <button
+                  type="button"
+                  className="pm-tool-btn"
+                  title={say('injectInfiniteBtnHint')}
+                  onClick={() => void quickInject({ rounds: 0, every: 1 })}
+                  disabled={busy}
+                >
+                  {say('injectInfiniteBtn')}
+                </button>
+                <button
+                  type="button"
+                  className="pm-tool-btn"
+                  title={say('customBtnHint')}
+                  onClick={() => setCustomOpen(!customOpen)}
+                >
+                  {say('customBtn')}
                 </button>
               </div>
+              {customOpen && (
+                <div className="pm-custom-zone">
+                  <div className="pm-num-row">
+                    <NumInput
+                      label={say('rounds')}
+                      hint={say('roundsHint')}
+                      value={roundsText}
+                      min={0}
+                      onChange={setRoundsText}
+                    />
+                    <NumInput
+                      label={say('cadence')}
+                      hint={say('everyHint')}
+                      value={everyText}
+                      min={0}
+                      onChange={setEveryText}
+                    />
+                  </div>
+                  <EffectHint roundsText={roundsText} everyText={everyText} say={say} />
+                  <div className="pm-actions">
+                    <button type="button" className="pm-primary-btn" onClick={() => void quickInject()} disabled={busy}>
+                      {busy ? say('saving') : say('inject')}
+                    </button>
+                    <button type="button" className="pm-tool-btn" onClick={() => setCustomOpen(false)}>
+                      {say('collapseCustom')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {(selected !== null || creating) && (
@@ -1060,25 +1181,59 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   }
                   return (
                     <>
-                      <div className="pm-inject-group">
-                        <NumInput
-                          label={say('rounds')}
-                          hint={say('roundsHint')}
-                          value={roundsText}
-                          min={0}
-                          onChange={setRoundsText}
-                        />
-                        <NumInput
-                          label={say('cadence')}
-                          hint={say('everyHint')}
-                          value={everyText}
-                          min={1}
-                          onChange={setEveryText}
-                        />
-                        <button type="button" className="pm-primary-btn" onClick={() => void injectPrompt()}>
-                          {say('inject')}
-                        </button>
-                      </div>
+                      {/* 预设注入：一键「注入一次」/「持续注入」（最常见的两种
+                          场景）；「自定义」展开次数/间隔自由输入（高级场景） */}
+                      <button
+                        type="button"
+                        className="pm-primary-btn"
+                        title={say('injectOnceBtnHint')}
+                        onClick={() => void injectPreset(1, 0)}
+                      >
+                        {say('injectOnceBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        className="pm-tool-btn"
+                        title={say('injectInfiniteBtnHint')}
+                        onClick={() => void injectPreset(0, 1)}
+                      >
+                        {say('injectInfiniteBtn')}
+                      </button>
+                      <button
+                        type="button"
+                        className="pm-tool-btn"
+                        title={say('customBtnHint')}
+                        onClick={() => setCustomOpen(!customOpen)}
+                      >
+                        {say('customBtn')}
+                      </button>
+                      {customOpen && (
+                        <div className="pm-custom-zone pm-custom-zone-inline">
+                          <div className="pm-inject-group">
+                            <NumInput
+                              label={say('rounds')}
+                              hint={say('roundsHint')}
+                              value={roundsText}
+                              min={0}
+                              onChange={setRoundsText}
+                            />
+                            <NumInput
+                              label={say('cadence')}
+                              hint={say('everyHint')}
+                              value={everyText}
+                              min={0}
+                              onChange={setEveryText}
+                            />
+                            <button type="button" className="pm-primary-btn" onClick={() => void injectPrompt()}>
+                              {say('inject')}
+                            </button>
+                            <button type="button" className="pm-tool-btn" onClick={() => setCustomOpen(false)}>
+                              {say('collapseCustom')}
+                            </button>
+                          </div>
+                          <EffectHint roundsText={roundsText} everyText={everyText} say={say} />
+                        </div>
+                      )}
                       <button type="button" className="pm-tool-btn" onClick={() => void copyPrompt()}>{say('copy')}</button>
                     </>
                   )

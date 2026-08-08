@@ -92,7 +92,10 @@ test('InjectionStore: rounds 计数、间隔注入、重复来源与级联清理
     assert.equal(store.add({ title: 'C', content: 'C', rounds: 0 }).roundsLeft, null) // 无限
     assert.equal(store.add({ title: 'D', content: 'D', rounds: 999 }).roundsLeft, 999) // 任意数字
     assert.equal(store.add({ title: 'F', content: 'F', rounds: 99999 }).roundsLeft, 9999) // 防御上限截断
-    assert.equal(store.add({ title: 'E', content: 'E', every: 0 }).every, 1)
+    // every=0 = 一次性：次数强制 1（用户"间隔 0"的直觉语义），tick 一次即移除
+    const onceE = store.add({ title: 'E', content: 'E', every: 0 })
+    assert.equal(onceE.every, 0)
+    assert.equal(onceE.roundsLeft, 1)
     assert.equal(store.add({ title: 'G', content: 'G', rounds: 10, every: 7 }).every, 7) // 间隔任意数字
     // 同来源重复注入被标记
     assert.equal(store.hasSource('src-1'), false)
@@ -109,6 +112,12 @@ test('InjectionStore: rounds 计数、间隔注入、重复来源与级联清理
     assert.equal(store.list()[1].title, 'D')
     // 空轨 tick 安全
     assert.deepEqual(store.tickTurn(), [])
+    // every=0 一次性：无论 rounds 传多大都被覆盖为 1，出现轮结束直接移除
+    const once2 = store.add({ title: 'ONCE', content: 'o', rounds: 5, every: 0 })
+    assert.equal(once2.roundsLeft, 1)
+    assert.equal(once2.every, 0)
+    store.tickTurn() // 出现轮结束 → 一次性移除（不进次数/间隔模型）
+    assert.equal(store.list().some((i) => i.id === once2.id), false)
     // 间隔注入（every=3, rounds=2）：出现 1 轮 → 间隔 2 轮 → 再出现 → 消耗完移除
     const iv = store.add({ title: 'I', content: 'x', rounds: 2, every: 3 })
     assert.equal(iv.countdown, 0) // 注入后下一轮即出现
@@ -185,6 +194,25 @@ test('PromptStore 分类管理：默认集合/添加/改名/删除/隐式注册'
     assert.equal(store.list().find((p) => p.name === 'Q').category, '未分类')
     assert.throws(() => store.removeCategory('不存在'), /不存在/)
     assert.throws(() => store.removeCategory('未分类'), /不可删除/)
+    // 幽灵分类（提示词里残留、不在受管列表）：宽容改名/删除，不报"不存在"
+    const ghost = store.create({ name: 'GH', category: '幽灵分类', content: 'x' })
+    // 手工从受管列表摘除（模拟旧数据删过受管分类但提示词残留的场景）
+    store.backing.write({ ...store.backing.read({ prompts: [] }), categories: store.listCategories().filter((c) => c !== '幽灵分类') })
+    assert.ok(!store.listCategories().includes('幽灵分类'))
+    // 幽灵分类改名：提示词同步 + 新分类名注册进受管列表
+    const ghostRename = store.renameCategory('幽灵分类', '正式分类')
+    assert.equal(ghostRename.renamed, 1)
+    assert.ok(store.listCategories().includes('正式分类'))
+    assert.equal(store.list().find((p) => p.id === ghost.id).category, '正式分类')
+    // 幽灵分类删除：提示词移到未分类
+    store.backing.write({ ...store.backing.read({ prompts: [] }), categories: store.listCategories().filter((c) => c !== '正式分类') })
+    const ghostRemove = store.removeCategory('正式分类')
+    assert.equal(ghostRemove.removed, false) // 不在受管列表
+    assert.equal(ghostRemove.moved, 1)
+    assert.equal(store.list().find((p) => p.id === ghost.id).category, '未分类')
+    // 完全不存在（无提示词且不在列表）仍报错
+    assert.throws(() => store.removeCategory('真不存在'), /不存在/)
+    assert.throws(() => store.renameCategory('真不存在', 'X'), /不存在/)
   } finally {
     clean(dir)
   }
@@ -327,15 +355,23 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     // 手动移除注入
     const injId = (await request('GET', '/memory-evolve/api/prompts/injections')).data.injections[0].id
     assert.equal((await request('DELETE', `/memory-evolve/api/prompts/injections/${injId}`)).data.ok, true)
-    // 间隔注入（every 参数透传；非法 every 被拒）；次数/间隔均为任意数字
-    const badEvery = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2, every: 0 })
-    assert.equal(badEvery.status, 400)
+    // 间隔注入（every 参数透传；次数/间隔均为任意数字）
     const iv = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 7, every: 4 })
     assert.equal(iv.status, 200)
     assert.equal(iv.data.injection.every, 4)
     assert.equal(iv.data.injection.roundsLeft, 7)
-    // 停止间隔注入后重注入无限次（rounds=0）
+    // 非法 every（负数）被拒
+    const badEvery = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2, every: -1 })
+    assert.equal(badEvery.status, 400)
+    // 停止间隔注入
     await request('DELETE', `/memory-evolve/api/prompts/injections/${iv.data.injection.id}`)
+    // every=0 = 一次性：次数被覆盖为 1（"间隔 0 = 只注入一次"）
+    const once = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 999, every: 0 })
+    assert.equal(once.status, 200)
+    assert.equal(once.data.injection.every, 0)
+    assert.equal(once.data.injection.roundsLeft, 1)
+    // 停止一次性注入后重注入无限次（rounds=0）
+    await request('DELETE', `/memory-evolve/api/prompts/injections/${once.data.injection.id}`)
     const inf = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 0 })
     assert.equal(inf.status, 200)
     assert.equal(inf.data.injection.roundsLeft, null)
