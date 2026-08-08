@@ -50,7 +50,9 @@ function fakeReqRes(method, url) {
 
 test('installUiSettings registers the state endpoint and answers correctly', async () => {
   const ctx = fakeCtx()
-  const installed = installUiSettings(ctx)
+  // deps.getRunningSnapshot：a975013 起 installUiSettings(ctx, deps) 需要
+  // 运行快照构建函数（测试里给空快照即可，状态端点不依赖它）。
+  const installed = installUiSettings(ctx, { getRunningSnapshot: () => ({ total: 0, groups: [] }) })
   assert.equal(ctx.state.routes.length, 1, 'one route registered')
   assert.equal(ctx.state.routes[0].kind, 'prefix')
   assert.equal(ctx.state.routes[0].path, '/memory-evolve/api/ui-settings')
@@ -73,6 +75,6 @@ test('installUiSettings registers the state endpoint and answers correctly', asy
 test('installUiSettings tolerates surfaces without httpServer', () => {
   // TUI 面：无 httpServer 服务 → inject 不回调，dispose 无副作用。
   const ctx = { inject: () => ({ dispose: () => {} }), effect: () => () => {} }
-  const installed = installUiSettings(ctx)
+  const installed = installUiSettings(ctx, { getRunningSnapshot: () => ({ total: 0, groups: [] }) })
   installed.dispose()
 })

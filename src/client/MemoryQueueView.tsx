@@ -86,6 +86,8 @@ interface RuntimeConfig {
   promptsEnabled: boolean
   modelsEnabled: boolean
   uiSettingsEnabled: boolean
+  /** 会话书签（独立子模块，默认关）。 */
+  bookmarkEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -220,6 +222,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       promptsEnabled: draft.promptsEnabled,
       modelsEnabled: draft.modelsEnabled,
       uiSettingsEnabled: draft.uiSettingsEnabled,
+      bookmarkEnabled: draft.bookmarkEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -340,6 +343,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.uiSettings.title')}</strong>
                 <span>{t('panel.guide.uiSettings.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">⭐</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.bookmark.title')}</strong>
+                <span>{t('panel.guide.bookmark.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -716,6 +726,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.uiSettingsEnabled}
                     onChange={(event) => patchDraft({ uiSettingsEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.bookmarkEnabled')}
+                    <em className="me-field-hint">{t('panel.config.bookmarkEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.bookmarkEnabled}
+                    onChange={(event) => patchDraft({ bookmarkEnabled: event.target.checked })}
                   />
                 </label>
               </div>

@@ -31,7 +31,7 @@ import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import { BookmarksView } from './BookmarksView.tsx'
-import { TurnBookmarkButton, selectTurnBookmark } from './TurnBookmarkButton.tsx'
+import { createBookmarkInjector } from './bookmark-injector.tsx'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
@@ -336,7 +336,7 @@ export const zh = {
   'bookmark.tab.list': '列表',
   'bookmark.tab.guide': '指南',
   'bookmark.list.title': '本会话书签',
-  'bookmark.list.help': '点击书签跳转到对应轮次；轮尾 ☆ 打星、★ 已打星（可改名/删除）。第一阶段只做标记+跳转，分支能力第二阶段再加。',
+  'bookmark.list.help': '点击书签跳转到对应轮次；轮尾 ☆ 打星、★ 已打星（可改名/删除）；列表可搜索、可从此轮创建分支（中间轮的官方分支按钮同样已被 Memory Evolve 接管）。',
   'bookmark.refresh': '刷新',
   'bookmark.loading': '加载中…',
   'bookmark.empty': '（暂无书签——在对话轮尾点 ☆ 打星）',
@@ -345,13 +345,21 @@ export const zh = {
   'bookmark.prompt.create': '书签名称（可改）：',
   'bookmark.prompt.rename': '新名称：',
   'bookmark.confirm.delete': '删除书签「{label}」？',
-  'bookmark.star.title.off': '☆ 打书签',
-  'bookmark.star.title.on': '★ 已打书签：{label}（点击改名/删除）',
+  'bookmark.noSession': '无法确定当前会话（请刷新页面后重试）',
+  'bookmark.search.placeholder': '搜索书签…',
+  'bookmark.search.empty': '（没有匹配的书签）',
+  'bookmark.star.title.off': '☆ 打书签（Memory Evolve 会话书签）',
+  'bookmark.star.title.on': '★ 已打书签：{label}（Memory Evolve，点击改名/删除）',
   'bookmark.menu.rename': '改名',
   'bookmark.menu.delete': '删除',
   'bookmark.action.jump': '跳转',
+  'bookmark.action.fork': '分支',
   'bookmark.action.rename': '改名',
   'bookmark.action.delete': '删除',
+  'bookmark.fork.title': '由此轮创建分支（Memory Evolve 增强）',
+  'bookmark.fork.confirm': '官方仅支持从最后一条消息创建分支。是否仍要从这一轮（seq {n}）创建分支？（Memory Evolve 增强）',
+  'bookmark.fork.working': '正在创建分支会话…',
+  'bookmark.fork.ok': '已创建新会话 {id}（可在左侧会话列表查看）',
   'bookmark.jump.hint': '点击跳转到该轮',
   'bookmark.jumping': '正在定位…',
   'bookmark.jump.ok': '已定位到「{label}」',
@@ -361,7 +369,7 @@ export const zh = {
   'bookmark.deleted': '已删除',
   'bookmark.error': '失败：{message}',
   'bookmark.guide.what.title': '会话书签是什么',
-  'bookmark.guide.what.body': '给对话的每一轮打标签，之后可从列表一键跳回该轮。数据存在插件 sidecar（不碰官方会话日志）；第二阶段会加「从此处新建官方分支」。',
+  'bookmark.guide.what.body': '给对话的每一轮打标签，之后可从列表一键跳回该轮，或直接从任意一轮创建官方分支会话。数据存在插件 sidecar（不碰官方会话日志）；中间轮的官方分支按钮已被 Memory Evolve 接管（点击弹确认后走官方 fork 通道）。',
   'bookmark.guide.star.title': '怎么打星',
   'bookmark.guide.star.body': '每个已完成轮尾有 ☆ 按钮：点一下取名（默认「轮次 N」）即打星；★ 表示已打星，再点可改名或删除。小图标不干扰 Copy/Branch。',
   'bookmark.guide.list.title': '列表与跳转',
@@ -369,9 +377,9 @@ export const zh = {
   'bookmark.guide.switch.title': '开关',
   'bookmark.guide.switch.body': '默认关闭；在「Memory Evolve 设置」→「配置」打开「会话书签」。关闭后星标与本 Tab 隐藏，已存书签文件保留。',
   'panel.guide.bookmark.title': '会话书签',
-  'panel.guide.bookmark.desc': '给每轮打星标记，列表一键跳回（第一阶段：标记+跳转；分支第二阶段）。独立开关，默认关。',
+  'panel.guide.bookmark.desc': '给每轮打星标记，列表一键跳回，并支持从任意轮创建官方分支（含接管官方中间轮分支按钮）。独立开关，默认关。',
   'panel.config.bookmarkEnabled': '会话书签',
-  'panel.config.bookmarkEnabled.hint': '启用会话书签：每个已完成轮尾出现 ☆ 星标按钮 + 「书签」Tab 列表与跳转。数据存在 <memoryDir>/session-bookmarks.json（按会话隔离，按轮 seq 定位）。**独立子模块**（默认关闭，纯 UI + 宿主 API，不注册 AI 工具）；关闭时星标与 Tab 隐藏，数据文件保留。本阶段不做分支。',
+  'panel.config.bookmarkEnabled.hint': '启用会话书签：每个已完成轮尾出现 ☆ 星标按钮 + 「书签」Tab 列表与跳转；支持从任意轮创建官方分支（列表「分支」按钮，或直接点官方分支按钮——中间轮会被接管并弹确认）。数据存在 <memoryDir>/session-bookmarks.json（按会话隔离，按轮 seq 定位）。**独立子模块**（默认关闭，纯 UI + 宿主 API，不注册 AI 工具）；关闭时星标与 Tab 隐藏，数据文件保留。',
   // 以下键保留兼容（旧 memory tab 合并布局的遗留，新 UI 不再引用）：
   'memoryTab.feature.config': '配置',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -957,7 +965,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'bookmark.tab.list': 'List',
   'bookmark.tab.guide': 'Guide',
   'bookmark.list.title': 'Session bookmarks',
-  'bookmark.list.help': 'Click a bookmark to jump to that turn; star ☆ at each turn tail to bookmark, ★ when bookmarked (rename/delete). Phase 1 is mark+jump only; branching comes in phase 2.',
+  'bookmark.list.help': 'Click a bookmark to jump to that turn; star ☆ at each turn tail to bookmark, ★ when bookmarked (rename/delete); searchable list; fork from any turn (official mid-turn branch buttons are taken over by Memory Evolve).',
   'bookmark.refresh': 'Refresh',
   'bookmark.loading': 'Loading…',
   'bookmark.empty': '(No bookmarks yet — click ☆ at a turn tail)',
@@ -966,13 +974,21 @@ export const en: Record<MemoryEvolveKey, string> = {
   'bookmark.prompt.create': 'Bookmark name (editable):',
   'bookmark.prompt.rename': 'New name:',
   'bookmark.confirm.delete': 'Delete bookmark "{label}"?',
-  'bookmark.star.title.off': '☆ Bookmark this turn',
-  'bookmark.star.title.on': '★ Bookmarked: {label} (click to rename/delete)',
+  'bookmark.noSession': 'Cannot determine the current session (refresh the page and retry)',
+  'bookmark.search.placeholder': 'Search bookmarks…',
+  'bookmark.search.empty': '(No matching bookmarks)',
+  'bookmark.star.title.off': '☆ Bookmark this turn (Memory Evolve session bookmarks)',
+  'bookmark.star.title.on': '★ Bookmarked: {label} (Memory Evolve — click to rename/delete)',
   'bookmark.menu.rename': 'Rename',
   'bookmark.menu.delete': 'Delete',
   'bookmark.action.jump': 'Jump',
+  'bookmark.action.fork': 'Fork',
   'bookmark.action.rename': 'Rename',
   'bookmark.action.delete': 'Delete',
+  'bookmark.fork.title': 'Fork from this turn (Memory Evolve enhancement)',
+  'bookmark.fork.confirm': 'Officially you can only fork from the last message. Fork from this turn (seq {n}) anyway? (Memory Evolve enhancement)',
+  'bookmark.fork.working': 'Creating fork session…',
+  'bookmark.fork.ok': 'New session created: {id} (see the session list on the left)',
   'bookmark.jump.hint': 'Click to jump to this turn',
   'bookmark.jumping': 'Locating…',
   'bookmark.jump.ok': 'Jumped to "{label}"',
@@ -982,7 +998,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'bookmark.deleted': 'Deleted',
   'bookmark.error': 'Failed: {message}',
   'bookmark.guide.what.title': 'What are session bookmarks',
-  'bookmark.guide.what.body': 'Tag any completed turn, then jump back from the list in one click. Stored in a plugin sidecar (never touches official session logs); phase 2 will add "fork from here via official session.fork".',
+  'bookmark.guide.what.body': 'Tag any completed turn, then jump back from the list in one click, or fork an official branch session from any turn. Stored in a plugin sidecar (never touches official session logs); official mid-turn branch buttons are taken over by Memory Evolve (confirm dialog, then the official fork path).',
   'bookmark.guide.star.title': 'How to star',
   'bookmark.guide.star.body': 'Each completed turn tail has a ☆ button: click to name it (default "Turn N") and bookmark; ★ means bookmarked — click again to rename or delete. Small icon, does not crowd Copy/Branch.',
   'bookmark.guide.list.title': 'List and jump',
@@ -990,9 +1006,9 @@ export const en: Record<MemoryEvolveKey, string> = {
   'bookmark.guide.switch.title': 'Switch',
   'bookmark.guide.switch.body': 'Off by default; enable "Session bookmarks" under Memory Evolve Settings → Config. When off, stars and this tab hide; the sidecar file is kept.',
   'panel.guide.bookmark.title': 'Session bookmarks',
-  'panel.guide.bookmark.desc': 'Star any turn and jump back from the list (phase 1: mark+jump; branching in phase 2). Independent switch, off by default.',
+  'panel.guide.bookmark.desc': 'Star any turn and jump back from the list; fork official branch sessions from any turn (including taking over official mid-turn branch buttons). Independent switch, off by default.',
   'panel.config.bookmarkEnabled': 'Session bookmarks',
-  'panel.config.bookmarkEnabled.hint': 'Enable session bookmarks: a ☆ star on each completed turn tail + a Bookmarks tab for the list and jump. Data lives in <memoryDir>/session-bookmarks.json (per-session, keyed by turn seq). **Independent submodule** (off by default; pure UI + host API, no AI tools); when off, stars and the tab hide, the data file is kept. Phase 1 does not include branching.',
+  'panel.config.bookmarkEnabled.hint': 'Enable session bookmarks: a ☆ star on each completed turn tail + a Bookmarks tab for the list and jump; fork official branch sessions from any turn (list "Fork" button, or click the official branch button — mid-turn buttons are taken over with a confirm dialog). Data lives in <memoryDir>/session-bookmarks.json (per-session, keyed by turn seq). **Independent submodule** (off by default; pure UI + host API, no AI tools); when off, stars and the tab hide, the data file is kept.',
   // Legacy keys kept for compatibility (old merged memory-tab layout).
   'memoryTab.feature.config': 'Config',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -1812,33 +1828,45 @@ export function apply(ctx: Context): void {
 
   // 会话书签（session bookmarks）：**独立子模块**。探测宿主端
   // /api/bookmarks/state（bookmarkEnabled 开关，默认关）——成功才：
-  //   1. 注册 conversation.chat.turnTail 星标按钮（每个已完成轮尾）；
-  //   2. 注册「书签」Tab（conversation.view，列表 + 跳转 + 指南）。
-  // 关闭时端点 404，客户端全部不注入。chain 槽 exclusivity：select 始终
-  // 匹配 + priority=-5，书签开启时压制 ui-deliverables 的 produced-files
-  // 行（上游 chain 只能 first-wins，无法并存；模块默认关，按需开启）。
+  //   1. 星标按钮 DOM 注入器（B 方案，用户拍板：**不占** conversation.chat.
+  //      turnTail chain 槽——该槽与官方 produced-files 行互斥（first-wins），
+  //      占用会把官方"生成的文件"行挤掉；改为 MutationObserver 把星标
+  //      "贴"到轮尾操作区旁，官方行保留，两者共存）；
+  //   2. 会话 id 捕获器（conversation.session.header.actions list 槽的隐藏
+  //      entry：strict-session slot 自动带 sessionId，渲染 null 零 UI，只
+  //      把当前会话 id 写入模块变量供注入器读取——DOM 注入拿不到 id）；
+  //   3. 注册「书签」Tab（conversation.view，列表 + 跳转 + 指南）。
+  // 关闭时端点 404，客户端全部不注入。
   let bookmarkCancelled = false
   let disposeBookmarkTab: (() => void) | undefined
-  let disposeTurnStar: (() => void) | undefined
+  let disposeBookmarkCapture: (() => void) | undefined
+  let disposeBookmarkInjector: (() => void) | undefined
+  let currentBookmarkSessionId = '' // 由捕获器写入，注入器点击时读取
+  let bookmarkInjectorStarted = false // 防重复创建（捕获器可能多次渲染）
   void fetch('/memory-evolve/api/bookmarks/state')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { enabled?: boolean }) => {
       if (bookmarkCancelled || data.enabled !== true) return
-      // 1. 轮尾星标（chain entry；locale 用 memory-evolve 命名空间，t 经 inject 传入
-      //    以避开 locale seat 的窄 key 联合类型——与其他 Tab 同款模式）。
-      disposeTurnStar = ctx.slots.inject('conversation.chat.turnTail', () =>
+      // 1. 会话 id 捕获器（header.actions 是 list 槽，可与官方/插件其他按钮共存）。
+      disposeBookmarkCapture = ctx.slots.inject('conversation.session.header.actions', () =>
         ctx.slots.register({
-          name: 'conversation.chat.turnTail',
-          // 始终匹配：每个已完成轮都显示星标（select 必须是纯函数）。
-          select: selectTurnBookmark,
-          // 负 priority = 先于默认 0 的 deliverables 尝试；始终 non-null → 选举本 entry。
-          priority: -5,
-          inject: () => ({ t }),
-        }, (props) => TurnBookmarkButton({
-          matched: props.matched as ReturnType<typeof selectTurnBookmark>,
-          sessionId: props.sessionId as string,
-          t: (props as { t: Translate }).t ?? t,
-        })))
+          name: 'conversation.session.header.actions',
+          id: 'bookmark-session-catcher',
+          order: 100, // 末尾：隐藏 entry，零 UI
+        }, (props) => {
+          // strict-session slot：props 自带 sessionId。
+          const sid = (props as { sessionId?: string }).sessionId
+          if (typeof sid === 'string' && sid !== '') currentBookmarkSessionId = sid
+          // 捕获到 id 后启动注入器（懒启动，保证 getSessionId 有值可读）。
+          if (!bookmarkInjectorStarted) {
+            bookmarkInjectorStarted = true
+            disposeBookmarkInjector = createBookmarkInjector(
+              () => currentBookmarkSessionId,
+              { t },
+            ).dispose
+          }
+          return null // 不渲染任何 UI
+        }))
       // 2. 「书签」Tab（order 33：紧挨广播 32 之后、提示词 35 之前）。
       disposeBookmarkTab = ctx.slots.inject('conversation.view', () =>
         ctx.slots.register({
@@ -1851,7 +1879,8 @@ export function apply(ctx: Context): void {
     .catch(() => { /* 书签未启用：不注入任何东西 */ })
   ctx.effect(() => () => {
     bookmarkCancelled = true
-    disposeTurnStar?.()
+    disposeBookmarkInjector?.()
+    disposeBookmarkCapture?.()
     disposeBookmarkTab?.()
   }, 'memory-evolve: bookmarks')
 }
