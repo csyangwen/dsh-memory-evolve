@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-08-09 — 「DSH UI 设置」独立子模块：左侧会话列表默认只显示进行中的会话
+
+### 需求（用户拍板）
+每个工作区都有很多会话，最关注的是正在运行的这一个——给左侧会话列表加筛选，**默认只显示进行中的会话**。作为新独立模块「DSH UI 设置」（dsh-ui-settings）的第一个功能：对 DSH web 界面做样式级小功能（后期扩展主题更换等）。用户拍板筛选语义：**只隐藏纯 idle**，活跃（正在生成/等审批/等回答/有子代理在跑/出错）+ 已完成未查看全部保留。
+
+### 方案（纯客户端 DOM 增强，不改 DSH 框架）
+- 调研确认（docs/DSH-UI设置模块-调研-20260809.md）：左侧列表由 ui-workspace 渲染在 `sidebar.workspaces`（kind:single，无法叠加组件）→ 走 DOM 增强；会话行有稳定锚点 `div[role=treeitem][aria-selected]`（工作区行有 aria-expanded、搜索结果行是 button 天然排除）；状态点 StateDot 带 `data-state` 属性，**纯 idle 行无状态点**
+- 过滤规则是纯 CSS：`html[data-dsh-ui-filter="on"] [role="tree"] div[role="treeitem"][aria-selected]:not(:has([data-state])) { display:none }`——React 重渲染后选择器实时生效（会话开始跑自动出现、空闲自动隐藏），无轮询；`:has()` 需 Chrome 105+
+- session-filter.ts：注入「仅进行中/全部」分段筛选条（锚定 [role=tree] 插到列表顶部）+ MutationObserver 保活（React 重渲染清掉后自动重注入）+ localStorage 偏好（无记录默认开启筛选）；状态挂 `documentElement.dataset`（React 不管理 html 属性）
+
+### 实现
+- 宿主端：独立开关 `uiSettingsEnabled`（默认关，设置 Tab「配置」切换，applyRuntimePatch sync 链即时安装/卸载）+ 状态端点 `GET /api/ui-settings/state`（关闭时 404，客户端探测失败不注入任何东西）
+- 客户端：新「DSH UI 设置」Tab（order 46，指南子 Tab 与其他 Tab 同款）+ 设置 Tab「指南」页模块说明行 + 「配置」开关 + zh/en 字典
+- 测试：tests/ui-settings.test.js（端点 200/404、dispose 清理、无 httpServer 面无副作用）；全量 242/242 通过；bundle 契约验证（id/apply/字典键）
+- 验证：headless Chrome 实测真实 GUI——12 个会话行（1 running + 11 idle），注入规则后只剩 running 的 1 行 ✓
+- 遗留：宿主端改动需重启 dsh web 生效（重启后开关在「Memory Evolve 设置」Tab「配置」里打开）
+
+---
+
 ## 2026-08-12 — ⚡ 立即注入：快照变更 + 插话，当前回合立即生效（只注入一次）
 
 ### 需求（用户拍板）
