@@ -61,8 +61,10 @@ function makeFakeAgents() {
  *  workspace：fake 工作区注册表（/project/blog 已注册，attach 记录到 attached）。
  *  sessionTitle：fake 名称服务（rename 记录到 renamed）。
  *  sessionPersistence：fake 持久化（inspect 返回会话 log——
- *  wake offline 恢复时读会话自己最后使用的模型配置）。 */
-function makeCtx(agents, persistence) {
+ *  wake offline 恢复时读会话自己最后使用的模型配置）。
+ *  llm/settings：可选——提供 fake 模型目录（spawn 显式 model 按模型名
+ *  解析 provider 用；不传=不可解析，退回继承发起会话 provider）。 */
+function makeCtx(agents, persistence, llm) {
   const registered = []
   const attached = []
   const renamed = []
@@ -71,6 +73,18 @@ function makeCtx(agents, persistence) {
     registered,
     attached,
     renamed,
+    // fake 模型目录：settings 命名空间 → 各 provider 的模型列表
+    // （与真实 settings.yaml 同构；settingsPath 指到单 provider 配置层）
+    llm: llm ?? undefined,
+    settings: llm
+      ? {
+        get: (ns) => {
+          if (ns === 'llm-deepseek') return { providers: { 'deepseek-official': { models: [{ id: 'deepseek-v4-flash' }] } } }
+          if (ns === 'llm-qtp') return { providers: { 'qwen-token-plan-cn': { models: [{ id: 'qwen3.7-plus' }, { id: 'glm-5.2' }] } } }
+          return undefined
+        },
+      }
+      : undefined,
     workspace: {
       list: () => [{ id: 'ws-1', path: '/project/blog', title: '五', sessionIds: ['session-me'] }],
       resolveByPath: async (path) => (path === '/project/blog'
@@ -184,6 +198,65 @@ test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', 
   assert.equal(saved[0].prompt, prompt)
   assert.equal(saved[0].model, 'deepseek-chat')
   assert.equal(saved[0].cwd, '/project/blog')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('spawn 显式 model：按模型名自动解析 provider（与 GUI 模型选择框同源）；显式 provider 优先；解析不到提示风险', async () => {
+  const dir = tempDir()
+  const agents = makeFakeAgents()
+  // fake 模型目录（settings.yaml 同构）：qwen3.7-plus 属于 qwen-token-plan-cn
+  const fakeLlm = {
+    listConfigurableProviders: () => [
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: ['providers', 'deepseek-official'] },
+      { provider: 'qwen-token-plan-cn', displayName: 'Qwen Token Plan CN', settingsNs: 'llm-qtp', settingsPath: ['providers', 'qwen-token-plan-cn'] },
+    ],
+  }
+  const ctx = makeCtx(agents, undefined, fakeLlm)
+  const orch = new SessionOrch(ctx, { store: new SessionOrchStore(dir), getBroadcastStore: () => undefined })
+  const tool = sessionToolDefinition(orch)
+  // 发起会话：deepseek-official / deepseek-v4-flash（历史 header 带思考等级）
+  const requesterAgent = {
+    session: {
+      id: 'session-pm',
+      header: { cwd: '/project/blog' },
+      requestHeader: () => ({ config: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' }, adapterDefaults: {} }),
+    },
+    options: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+  }
+  // ① 显式传 model='qwen3.7-plus'（只在 qwen-token-plan-cn 目录）：
+  //    provider 自动解析为 qwen-token-plan-cn（曾只换 model 不换 provider，
+  //    把 qwen3.7-plus 发给 deepseek 接口报 INVALID_REQUEST——GUI 选择框
+  //    =「provider 下选模型」天然带 provider 所以手动选能成功）
+  const res = await tool.execute({ action: 'spawn', prompt: '任务', model: 'qwen3.7-plus' }, { agent: requesterAgent })
+  assert.equal(res.ok, true)
+  const created = agents.state.created[0]
+  assert.equal(created.agentOptions.provider, 'qwen-token-plan-cn', 'provider 按模型名解析')
+  assert.equal(created.agentOptions.model, 'qwen3.7-plus')
+  assert.equal(res.provider, 'qwen-token-plan-cn', '返回带实际 provider')
+  assert.match(res.message, /qwen-token-plan-cn/, 'message 提示解析结果')
+  // seed：provider 与发起会话不同 → header 用新 provider/model、不带思考等级
+  assert.equal(created.seed[0].data.header.config.provider, 'qwen-token-plan-cn')
+  assert.equal(created.seed[0].data.header.config.model, 'qwen3.7-plus')
+  assert.equal(created.seed[0].data.header.config.reasoningEffort, undefined, '不同 provider 不继承思考等级')
+  // ② 显式 provider 参数优先于自动解析
+  const res2 = await tool.execute({ action: 'spawn', prompt: '任务2', model: 'qwen3.7-plus', provider: 'zai-coding-cn' }, { agent: requesterAgent })
+  assert.equal(res2.ok, true)
+  assert.equal(agents.state.created[1].agentOptions.provider, 'zai-coding-cn', '显式 provider 最高优先')
+  // ③ 解析不到：退回发起会话 provider + 明确风险提示（诚实原则）
+  const res3 = await tool.execute({ action: 'spawn', prompt: '任务3', model: 'no-such-model' }, { agent: requesterAgent })
+  assert.equal(res3.ok, true)
+  assert.equal(agents.state.created[2].agentOptions.provider, 'deepseek-official', '解析不到退回继承')
+  assert.match(res3.message, /INVALID_REQUEST/, '提示可能报错')
+  // ④ 记录落盘含 provider（list 追溯/展示用）
+  const saved = JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8'))
+  assert.equal(saved[0].provider, 'qwen-token-plan-cn')
+  assert.equal(saved[1].provider, 'zai-coding-cn')
+  // ⑤ list 输出含 provider（旧记录缺字段补 null 不破 schema；列表新→旧）
+  const list = await tool.execute({ action: 'list' }, {})
+  assert.equal(list.ok, true)
+  assert.equal(list.sessions.length, 3)
+  assert.equal(list.sessions[0].provider, 'deepseek-official', '最新记录（no-such-model 退回继承）')
+  assert.equal(list.sessions[2].provider, 'qwen-token-plan-cn', '最早记录（qwen3.7-plus 解析成功）')
   rmSync(dir, { recursive: true, force: true })
 })
 
