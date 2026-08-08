@@ -31,7 +31,7 @@ import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import { createSessionFilter } from './session-filter.ts'
-import { createWideChat } from './wide-chat.ts'
+import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
@@ -321,6 +321,8 @@ export const zh = {
   'uiSettings.feature.sessionFilter.hint': '左侧会话列表只显示进行中的会话（纯 idle 折叠，可一键切回全部）；开启后才出现筛选条',
   'uiSettings.feature.wideChat': '对话区加宽',
   'uiSettings.feature.wideChat.hint': '把中间的对话历史/输入框区域从约一半宽度扩大到右侧约 95%（与上方 Tab 导航条对齐）',
+  'uiSettings.feature.wideBubble': '消息气泡加宽',
+  'uiSettings.feature.wideBubble.hint': '用户提交后的消息框从默认上限 525px 扩大到占中间内容框约 80%（配合「对话区加宽」效果更明显）',
   // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
   'uiSettings.filter.on': '仅进行中',
   'uiSettings.filter.off': '全部',
@@ -407,7 +409,7 @@ export const zh = {
   'todosTab.guide.attrs.body': '每条待办带完整元数据：',
   'todosTab.guide.attrs.item1': '四象限（q1 重要紧急 ~ q4 不重要不紧急）、截止日期、可选分类；',
   'todosTab.guide.attrs.item2': '状态：待办 / 进行中 / 已完成（自动盖完成时间）/ 受阻 / 已取消；',
-  'todosTab.guide.attrs.item3': '列表按轨页签 + 状态/象限筛选，每条可完成/恢复、行内编辑、删除（确认）。',
+  'todosTab.guide.attrs.item3': '列表/看板两种视图：列表按轨页签 + 状态/象限筛选；看板按四象限四宫格展示；每条可完成/恢复、行内编辑、删除（确认），状态徽标可点击循环切换。',
   'todosTab.guide.view.title': '智能视图',
   'todosTab.guide.view.body': '默认只显示需要关注的（逾期/今日到期/当前项目/重要紧急，最多 8 条）：',
   'todosTab.guide.view.item1': '过往每日待办按需读取——点「过往」页签才查询历史；',
@@ -454,6 +456,12 @@ export const zh = {
   'todo.quadrant.q3': '紧急不重要',
   'todo.quadrant.q4': '不重要不紧急',
   'todo.empty': '（暂无待办，添加一条吧）',
+  // 列表 / 四象限看板视图切换
+  'todo.view.mode': '视图',
+  'todo.view.list': '列表',
+  'todo.view.board': '看板',
+  'todo.board.empty': '此象限暂无待办',
+  'todo.board.cycleStatus': '点击切换状态',
   'memoryTab.cwd': '当前会话工作目录',
   'memoryTab.loading': '加载中…',
   'memoryTab.warning': '以下文件为 § 分隔的结构化记忆，用系统工具打开后请谨慎编辑，随意修改可能破坏格式、导致记忆读取错乱。',
@@ -891,6 +899,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettings.feature.sessionFilter.hint': 'The left session list shows only active sessions (purely idle ones collapse; one click switches back to all); the filter bar appears only while this is on',
   'uiSettings.feature.wideChat': 'Wide conversation area',
   'uiSettings.feature.wideChat.hint': 'Widen the conversation transcript/input area from roughly half to about 95% of the right pane (aligned with the tabs bar above)',
+  'uiSettings.feature.wideBubble': 'Wide message bubble',
+  'uiSettings.feature.wideBubble.hint': 'Widen the user message bubble from its 525px cap to about 80% of the content column (pairs well with "Wide conversation area")',
   // Filter-bar button labels (consumed by session-filter.ts injected DOM).
   'uiSettings.filter.on': 'Running only',
   'uiSettings.filter.off': 'All',
@@ -977,7 +987,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todosTab.guide.attrs.body': 'Every todo carries full metadata:',
   'todosTab.guide.attrs.item1': 'Quadrant (q1 important & urgent ~ q4 neither), due date, optional category;',
   'todosTab.guide.attrs.item2': 'Status: pending / doing / done (done timestamp auto-stamped) / blocked / cancelled;',
-  'todosTab.guide.attrs.item3': 'List filters by track tab + status/quadrant; per-item done/restore, inline edit, delete (confirmed).',
+  'todosTab.guide.attrs.item3': 'List or board view: list filters by track + status/quadrant; board lays out the four Eisenhower quadrants; per-item done/restore, inline edit, delete (confirmed); status badge cycles on click.',
   'todosTab.guide.view.title': 'Smart view',
   'todosTab.guide.view.body': 'By default only items needing attention are shown (overdue / due today / current project / important-urgent, max 8):',
   'todosTab.guide.view.item1': 'Past daily todos load on demand — history is queried only when the "Past" tab is opened;',
@@ -1024,6 +1034,12 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todo.quadrant.q3': 'Urgent, not important',
   'todo.quadrant.q4': 'Neither',
   'todo.empty': '(No todos yet — add one)',
+  // List / Eisenhower board view switch
+  'todo.view.mode': 'View',
+  'todo.view.list': 'List',
+  'todo.view.board': 'Board',
+  'todo.board.empty': 'No todos in this quadrant',
+  'todo.board.cycleStatus': 'Click to cycle status',
   'memoryTab.cwd': 'Session working directory',
   'memoryTab.loading': 'Loading…',
   'memoryTab.warning': 'These files are §-delimited structured memory. If you open them with a system tool, edit with caution — careless changes can break the format and corrupt memory reads.',
@@ -1591,11 +1607,12 @@ export function apply(ctx: Context): void {
   let disposeUiSettingsTab: (() => void) | undefined
   let disposeSessionFilter: (() => void) | undefined
   let disposeWideChat: (() => void) | undefined
+  let disposeWideBubble: (() => void) | undefined
   void fetch('/memory-evolve/api/ui-settings/state')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { enabled?: boolean }) => {
       if (uiSettingsCancelled || data.enabled !== true) return
-      // 1. 创建两个功能控制器（先创建、后按开关状态 setEnabled）。
+      // 1. 创建各功能控制器（先创建、后按开关状态 setEnabled）。
       const sessionFilter = createSessionFilter({
         barTitle: t('uiSettings.feature.sessionFilter'),
         on: t('uiSettings.filter.on'),
@@ -1604,16 +1621,20 @@ export function apply(ctx: Context): void {
       disposeSessionFilter = sessionFilter.dispose
       const wideChat = createWideChat()
       disposeWideChat = wideChat.dispose
+      const wideBubble = createWideBubble()
+      disposeWideBubble = wideBubble.dispose
       // 按「综合」子 tab 的独立开关应用初始状态。
       const features = readFeatures()
       sessionFilter.setEnabled(features.sessionFilter)
       wideChat.setEnabled(features.wideChat)
+      wideBubble.setEnabled(features.wideBubble)
       // 开关变更事件（UiSettingsTabView 切换后广播）→ 即时同步注入。
       const onFeaturesChanged = (event: Event): void => {
         const next = (event as CustomEvent<ReturnType<typeof readFeatures>>).detail
         if (next === undefined) return
         sessionFilter.setEnabled(next.sessionFilter)
         wideChat.setEnabled(next.wideChat)
+        wideBubble.setEnabled(next.wideBubble)
       }
       window.addEventListener(FEATURES_EVENT, onFeaturesChanged)
       ctx.effect(() => () => window.removeEventListener(FEATURES_EVENT, onFeaturesChanged), 'memory-evolve: ui-settings features listener')
@@ -1632,6 +1653,7 @@ export function apply(ctx: Context): void {
     disposeUiSettingsTab?.()
     disposeSessionFilter?.()
     disposeWideChat?.()
+    disposeWideBubble?.()
   }, 'memory-evolve: ui-settings tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host

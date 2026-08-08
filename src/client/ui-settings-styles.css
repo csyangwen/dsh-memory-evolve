@@ -37,6 +37,21 @@ html[data-dsh-ui-wide-chat="on"] [data-phase] {
   --dsh-chat-content-width: 95%;
 }
 
+/* ── 消息气泡加宽（wide-chat.ts 控制 html[data-dsh-ui-wide-bubble]）─────
+ *
+ * 痛点（用户反馈 2026-08-09）：用户提交后的消息框默认 max-width:
+ * min(525px, 82%)（MessageItem.module.css .bubble）——对话区加宽后
+ * 气泡仍被 525px 上限卡住、相对更显小。开启后让气泡占中间内容框约 80%。
+ *
+ * 锚点（源码依据）：用户消息行 userRow 有恒定 `data-time-hover-root`
+ * 属性（MessageItem.tsx）；bubble 恒为其**第一个 div 子元素**（steering
+ * 标记是 span、MessageIconActions 是第二个 div）→ `div:first-of-type`
+ * 唯一命中 bubble，不误伤 actions。原规则 .bubble（0,1,0），本选择器
+ * specificity 更高，稳胜。 */
+html[data-dsh-ui-wide-bubble="on"] [data-time-hover-root] > div:first-of-type {
+  max-width: 80%;
+}
+
 /* ── 会话列表顶部筛选条（session-filter.ts 注入的 DOM）────────── */
 .dsh-ui-filter-bar {
   display: flex;

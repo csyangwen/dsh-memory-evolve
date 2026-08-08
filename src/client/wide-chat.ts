@@ -45,3 +45,39 @@ export function createWideChat(): {
     },
   }
 }
+
+/** html 属性名（CSS 规则的作用域开关，ui-settings-styles.css）。 */
+export const WIDE_BUBBLE_ATTR = 'data-dsh-ui-wide-bubble'
+
+/**
+ * 创建消息气泡加宽控制器（模块启用时调用一次）。
+ *
+ * 纯 CSS 生效（规则见 ui-settings-styles.css：挂 html[data-dsh-ui-wide-bubble]
+ * 后 `[data-time-hover-root] > div:first-of-type { max-width: 80% }`——
+ * 用户消息行 userRow 有恒定 data-time-hover-root 锚点，bubble 恒为其
+ * 第一个 div 子元素（steering 是 span、actions 是第二个 div），唯一命中），
+ * JS 只负责挂/摘 html 属性。
+ *
+ * @returns { setEnabled, dispose }：setEnabled 由功能开关事件驱动；
+ *   dispose 模块卸载时清理。
+ */
+export function createWideBubble(): {
+  setEnabled: (enabled: boolean) => void
+  dispose: () => void
+} {
+  let disposed = false
+
+  return {
+    /** 功能开关：false=恢复默认 min(525px,82%)，true=气泡占内容框 80%。 */
+    setEnabled(next: boolean): void {
+      if (disposed) return
+      const root = document.documentElement
+      if (next) root.setAttribute(WIDE_BUBBLE_ATTR, 'on')
+      else root.removeAttribute(WIDE_BUBBLE_ATTR)
+    },
+    dispose(): void {
+      disposed = true
+      document.documentElement.removeAttribute(WIDE_BUBBLE_ATTR)
+    },
+  }
+}

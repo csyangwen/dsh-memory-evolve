@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-09 — DSH UI 设置·功能三：消息气泡加宽（用户信息框占内容框 ~80%）
+
+### 需求（用户拍板）
+用户提交后的**消息显示框太窄**（默认 `min(525px, 82%)` 上限 525px），且开启「对话区加宽」后气泡相对更显小。要求：气泡占**中间内容框约 80%**，新增独立开关。
+
+### 实现
+- `ui-settings-features.ts` 新增 `wideBubble`（默认 false，与其他功能同款默认关）
+- CSS（纯规则，无需 JS 扫描）：`html[data-dsh-ui-wide-bubble="on"] [data-time-hover-root] > div:first-of-type { max-width: 80% }`——用户消息行 userRow 有**恒定 `data-time-hover-root` 锚点**（MessageItem.tsx），bubble 恒为其**第一个 div 子元素**（steering 标记是 span、MessageIconActions 是第二个 div）→ `div:first-of-type` 唯一命中、不误伤 actions；specificity 高于原 `.bubble` 规则
+- `wide-chat.ts` 新增 `createWideBubble()`（同款 html 属性控制器）；index.ts 激活块三控制器统一 FEATURES_EVENT 同步
+- 「综合」子 tab 新增第三行开关；zh/en 字典
+- 验证（headless + CDP 真实点击打开会话）：气泡 557px（默认 min(525,82%)+padding）→ 开气泡加宽 630px（内容 80%+padding 32px）→ 双开（+对话区加宽）859px（列 1034×0.8+32）→ 恢复 557px ✓
+
+---
+
 ## 2026-08-09 — 「DSH UI 设置」独立子模块：左侧会话列表默认只显示进行中的会话
 
 ### 需求（用户拍板）

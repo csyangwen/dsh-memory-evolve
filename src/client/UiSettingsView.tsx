@@ -97,6 +97,12 @@ export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps)
             checked={features.wideChat}
             onChange={(checked) => toggleFeature('wideChat', checked)}
           />
+          <FeatureSwitchRow
+            label={t('uiSettings.feature.wideBubble')}
+            hint={t('uiSettings.feature.wideBubble.hint')}
+            checked={features.wideBubble}
+            onChange={(checked) => toggleFeature('wideBubble', checked)}
+          />
         </div>
       </div>
     </section>
