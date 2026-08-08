@@ -2,7 +2,7 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -13,10 +13,11 @@ import { TaskStore } from '../lib/coi/tasks-store.js'
 import { TemplateStore } from '../lib/coi/templates.js'
 import { CoiScheduler } from '../lib/coi/scheduler.js'
 import { coiStats } from '../lib/coi/stats.js'
+import { BroadcastStore, messageToolDefinition } from '../lib/coi/broadcast.js'
 import { coiToolDefinitions } from '../lib/coi/tools.js'
 import { installCoiApi } from '../lib/coi/api.js'
 import { validateCoiRuntimePatch } from '../lib/coi/index.js'
-import { buildCoiSnapshotBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { buildBroadcastBlock, buildCoiSnapshotBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
@@ -865,9 +866,13 @@ test('snapshot: COI task status block (active notify) injected when coiEnabled',
   const snap = renderSnapshot(config, store, agent)
   assert.ok(snap.includes('COI 任务状态'))
   assert.ok(!snap.includes('coi-other-1'), '集成视图同样过滤其他工作区')
-  // coiEnabled=false → 段消失（零开销）
+  // 会话 ID 注入：AI 始终知道"我是谁"（广播双向判断 sender/recipients）
+  assert.ok(snap.includes('你的会话 ID'), '注入会话 ID 段')
+  assert.ok(snap.includes('sessA'), '注入自己的会话 ID 值')
+  // coiEnabled=false → COI 段消失（零开销）；会话 ID 段常驻（独立输出端）
   const off = renderSnapshot({ ...config, coiEnabled: false }, store, agent)
   assert.ok(!off.includes('COI 任务状态'))
+  assert.ok(off.includes('你的会话 ID'), '会话 ID 段常驻（不随 coiEnabled，其他模块的消费者也用）')
   // tasks.json 不存在/无数据 → 不注入、不抛错
   const dir2 = tempDir()
   const config2 = resolveConfig({ memoryDir: dir2 })
@@ -1095,6 +1100,22 @@ test('de_coi command: tokenize/parseOpts and handler basics', async () => {
 
 // ------------------------------------------------------------ installCoi glue
 
+test('installBroadcast: 独立装配（不依赖 coiEnabled，注册 de_broadcast + prune）', async () => {
+  const dir = tempDir()
+  const { ctx, registered } = fakeCtx()
+  const { installBroadcast } = await import('../lib/coi/index.js')
+  const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
+  // 只注册 de_broadcast（无调度工具——广播独立于 COI 调度）
+  assert.deepEqual(registered.tools.map((t) => t.name), ['de_broadcast'])
+  // store 可正常收发（独立目录）
+  const sent = installed.store.send({ sender: 'sA', recipients: ['sB'], content: '独立模块测试' })
+  assert.equal(sent.ok, true)
+  assert.equal(installed.store.forSession('sB').length, 1)
+  // dispose 卸载后 effect 清理（工具/定时器释放）
+  installed.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('installCoi: tools, command, api, summary wiring', async () => {
   const dir = tempDir()
   const { ctx, registered, events } = fakeCtx()
@@ -1113,7 +1134,7 @@ test('installCoi: tools, command, api, summary wiring', async () => {
     skillDir: join(dir, 'skills'),
   }, { memoryStore, resolveCwd: () => '/p' })
 
-  // 工具注册
+  // 工具注册（含会话广播 de_broadcast）
   const toolNames = registered.tools.map((t) => t.name)
   assert.deepEqual(toolNames, ['de_coi_dispatch', 'de_coi_adapters', 'de_coi_status', 'de_coi_wait', 'de_coi_cancel'])
   // 命令注册
@@ -1152,5 +1173,152 @@ test('installCoi: tools, command, api, summary wiring', async () => {
   assert.equal(upd.config.coiRetentionDays, 45)
   assert.throws(() => svc.updateRuntimeConfig({ wat: 1 }), /未知 COI 配置项/)
 
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ------------------------------------------------------------------ 会话广播
+
+test('broadcast store: send/visibility/read/remove/prune + long body file', () => {
+  const dir = tempDir()
+  const coiDir = join(dir, 'coi')
+  mkdirSync(coiDir, { recursive: true })
+  const store = new BroadcastStore(coiDir)
+  // 校验：空 recipients / 空 content / 空 sender
+  assert.equal(store.send({ sender: 'A', recipients: [], content: 'x' }).ok, false)
+  assert.equal(store.send({ sender: 'A', recipients: ['B'], content: '  ' }).ok, false)
+  assert.equal(store.send({ sender: '', recipients: ['B'], content: 'x' }).ok, false)
+  // 正常发送（A → B,C；recipients 去重）
+  const sent = store.send({ sender: 'A', recipients: ['B', 'B', 'C'], content: '你好，请总结一下' })
+  assert.equal(sent.ok, true)
+  const id = sent.item.id
+  // 可见性：只有接收者与发送者看得到
+  const forB = store.forSession('B')
+  assert.equal(forB.length, 1)
+  assert.equal(forB[0].id, id)
+  assert.equal(store.forSession('D').length, 0, '无关会话看不到')
+  assert.equal(store.forSession('A').length, 1, '发送方可看到自己发的')
+  // 未读数：仅接收者未读
+  assert.equal(store.unreadCount('B'), 1)
+  assert.equal(store.unreadCount('C'), 1)
+  assert.equal(store.unreadCount('A'), 0, '发送方不算未读')
+  assert.equal(store.unreadCount('D'), 0)
+  // read：非接收者拒绝；接收者读后标记已读、未读归零（幂等）
+  assert.equal(store.read(id, 'D').ok, false)
+  const read = store.read(id, 'B')
+  assert.equal(read.ok, true)
+  assert.ok(read.item.content.includes('你好'))
+  assert.equal(store.unreadCount('B'), 0, 'B 已读后未读归零')
+  assert.equal(store.unreadCount('C'), 1, 'C 仍未读（各自独立）')
+  store.read(id, 'B')
+  assert.equal(store.unreadCount('B'), 0, '重复读幂等')
+  // 读即消费（未全读保留）：B 列表消失；C 未读仍可见；A 留痕仍在
+  assert.equal(store.forSession('B').length, 0, 'B 读后消息从列表消失')
+  assert.equal(store.forSession('C').length, 1, 'C 未读仍可见')
+  assert.equal(store.forSession('A').length, 1, '未全读时发送方留痕保留')
+  // 全员已读 → 自动删除（最后一个接收者读完触发；发送者留痕随之消失）
+  store.read(id, 'C')
+  assert.equal(store.items.some((m) => m.id === id), false, '全员已读自动删除')
+  assert.equal(store.forSession('A').length, 0, '发送者留痕随全部读完消失')
+  // remove：需未读消息测权限（单独发一条 A→B，不读）
+  const sentRm = store.send({ sender: 'A', recipients: ['B'], content: '待删除' })
+  assert.equal(store.remove(sentRm.item.id, 'D').ok, false, '无关会话不可删')
+  assert.equal(store.remove(sentRm.item.id, 'B').ok, true, '接收者可删')
+  // 长内容（>8KB）：落文件，read 取全文 + 单接收者 read 即删（文件一并清理）
+  const big = '大'.repeat(9000)
+  const sentBig = store.send({ sender: 'A', recipients: ['B'], content: big })
+  assert.ok(sentBig.item.bodyFile, '超长内容落文件')
+  const readBig = store.read(sentBig.item.id, 'B')
+  assert.equal(readBig.item.content.length, 9000, 'read 返回全文')
+  assert.equal(store.items.some((m) => m.id === sentBig.item.id), false, '单接收者 read 即删')
+  assert.equal(existsSync(sentBig.item.bodyFile), false, '长内容文件一并清理')
+  // prune：超 30 天清理
+  const now = Date.now()
+  store.items.push({ id: 'old-1', sender: 'A', recipients: ['B'], content: '旧', createdAt: now - 31 * 24 * 3600 * 1000, readBy: [] })
+  const pruned = store.prune()
+  assert.equal(pruned, 1)
+  assert.equal(store.forSession('B').some((m) => m.id === 'old-1'), false)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast snapshot block: 定点注入只给接收者 + read 后提示消失', () => {
+  const dir = tempDir()
+  const coiDir = join(dir, 'coi')
+  mkdirSync(coiDir, { recursive: true })
+  const now = Date.now()
+  writeFileSync(join(coiDir, 'broadcast.json'), JSON.stringify([
+    { id: 'msg-1', sender: 'sessA', recipients: ['sessB'], content: '给 B 的消息', createdAt: now, readBy: [] },
+    { id: 'msg-2', sender: 'sessA', recipients: ['sessC'], content: '给 C 的消息', createdAt: now, readBy: [] },
+    { id: 'msg-3', sender: 'sessA', recipients: ['sessB'], content: 'B 已读', createdAt: now, readBy: ['sessB'] },
+  ]))
+  // 独立目录：broadcastDataDir（默认 memoryDir/broadcast，测试显式指定原路径）
+  const config = resolveConfig({ memoryDir: dir, coiEnabled: true, broadcastDataDir: coiDir })
+  // B：1 条未读（msg-1；msg-3 已读不计）；收件箱式列出 id+主题，可直接 read
+  const blockB = buildBroadcastBlock(config, 'sessB')
+  assert.ok(blockB !== null)
+  assert.ok(blockB.includes('未读消息 1 条'), 'B 看到自己的未读数')
+  assert.ok(blockB.includes('msg-1'), '快照列出消息 id（AI 可直接 read，无需先 list）')
+  assert.ok(blockB.includes('给 B 的消息'), '快照列出主题（缺省=内容首行）')
+  assert.ok(blockB.includes('必须用 de_broadcast read'), '指令式：必须 read 处理')
+  assert.ok(!blockB.includes('msg-2'), '不注入他人消息')
+  assert.ok(!blockB.includes('msg-3'), '已读消息不列出')
+  // C：1 条未读（msg-2）
+  const blockC = buildBroadcastBlock(config, 'sessC')
+  assert.ok(blockC.includes('未读消息 1 条'))
+  assert.ok(blockC.includes('msg-2'))
+  // 无关会话 / 无会话视角：整段不注入（定点）
+  assert.equal(buildBroadcastBlock(config, 'sessD'), null, '无关会话无感知')
+  assert.equal(buildBroadcastBlock(config, undefined), null, '无会话视角不注入')
+  // 文件不存在：null
+  assert.equal(buildBroadcastBlock(resolveConfig({ memoryDir: tempDir() }), 'sessB'), null)
+  // read 后提示消失（模拟 readBy 落盘）
+  const parsed = JSON.parse(readFileSync(join(coiDir, 'broadcast.json'), 'utf8'))
+  parsed.find((m) => m.id === 'msg-1').readBy.push('sessB')
+  writeFileSync(join(coiDir, 'broadcast.json'), JSON.stringify(parsed))
+  assert.equal(buildBroadcastBlock(config, 'sessB'), null, '全部已读后提示消失')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('coi tools: de_broadcast send/list/read/delete via session id', async () => {
+  const dir = tempDir()
+  const coiDir = join(dir, 'coi')
+  mkdirSync(coiDir, { recursive: true })
+  const broadcast = new BroadcastStore(coiDir)
+  const { scheduler } = bootScheduler(dir)
+  // 独立模块：工具由 messageToolDefinition 提供（coiToolDefinitions 已无
+  // broadcast 参数，只返回 5 个调度工具）
+  const msgTool = messageToolDefinition(broadcast)
+  assert.equal(msgTool.name, 'de_broadcast')
+  const execB = { agent: { session: { id: 'sessB', header: { cwd: '/p' } } } }
+  const execA = { agent: { session: { id: 'sessA', header: { cwd: '/p' } } } }
+  // send：sender 从执行上下文自动取（B 给 A 发）；subject 缺省取内容首行
+  const sent = await msgTool.execute({ action: 'send', recipients: ['sessA'], content: '请查看项目日志' }, execB)
+  assert.equal(sent.ok, true)
+  // list：A 收到 1 条未读；无关会话 0 条；收件箱式（主题 + 简短简介）
+  const listA = await msgTool.execute({ action: 'list' }, execA)
+  assert.equal(listA.messages.length, 1)
+  assert.equal(listA.messages[0].unread, true)
+  assert.equal(listA.messages[0].sender, 'sessB')
+  assert.equal(listA.messages[0].subject, '请查看项目日志', '缺省 subject 取内容首行')
+  assert.ok(listA.messages[0].content.length <= 60, 'list 只给简短简介（收件箱式）')
+  const listOther = await msgTool.execute({ action: 'list' }, { agent: { session: { id: 'sessX' } } })
+  assert.equal(listOther.messages.length, 0)
+  // read：返回全文（不截断）+ 已读
+  const read = await msgTool.execute({ action: 'read', id: listA.messages[0].id }, execA)
+  assert.equal(read.ok, true)
+  assert.ok(read.messages[0].content.includes('项目日志'))
+  // 读即消费：A read 后（唯一接收者）消息自动删除，列表为空
+  const listA2 = await msgTool.execute({ action: 'list' }, execA)
+  assert.equal(listA2.messages.length, 0, 'read 后消息自动删除（列表为空）')
+  // delete：接收方 A 可删（重新发一条未读的）
+  const sent2 = await msgTool.execute({ action: 'send', recipients: ['sessA'], content: '第二条' }, execB)
+  assert.equal(sent2.ok, true)
+  const listA3 = await msgTool.execute({ action: 'list' }, execA)
+  const del = await msgTool.execute({ action: 'delete', id: listA3.messages[0].id }, execA)
+  assert.equal(del.ok, true)
+  const listA4 = await msgTool.execute({ action: 'list' }, execA)
+  assert.equal(listA4.messages.length, 0)
+  // coiToolDefinitions 只含调度工具（广播已独立）
+  const toolsPlain = coiToolDefinitions(scheduler)
+  assert.deepEqual(toolsPlain.map((t) => t.name), ['de_coi_dispatch', 'de_coi_adapters', 'de_coi_status', 'de_coi_wait', 'de_coi_cancel'])
   rmSync(dir, { recursive: true, force: true })
 })

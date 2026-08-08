@@ -109,7 +109,7 @@ const DICT = {
     tab: 'CLI调度',
     guide: '指南',
     'guide.title': 'COI 调度使用指南',
-    'guide.intro': 'COI 调度是「外部 AI 代理调度器」：把任务派给 kimi / codex / grok / hermes 等 CLI 代理——统一调度不卡主进程、实时看进度、会话分层管理可一键恢复、跨 COI 接力、任务结果留档并自动沉淀到记忆。本模块默认禁用（可在「记忆技能待办」Tab 的运行时配置中启用）。',
+    'guide.intro': 'COI 调度是「外部 AI 代理调度器」：把任务派给 kimi / codex / grok / hermes 等 CLI 代理——统一调度不卡主进程、实时看进度、会话分层管理可一键恢复、跨 COI 接力、任务结果留档并自动沉淀到记忆。本模块默认禁用（可在「Memory Evolve 设置」Tab 的「配置」中启用）。',
     'guide.use.title': '怎么发起任务',
     'guide.use.desc': '三种入口，任选其一：',
     'guide.use.ai': '对 AI 说：',
@@ -144,6 +144,8 @@ const DICT = {
     all: '全部',
     none: '（无）',
     'launch.title': '发起任务',
+    'launch.expand': '展开',
+    'launch.collapse': '收起',
     'launch.adapter': '适配器',
     'launch.prompt': '任务内容',
     'launch.promptPh': '例如：修复 tests/store.test.js 中失败的用例并验证',
@@ -321,6 +323,8 @@ const DICT = {
     all: 'All',
     none: '(none)',
     'launch.title': 'Launch task',
+    'launch.expand': 'Expand',
+    'launch.collapse': 'Collapse',
     'launch.adapter': 'Adapter',
     'launch.prompt': 'Prompt',
     'launch.promptPh': 'e.g. fix the failing cases in tests/store.test.js and verify',
@@ -721,6 +725,8 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   // 注入轨（memory=长期记忆 / user=用户档案 / key=项目关键记忆；与 scope 无关）
   const [injectTracks, setInjectTracks] = useState<string[]>([])
   const [ctxText, setCtxText] = useState('')
+  // 发起表单默认收起（用户基本由 AI 派单，手动发起是少数）：给列表/详情更多高度
+  const [launchOpen, setLaunchOpen] = useState(false)
 
   // 详情
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -943,7 +949,15 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   return (
     <div className="coi-pane coi-tasks">
       <div className="coi-card">
-        <div className="coi-card-title">{t('launch.title')}</div>
+        <div className="coi-card-head">
+          <span className="coi-card-title">{t('launch.title')}</span>
+          <span className="coi-grow" />
+          <button type="button" className="coi-btn coi-btn-mini" onClick={() => setLaunchOpen(!launchOpen)}>
+            {launchOpen ? t('launch.collapse') : t('launch.expand')}
+          </button>
+        </div>
+        {launchOpen && (
+        <>
         <div className="coi-form-grid">
           <label className="coi-field">
             <span className="coi-label">{t('launch.adapter')}</span>
@@ -1059,6 +1073,8 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
             {t('launch.submit')}
           </button>
         </div>
+        </>
+        )}
       </div>
 
       <NoticeLine notice={notice} />

@@ -231,6 +231,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* 卡片头部行：标题 + 右侧操作按钮（如发起表单的展开/收起） */
+.coi-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .coi-cards {
   display: flex;
   flex-direction: column;

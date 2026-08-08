@@ -19,12 +19,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import { MemoryQueueView, type MemoryFeature } from './MemoryQueueView.tsx'
-import { SkillsBrowser } from './skills-browser/SkillsBrowser.tsx'
-import { TodoView } from './TodoView.tsx'
+import { MemoryQueueView } from './MemoryQueueView.tsx'
+import { TabGuideView, type GuideSection } from './TabGuideView.tsx'
 
-/** 功能子 tab：待确认记忆/技能/运行时配置 + 技能管理（合并自 dsh-skill-browser）+ 待办。 */
-type TabFeature = MemoryFeature | 'skill-browser' | 'todo'
+/**
+ * 功能子 tab（记忆专属）：指南 / 待确认记忆建议。
+ * 整体指南与运行时配置已抽到「Memory Evolve 设置」Tab（SettingsTabView）；
+ * 本 Tab 的「指南」是记忆功能自己的详细介绍（非整体简介）。
+ */
+type TabFeature = 'guide' | 'suggestions'
 
 /** One memory-file row from the host. */
 interface MemoryFileRow {
@@ -150,6 +153,71 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 let persistedFeature: TabFeature | null = null
 let persistedFileKey: string | null = null
 
+/**
+ * 记忆 Tab 专属指南内容（「指南」子 Tab）：
+ * 详细介绍记忆功能本身——五轨记忆、文件页签、git 分支感知、编辑维护、
+ * 待确认记忆建议机制。文案来自全局 locale（memoryTab.guide.* 键组）。
+ */
+function memoryGuideSections(t: Translate): GuideSection[] {
+  return [
+    {
+      icon: '🧠',
+      title: t('memoryTab.guide.tracks.title'),
+      body: t('memoryTab.guide.tracks.body'),
+      items: [
+        t('memoryTab.guide.tracks.item1'),
+        t('memoryTab.guide.tracks.item2'),
+        t('memoryTab.guide.tracks.item3'),
+        t('memoryTab.guide.tracks.item4'),
+        t('memoryTab.guide.tracks.item5'),
+      ],
+    },
+    {
+      icon: '📂',
+      title: t('memoryTab.guide.files.title'),
+      body: t('memoryTab.guide.files.body'),
+      items: [
+        t('memoryTab.guide.files.item1'),
+        t('memoryTab.guide.files.item2'),
+        t('memoryTab.guide.files.item3'),
+      ],
+    },
+    {
+      icon: '🌿',
+      title: t('memoryTab.guide.branch.title'),
+      body: t('memoryTab.guide.branch.body'),
+      items: [
+        t('memoryTab.guide.branch.item1'),
+        t('memoryTab.guide.branch.item2'),
+      ],
+    },
+    {
+      icon: '🛠️',
+      title: t('memoryTab.guide.maintain.title'),
+      body: t('memoryTab.guide.maintain.body'),
+      items: [
+        t('memoryTab.guide.maintain.item1'),
+        t('memoryTab.guide.maintain.item2'),
+        t('memoryTab.guide.maintain.item3'),
+      ],
+    },
+    {
+      icon: '✅',
+      title: t('memoryTab.guide.suggestions.title'),
+      body: t('memoryTab.guide.suggestions.body'),
+      items: [
+        t('memoryTab.guide.suggestions.item1'),
+        t('memoryTab.guide.suggestions.item2'),
+      ],
+    },
+    {
+      icon: '🛡️',
+      title: t('memoryTab.guide.confirm.title'),
+      body: t('memoryTab.guide.confirm.body'),
+    },
+  ]
+}
+
 /** The conversation view tab component. */
 export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.Element {
   const { sessionId, t } = props
@@ -183,17 +251,13 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [deleting, setDeleting] = useState(false)
   /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置/技能管理面板。 */
   const [feature, setFeature] = useState<TabFeature | null>(persistedFeature)
-  /** 待确认计数（来自 /api/badge，用于功能 tab 的徽标文本）。 */
-  const [badge, setBadge] = useState<{ suggestions: number; todoSuggestions: number; skills: number }>({ suggestions: 0, todoSuggestions: 0, skills: 0 })
+  /** 待确认记忆建议计数（来自 /api/badge，用于功能 tab 的徽标文本）。 */
+  const [badge, setBadge] = useState<{ suggestions: number }>({ suggestions: 0 })
 
-  /** 拉取待确认计数（功能 tab 徽标）。 */
+  /** 拉取待确认记忆建议计数（功能 tab 徽标）。 */
   const pollBadge = useCallback((): void => {
-    void api<{ suggestions?: number; todoSuggestions?: number; skills?: number }>('/api/badge')
-      .then((data) => setBadge({
-        suggestions: data.suggestions ?? 0,
-        todoSuggestions: data.todoSuggestions ?? 0,
-        skills: data.skills ?? 0,
-      }))
+    void api<{ suggestions?: number }>('/api/badge')
+      .then((data) => setBadge({ suggestions: data.suggestions ?? 0 }))
       .catch(() => { /* 徽标尽力而为 */ })
   }, [])
 
@@ -436,53 +500,6 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
           {t('memoryTab.feature.suggestions')}
           {badge.suggestions > 0 && <span className="mt-feature-count">{badge.suggestions}</span>}
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={feature === 'todo-suggestions'}
-          className={feature === 'todo-suggestions' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
-          onClick={() => setFeature(feature === 'todo-suggestions' ? null : 'todo-suggestions')}
-        >
-          {t('memoryTab.feature.todoSuggestions')}
-          {badge.todoSuggestions > 0 && <span className="mt-feature-count">{badge.todoSuggestions}</span>}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={feature === 'skills'}
-          className={feature === 'skills' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
-          onClick={() => setFeature(feature === 'skills' ? null : 'skills')}
-        >
-          {t('memoryTab.feature.skills')}
-          {badge.skills > 0 && <span className="mt-feature-count">{badge.skills}</span>}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={feature === 'config'}
-          className={feature === 'config' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
-          onClick={() => setFeature(feature === 'config' ? null : 'config')}
-        >
-          {t('memoryTab.feature.config')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={feature === 'skill-browser'}
-          className={feature === 'skill-browser' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
-          onClick={() => setFeature(feature === 'skill-browser' ? null : 'skill-browser')}
-        >
-          {t('memoryTab.feature.skillBrowser')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={feature === 'todo'}
-          className={feature === 'todo' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
-          onClick={() => setFeature(feature === 'todo' ? null : 'todo')}
-        >
-          {t('memoryTab.feature.todo')}
-        </button>
         <span className="mt-tab-sep" role="presentation" />
         {files !== null && (files ?? []).map((row) => (
           <button
@@ -504,16 +521,16 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       <p className="mt-warning">⚠️ {t('memoryTab.warning')}</p>
       {cwd !== null && <p className="mt-cwd">{t('memoryTab.cwd')}: {cwd}</p>}
       {feature !== null ? (
-        feature === 'skill-browser' ? (
-          <SkillsBrowser t={t} />
-        ) : feature === 'todo' ? (
-          <TodoView t={t} sessionId={String(sessionId)} />
+        feature === 'guide' ? (
+          // 记忆专属指南：详细介绍记忆 Tab 自己的功能（五轨/文件页签/分支/
+          // 编辑维护/待确认建议机制）。整体插件指南在「Memory Evolve 设置」Tab。
+          <TabGuideView sections={memoryGuideSections(t)} />
         ) : (
           <MemoryQueueView
             t={t}
-            feature={feature}
+            feature="suggestions"
             onChanged={() => {
-              // 队列/技能/配置变更后：刷新本组件计数，并通知宿主层（index.ts）
+              // 队列变更后：刷新本组件计数，并通知宿主层（index.ts）
               // 立即重查 badge，让会话页标签的小红点即时更新（不等 30s 轮询）。
               pollBadge()
               window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))

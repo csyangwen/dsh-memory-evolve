@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import { TabGuideView } from './TabGuideView.tsx'
 
 /** 提示词条目（与 host 端 PromptStore 一致）。 */
 interface Prompt {
@@ -56,6 +57,26 @@ export interface PromptViewProps {
 /** 中英文案（默认中文）。 */
 const DICT = {
   zh: {
+    // 「指南」子 tab：提示词注入功能的详细介绍（本 Tab 专属）。
+    guide: '指南',
+    library: '提示词库',
+    guideIntro: '提示词注入 = 可复用的「指令范式资产库 + 注入执行器」：把常用工作范式（代码审查 / 调试 / PRD / 测试等）固化成提示词，选中即注入——模型下一轮自动看到、不打断回复。',
+    guideLibTitle: '提示词库',
+    guideLibBody: '可复用的指令范式资产，来源以用户自写为主：',
+    guideLibItem1: 'CRUD：新建 / 编辑 / 删除，名称 + 分类 + 标签 + 正文（Markdown）；',
+    guideLibItem2: '分类管理：内置分类 + 自定义添加 / 重命名 / 删除（删除时该分类下提示词自动移到未分类）；',
+    guideLibItem3: '搜索（名称/分类/标签/内容）+ 复制到剪贴板 + 使用统计；',
+    guideLibItem4: '内置 13 条来自 GitHub 真实提示词资产的冷启动示例（SpecRoute / Claude-Code-Promts-Skills），并附范式库链接供自取。',
+    guideInjectTitle: '注入机制',
+    guideInjectBody: '选中提示词配置「次数 × 间隔」即注入：',
+    guideInjectItem1: '次数：一次性（1 轮）/ 有限 N 次 / 无限（持续注入直到手动停止）；',
+    guideInjectItem2: '间隔：每回合 / 每 M 回合出现 1 次（如"每 3 回合提醒一次"）；',
+    guideInjectItem3: '写后即时注入、不打断回复：内容写入注入轨，模型下一轮生成时自动看到；',
+    guideInjectItem4: '正文支持 {{date}} / {{time}} 变量，注入时自动展开。',
+    guideTrackTitle: '注入状态',
+    guideTrackBody: '每个提示词有明确状态（未注入 / 注入中·剩 N 次 / 持续注入中），可随时停止；「注入中」浮层实时展示；会话页 Tab 栏有活跃注入时显示红点 🔴。',
+    guideSwitchTitle: '开关',
+    guideSwitchBody: '提示词管理器默认关闭：在「Memory Evolve 设置」Tab 的「配置」里打开「提示词管理器」开关，刷新后本 Tab 出现。',
     search: '搜索名称、分类、标签或内容…',
     new: '新建提示词',
     all: '全部',
@@ -119,6 +140,26 @@ const DICT = {
     categoryRenamedSuffix: '，{count} 条提示词已同步',
   },
   en: {
+    // "Guide" sub-tab: detailed introduction of the prompt injection feature.
+    guide: 'Guide',
+    library: 'Prompt library',
+    guideIntro: 'Prompt injection = a reusable "instruction pattern library + injection executor": turn recurring work paradigms (code review / debugging / PRD / testing…) into prompts, then inject one with a click — the model sees it next turn without interrupting the reply.',
+    guideLibTitle: 'Prompt library',
+    guideLibBody: 'Reusable instruction patterns, mostly user-written:',
+    guideLibItem1: 'CRUD: create / edit / delete, name + category + tags + body (Markdown);',
+    guideLibItem2: 'Category management: built-in categories + custom add / rename / delete (prompts in a deleted category move to Uncategorized);',
+    guideLibItem3: 'Search (name/category/tags/content) + copy to clipboard + usage stats;',
+    guideLibItem4: '13 cold-start examples from real GitHub prompt assets (SpecRoute / Claude-Code-Promts-Skills) plus links to public pattern libraries.',
+    guideInjectTitle: 'Injection mechanics',
+    guideInjectBody: 'Select a prompt, configure "count × cadence" and inject:',
+    guideInjectItem1: 'Count: once (1 turn) / finite N turns / unlimited (keeps injecting until stopped);',
+    guideInjectItem2: 'Cadence: every turn / once every M turns (e.g. "remind every 3 turns");',
+    guideInjectItem3: 'Injects without interrupting the reply: written to the injection track, visible to the model on the next turn;',
+    guideInjectItem4: '{{date}} / {{time}} variables expand at injection time.',
+    guideTrackTitle: 'Injection state',
+    guideTrackBody: 'Every prompt has an explicit state (not injected / injecting·N left / injecting·ongoing) and can be stopped anytime; the "Injecting" overlay shows live entries; the session tab shows a red dot 🔴 while anything is active.',
+    guideSwitchTitle: 'Switch',
+    guideSwitchBody: 'The prompt manager is off by default: enable the "Prompt manager" toggle under "Config" in the "Memory Evolve Settings" tab, then refresh to reveal this tab.',
     search: 'Search name, category, tags or content…',
     new: 'New prompt',
     all: 'All',
@@ -235,6 +276,8 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   const [injections, setInjections] = useState<Injection[]>([])
   const [sources, setSources] = useState<Source[]>([])
   const [categories, setCategories] = useState<string[]>([])
+  /** 子视图：guide=本 Tab 指南；main=提示词库（默认）。 */
+  const [view, setView] = useState<'guide' | 'main'>('main')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('全部')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -529,6 +572,38 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
 
   return (
     <div className="pm-root">
+      {/* 子 tab 条：指南 / 提示词库（复用 mt- 样式，与其他 Tab 一致） */}
+      <div className="mt-file-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'guide'}
+          className={view === 'guide' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setView('guide')}
+        >
+          {say('guide')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'main'}
+          className={view === 'main' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setView('main')}
+        >
+          {say('library')}
+        </button>
+      </div>
+      {view === 'guide' ? (
+        // 提示词注入专属指南（本 Tab 功能详细介绍，文案见 DICT guide* 键）
+        <TabGuideView sections={[
+          { icon: '📌', title: say('guideIntro'), body: '' },
+          { icon: '📚', title: say('guideLibTitle'), body: say('guideLibBody'), items: [say('guideLibItem1'), say('guideLibItem2'), say('guideLibItem3'), say('guideLibItem4')] },
+          { icon: '💉', title: say('guideInjectTitle'), body: say('guideInjectBody'), items: [say('guideInjectItem1'), say('guideInjectItem2'), say('guideInjectItem3'), say('guideInjectItem4')] },
+          { icon: '🔴', title: say('guideTrackTitle'), body: say('guideTrackBody') },
+          { icon: '⚙️', title: say('guideSwitchTitle'), body: say('guideSwitchBody') },
+        ]} />
+      ) : (
+        <>
       {/* 顶栏：搜索 / 筛选 / 注入中 / 来源 / 新建 */}
       <div className="pm-toolbar">
         <input
@@ -863,6 +938,8 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

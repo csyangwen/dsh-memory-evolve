@@ -1,14 +1,18 @@
 /**
  * dsh-memory-evolve — client entry.
  *
- * Registers the session memory tab ('conversation.view') — the ONLY
+ * Registers three session tabs ('conversation.view') — the ONLY
  * memory-management surface (the former settings-panel section was
- * removed). The tab hosts the memory files, the pending suggestion/skill
- * queues and the runtime-config form as sub-tabs, all backed by the node
- * half's /memory-evolve/api routes. The tab label carries a red-dot pending
- * count (🔴 记忆 (N)) while suggestions/skills await confirmation, refreshed
- * by polling the badge endpoint and re-registering through the deferral
- * handle's refresh().
+ * removed):
+ *   - 记忆 tab（memory-files）：记忆文件 + 记忆专属指南 + 待确认记忆建议
+ *   - 技能 tab（skills-hub）：待确认技能建议 + 技能管理（SkillsBrowser）
+ *   - 待办 tab（todos-hub）：待确认待办建议 + 四轨待办（TodoView）
+ * plus the optional COI 调度 / 提示词注入 / 临时信息 tabs, all backed by
+ * the node half's /memory-evolve/api routes. Each tab label carries a
+ * red-dot pending count (🔴 记忆 (N) / 🔴 技能 (N) / 🔴 待办 (N)) while
+ * suggestions/skills/todos await confirmation, refreshed by polling the
+ * badge endpoint and re-registering through the deferral handle's
+ * refresh().
  */
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -16,7 +20,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
+import { SkillsTabView } from './SkillsTabView.tsx'
+import { TodosTabView } from './TodosTabView.tsx'
+import { SettingsTabView } from './SettingsTabView.tsx'
 import { CoIView } from './CoIView.tsx'
+import { CopySessionIdButton } from './CopySessionIdButton.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import styles from './styles.css'
@@ -117,19 +125,120 @@ export const zh = {
   'mtime.label': '修改于 {time}',
   'open.in.new.tab': '在新标签页打开',
   'preview': '预览',
-  'memoryTab.label': '记忆技能待办',
-  'memoryTab.label.pending': '🔴 记忆技能待办 ({count})',
-  'coiTab.label': 'CLI调度',
+  'memoryTab.label': '记忆',
+  'memoryTab.label.pending': '🔴 记忆 ({count})',
+  'skillsTab.label': '技能',
+  'skillsTab.label.pending': '🔴 技能 ({count})',
+  'todosTab.label': '待办',
+  'todosTab.label.pending': '🔴 待办 ({count})',
+  'coiTab.label': 'COI调度',
+  'header.copySessionId': '⧉ 复制会话ID',
+  'header.copySessionId.done': '✓ 已复制',
+  'header.copySessionId.title': '复制当前会话 ID（发给其他会话：告诉对方 AI 你的会话 ID，让它用 de_broadcast 给你发广播）',
   'scratchTab.label': '临时信息',
-  'promptTab.label': '提示词',
-  'promptTab.label.active': '🔴 提示词 ({count})',
-  'memoryTab.feature.guide': '使用指南',
+  'promptTab.label': '提示词注入',
+  'promptTab.label.active': '🔴 提示词注入 ({count})',
+  'settingsTab.label': 'Memory Evolve 设置',
+  'settingsTab.feature.guide': '指南',
+  'settingsTab.feature.config': '配置',
+  'memoryTab.feature.guide': '指南',
   'memoryTab.feature.suggestions': '待确认记忆建议',
+  'skillsTab.feature.guide': '指南',
+  'skillsTab.feature.skills': '待确认技能建议',
+  'skillsTab.feature.skillBrowser': '技能管理',
+  'todosTab.feature.guide': '指南',
+  'todosTab.feature.todoSuggestions': '待确认待办管理',
+  'todosTab.feature.todo': '待办',
+  // 以下键保留兼容（旧 memory tab 合并布局的遗留，新 UI 不再引用）：
+  'memoryTab.feature.config': '配置',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
   'memoryTab.feature.skills': '待确认技能建议',
-  'memoryTab.feature.config': '运行时配置',
   'memoryTab.feature.skillBrowser': '技能管理',
   'memoryTab.feature.todo': '待办',
+  // 记忆 Tab 专属指南（「指南」子 Tab，详细介绍记忆功能本身）：
+  'memoryTab.guide.tracks.title': '五轨记忆',
+  'memoryTab.guide.tracks.body': '记忆按层级分五轨，注入范围随层级收窄、互不污染：',
+  'memoryTab.guide.tracks.item1': '用户档案（user）：你是谁、偏好、沟通方式——每会话注入；',
+  'memoryTab.guide.tracks.item2': '长期记忆（memory）：环境/工具/全局惯例——每会话注入；',
+  'memoryTab.guide.tracks.item3': '项目关键记忆（key）：当前项目的长期事实（约定/决策/架构/踩坑）——注入当前项目会话，按 git 分支过滤；',
+  'memoryTab.guide.tracks.item4': '项目日志（project）：当前项目的进展流水——不注入，AI 按需读取；',
+  'memoryTab.guide.tracks.item5': '今日日志（daily）：按天记录的当天进展——不注入，AI 按需读取。',
+  'memoryTab.guide.files.title': '文件页签',
+  'memoryTab.guide.files.body': '本 Tab 直接预览 AGENTS.md 与全部记忆文件（只读——编辑请走 memory 工具或系统工具，避免破坏 § 分隔格式）：',
+  'memoryTab.guide.files.item1': '美观视图：§ 条目卡片（时间/分支/标签徽标 + 内容），可搜索过滤、切换纯文本视图；',
+  'memoryTab.guide.files.item2': 'KEY 页签可手动添加长期项目事实（可同时选择分支范围），保存后下一轮注入；',
+  'memoryTab.guide.files.item3': '每条记忆可编辑（注入轨保存需确认）、删除（完整条目精确匹配）、归档/移回主记忆。',
+  'memoryTab.guide.branch.title': 'git 分支感知',
+  'memoryTab.guide.branch.body': '同一个项目的不同分支可能有完全不同的约定，项目级记忆全程感知当前分支：',
+  'memoryTab.guide.branch.item1': 'key 条目可带分支范围标记（无标记 = 全部分支可见）；注入时只注入「无标记」+「覆盖当前分支」的条目；',
+  'memoryTab.guide.branch.item2': '日志条目自动带来源分支 tag（[git 分支名]），跨分支回顾不张冠李戴。',
+  'memoryTab.guide.maintain.title': '编辑与维护',
+  'memoryTab.guide.maintain.body': '记忆的维护操作都在本 Tab 完成：',
+  'memoryTab.guide.maintain.item1': '编辑正文：只改内容，时间戳/分支/tag 由程序维护；',
+  'memoryTab.guide.maintain.item2': '删除：按完整条目精确匹配（杜绝误删包含关系的长条目），不可恢复；',
+  'memoryTab.guide.maintain.item3': '归档/移回：memory/user/key ↔ 归档文件双向移动，归档不再注入、可随时转正。',
+  'memoryTab.guide.suggestions.title': '待确认记忆建议',
+  'memoryTab.guide.suggestions.body': '后台审查产出的记忆建议先进待确认队列（确认制——AI 只提议，你决定）：',
+  'memoryTab.guide.suggestions.item1': '采纳：可先修改文本、可选目标轨（记忆/用户档案/项目关键记忆），写入后随快照注入；',
+  'memoryTab.guide.suggestions.item2': '归档：不注入、仅保留备查，需要时可移回主记忆；拒绝：直接丢弃。',
+  'memoryTab.guide.confirm.title': '确认制',
+  'memoryTab.guide.confirm.body': '记忆写入会真实改变 AI 的行为（进入上下文、影响后续回复），所以一律先经你确认——这是记忆进化的把关环节。',
+  // 技能 Tab 专属指南（「指南」子 Tab，详细介绍技能功能本身）：
+  'skillsTab.guide.what.title': '技能是什么',
+  'skillsTab.guide.what.body': '技能 = 给 AI 的方法论文档（SKILL.md：frontmatter name/description + 正文）：注入每个会话的系统提示词，AI 遇到同类任务直接按流程执行。',
+  'skillsTab.guide.what.item1': '技能库默认在 ~/.agents/skills（每个技能一个目录）；',
+  'skillsTab.guide.what.item2': 'DSH 还扫描项目技能、内置技能与自定义目录——全部在本 Tab 可见。',
+  'skillsTab.guide.how.title': '技能如何沉淀',
+  'skillsTab.guide.how.body': '反复踩坑的方法论可固化为技能：',
+  'skillsTab.guide.how.item1': '后台审查创建：新技能先进「待确认技能建议」，采纳后移入技能库；',
+  'skillsTab.guide.how.item2': 'skill_manage 工具：模型直接创建/更新技能（read-before-write 保护）；',
+  'skillsTab.guide.how.item3': '创建保持克制：只建「多次踩坑、难度大、后续复用」的技能，避免技能库膨胀。',
+  'skillsTab.guide.pending.title': '待确认技能建议',
+  'skillsTab.guide.pending.body': '审查创建的新技能在此确认：',
+  'skillsTab.guide.pending.item1': '采纳：移入技能库（~/.agents/skills），随系统提示词注入、所有会话立即可用；',
+  'skillsTab.guide.pending.item2': '拒绝：丢弃该技能。',
+  'skillsTab.guide.manager.title': '技能管理',
+  'skillsTab.guide.manager.body': '完整技能管理器（三栏：技能列表 / 目录树 / 文件查看编辑）：',
+  'skillsTab.guide.manager.item1': '全部技能按来源分层展示（用户 user-* / 自定义 custom / 内置 bundled / 项目 project-*），可搜索与筛选；',
+  'skillsTab.guide.manager.item2': '自定义技能目录：添加/移除任意技能目录（<目录>/<技能>/SKILL.md 或 <目录>/<技能>.md 布局）；',
+  'skillsTab.guide.manager.item3': '文件浏览与编辑：目录树 + 文本查看/编辑（限技能目录范围内，越界/二进制/超大被拒）；',
+  'skillsTab.guide.manager.item4': '禁用列表与自定义目录持久保存，重启后自动恢复。',
+  'skillsTab.guide.disable.title': '禁用 / 启用',
+  'skillsTab.guide.disable.body': '一键禁用把技能从模型技能目录中移除（注册 runtime shadow，模型不再看到、skill 工具拒绝加载）：',
+  'skillsTab.guide.disable.item1': '可随时重新启用，选择持久保存；',
+  'skillsTab.guide.disable.item2': '系统技能（project 来源）结构性不可禁用。',
+  'skillsTab.guide.dirs.title': '自定义技能目录',
+  'skillsTab.guide.dirs.body': '在「技能管理」里直接添加/移除你自己的技能目录（如 ~/.hermes/skills），与已有技能根重叠的路径会被拒绝；永久保存、重启后自动加载。',
+  'skillsTab.guide.restraint.title': '创建纪律',
+  'skillsTab.guide.restraint.body': '技能会注入每个会话的系统提示词、影响上下文与缓存——创建必须克制：',
+  'skillsTab.guide.restraint.item1': '只创建「多次尝试仍难解决、难度大、后续可能多次复用」的技能；',
+  'skillsTab.guide.restraint.item2': '一次性、简单任务不创建技能。',
+  // 待办 Tab 专属指南（「指南」子 Tab，详细介绍待办功能本身）：
+  'todosTab.guide.tracks.title': '四轨待办',
+  'todosTab.guide.tracks.body': '待办按目标分四轨，与记忆系统同构：',
+  'todosTab.guide.tracks.item1': '生活（life）：个人琐事；',
+  'todosTab.guide.tracks.item2': '工作（work）：跨项目的正事；',
+  'todosTab.guide.tracks.item3': '本项目（project）：当前工作目录的待办（换个目录看不到，按 cwd 隔离）；',
+  'todosTab.guide.tracks.item4': '今日（daily）：按天分文件的每日待办，可回看过往（按日期分组）。',
+  'todosTab.guide.add.title': '如何添加',
+  'todosTab.guide.add.body': '两种方式：',
+  'todosTab.guide.add.item1': '对 AI 说「记住/我要做 X」（可指明 工作/生活/这个项目/今天），AI 按类别直写对应轨；',
+  'todosTab.guide.add.item2': '在本 Tab 输入框手动添加（可选四象限与截止日期）。',
+  'todosTab.guide.pending.title': '待确认待办管理',
+  'todosTab.guide.pending.body': 'AI 自建的待办先进待确认队列——AI 不能自作主张给你派活：',
+  'todosTab.guide.pending.item1': '采纳：写入对应待办轨（待办永远是待办，不可改成记忆）；',
+  'todosTab.guide.pending.item2': '归档：保留备查；拒绝：丢弃。',
+  'todosTab.guide.attrs.title': '状态与属性',
+  'todosTab.guide.attrs.body': '每条待办带完整元数据：',
+  'todosTab.guide.attrs.item1': '四象限（q1 重要紧急 ~ q4 不重要不紧急）、截止日期、可选分类；',
+  'todosTab.guide.attrs.item2': '状态：待办 / 进行中 / 已完成（自动盖完成时间）/ 受阻 / 已取消；',
+  'todosTab.guide.attrs.item3': '列表按轨页签 + 状态/象限筛选，每条可完成/恢复、行内编辑、删除（确认）。',
+  'todosTab.guide.view.title': '智能视图',
+  'todosTab.guide.view.body': '默认只显示需要关注的（逾期/今日到期/当前项目/重要紧急，最多 8 条）：',
+  'todosTab.guide.view.item1': '过往每日待办按需读取——点「过往」页签才查询历史；',
+  'todosTab.guide.view.item2': '「显示已过期」勾选后才展示过期的遗留（默认隐藏，不增加负担）。',
+  'todosTab.guide.remind.title': '到期提醒',
+  'todosTab.guide.remind.body': 'AI 每轮收尾检查待办到期情况，有到期未完成项就在回复末尾提醒你——不用自己记着盯。',
   'todo.track.life': '生活',
   'todo.track.all': '全部',
   'todo.track': '待办轨',
@@ -240,17 +349,20 @@ export const zh = {
   'panel.guide.skill.title': '技能沉淀（skill_manage）',
   'panel.guide.skill.desc': '反复踩坑的方法论可固化为技能，同类任务下次直接按流程执行，不用重新摸索。创建保持克制，只建高复用价值的；技能库可在「技能管理」里浏览、搜索并一键启用/禁用（禁用后 AI 不再加载）。',
   'panel.guide.search.title': '本地搜索（memory_evolve_search_local_files）',
-  'panel.guide.search.desc': '记忆里没有、要找本地资料时，AI 可按文件名搜索——不止文档，图片/代码/配置等一切与项目相关的文件都能找（默认只搜文档扩展名，需要时可显式全类型搜索）。**默认禁用**：需要时在下方「运行时配置」打开开关，或对我说“启用本地搜索”。',
+  'panel.guide.search.desc': '记忆里没有、要找本地资料时，AI 可按文件名搜索——不止文档，图片/代码/配置等一切与项目相关的文件都能找（默认只搜文档扩展名，需要时可显式全类型搜索）。**默认禁用**：在「Memory Evolve 设置」Tab 的「配置」里打开开关，或对我说“启用本地搜索”。',
   'panel.guide.coi.title': 'COI 调度（de_coi）',
-  'panel.guide.coi.desc': '把任务派给外部 CLI 代理（kimi/codex/grok/hermes 等）：统一调度不卡主进程、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并沉淀到记忆。说"派给 kimi/codex 做 XX"即可，或打开「COI 调度」Tab 手动发起。**默认禁用**：与本地搜索一样按需启用——在下方「运行时配置」打开「COI 调度」开关（工具即时生效，Tab 刷新后出现）。',
+  'panel.guide.coi.desc': '把任务派给外部 CLI 代理（kimi/codex/grok/hermes 等）：统一调度不卡主进程、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并沉淀到记忆。说"派给 kimi/codex 做 XX"即可，或打开「COI 调度」Tab 手动发起。**默认禁用**：与本地搜索一样按需启用——在「Memory Evolve 设置」Tab 的「配置」里打开「COI 调度」开关（工具即时生效，Tab 刷新后出现）。',
   'panel.guide.prompt.title': '提示词管理器（Prompt Manager）',
-  'panel.guide.prompt.desc': '把常用的工作范式固化成提示词资产（内置程序员示例：代码审查/调试/架构/测试等，来源以自写为主）：选中一条即可注入——**写入后模型下一轮自动看到、不打断回复**；支持一次性、持续 N 轮、每 M 回合提醒一次（按对话回合计数自动过期），「注入中」可随时停止。**默认禁用**：在下方「运行时配置」打开「提示词管理器」开关，Tab 刷新后出现。',
+  'panel.guide.prompt.desc': '把常用的工作范式固化成提示词资产（内置程序员示例：代码审查/调试/架构/测试等，来源以自写为主）：选中一条即可注入——**写入后模型下一轮自动看到、不打断回复**；支持一次性、持续 N 轮、每 M 回合提醒一次（按对话回合计数自动过期），「注入中」可随时停止。**默认禁用**：在「Memory Evolve 设置」Tab 的「配置」里打开「提示词管理器」开关，Tab 刷新后出现。',
+  'panel.guide.broadcast.title': '会话广播（de_broadcast）',
+  'panel.guide.broadcast.desc': 'DSH 会话之间传递消息：先复制本会话 ID（会话头部「⧉ 复制会话ID」按钮），把 ID 发给另一个会话，让它的 AI 用 de_broadcast send 把内容广播给你（recipients 可同时填多个会话 ID）——接收方快照**定点注入**未读提示（收件箱式列出 id+主题+发送者+时间，只有接收者看得到，其他会话无感知），AI 用 list/read 查看全文处理（read 即消费，全部接收者读完后消息自动删除）；超过 8KB 的内容自动落文件，30 天自动清理。**开关**：独立「会话广播」（broadcastEnabled，默认关，可单独开启，与 COI 调度无关）。另：快照最前面有**常驻「你的会话 ID」段**（不随任何开关，每个会话始终注入）——AI 用它比对各模块消息里的 session id 判断谁是发件人、谁是自己，回复广播时把 ID 告知对方。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
   'panel.guide.best.1': '跨会话衔接：项目约定/进展直接说"查一下记忆"，AI 从项目日志与关键记忆里接续，不重复交代。',
   'panel.guide.best.2': '口头即记：想到什么就说"记住这个 / 这个要跟进"，AI 自动分类沉淀；隔几天回来说一句就能接上。',
   'panel.guide.best.3': '定期确认：偶尔看看「待确认记忆建议」「待确认待办建议」两个 tab，采纳或拒绝——这是记忆进化的确认环节。',
+  'panel.guide.best.4': '跨会话协作：复制本会话 ID 发给另一个会话，让它的 AI 用 de_broadcast 把结果广播给你（可同时发给多个会话，接收方下一轮自动看到未读提示）。',
   'panel.guide.loop': '闭环：聊 → 记 → 审查 → 沉淀 → 执行。这套机制就是 AI 的长期工作记忆。',
   'panel.suggestions.approve': '采纳',
   'panel.suggestions.archive': '归档',
@@ -280,7 +392,7 @@ export const zh = {
   'panel.skills.approve': '采纳',
   'panel.skills.reject': '拒绝',
   'panel.skills.done': '已{op}技能',
-  'panel.config.title': '运行时配置',
+  'panel.config.title': '配置',
   'panel.config.help': '修改立即生效并持久化（覆盖 config.yaml 的对应项）。',
   'panel.config.reviewEnabled': '后台审查',
   'panel.config.reviewEnabled.hint': '自动回顾会话并沉淀经验；关闭后 memory/skill 工具与记忆快照仍可用，只是不再自动审查',
@@ -300,6 +412,8 @@ export const zh = {
   'panel.config.scratchEnabled.hint': '启用「临时信息」Tab：持久化 Markdown 便签，临时想法随手记（自动保存到 ~/.dsh/memories/scratch.md，重启不丢，可随时迁移或删除）。默认关闭；关闭时 Tab 完全不可见',
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '启用 memory_evolve_search_local_files：让模型能在本机所有磁盘/目录中按文件名搜索文件（默认只搜文档 md/docx/pdf…；全类型/文件夹需显式参数确认；只匹配文件名不读内容）。默认关闭；关闭时工具对模型完全不可见',
+  'panel.config.broadcastEnabled': '会话广播',
+  'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——会话头部「⧉ 复制会话ID」按钮 + 快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响',
   'panel.config.promptsEnabled': '提示词管理器',
   'panel.config.promptsEnabled.hint': '启用「提示词」Tab：提示词库（用户自写范式 + 内置示例）+ 注入轨（一次性/持续 N 轮/每 M 回合一次——写入后模型下一轮自动看到，回合递减自动过期，可随时停止）。默认关闭；关闭时快照段/事件监听/API 全部卸载，Tab 刷新后隐藏',
   'panel.config.save': '保存配置',
@@ -400,19 +514,120 @@ export const en: Record<MemoryEvolveKey, string> = {
   'mtime.label': 'Modified {time}',
   'open.in.new.tab': 'Open in new tab',
   'preview': 'Preview',
-  'memoryTab.label': 'Memory, Skills & Todos',
-  'memoryTab.label.pending': '🔴 Memory, Skills & Todos ({count})',
-  'coiTab.label': 'CLI Dispatch',
+  'memoryTab.label': 'Memory',
+  'memoryTab.label.pending': '🔴 Memory ({count})',
+  'skillsTab.label': 'Skills',
+  'skillsTab.label.pending': '🔴 Skills ({count})',
+  'todosTab.label': 'Todos',
+  'todosTab.label.pending': '🔴 Todos ({count})',
+  'coiTab.label': 'COI Dispatch',
+  'header.copySessionId': '⧉ Copy session ID',
+  'header.copySessionId.done': '✓ Copied',
+  'header.copySessionId.title': 'Copy this session\'s ID (send it to another session: tell its AI your session ID so it can broadcast to you via de_broadcast)',
   'scratchTab.label': 'Scratch Pad',
-  'promptTab.label': 'Prompts',
-  'promptTab.label.active': '🔴 Prompts ({count})',
+  'promptTab.label': 'Prompt Injection',
+  'promptTab.label.active': '🔴 Prompt Injection ({count})',
+  'settingsTab.label': 'Memory Evolve Settings',
+  'settingsTab.feature.guide': 'Guide',
+  'settingsTab.feature.config': 'Config',
   'memoryTab.feature.guide': 'Guide',
   'memoryTab.feature.suggestions': 'Memory suggestions',
+  'skillsTab.feature.guide': 'Guide',
+  'skillsTab.feature.skills': 'Skill suggestions',
+  'skillsTab.feature.skillBrowser': 'Skill manager',
+  'todosTab.feature.guide': 'Guide',
+  'todosTab.feature.todoSuggestions': 'Todo suggestions',
+  'todosTab.feature.todo': 'Todos',
+  // Legacy keys kept for compatibility (old merged memory-tab layout).
+  'memoryTab.feature.config': 'Config',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
   'memoryTab.feature.skills': 'Skill suggestions',
-  'memoryTab.feature.config': 'Runtime config',
   'memoryTab.feature.skillBrowser': 'Skill manager',
   'memoryTab.feature.todo': 'Todos',
+  // Memory-tab guide (the "Guide" sub-tab: detailed intro of the memory feature itself).
+  'memoryTab.guide.tracks.title': 'Five memory tracks',
+  'memoryTab.guide.tracks.body': 'Memory is organized in five tracks; injection scope narrows by tier and tracks never pollute each other:',
+  'memoryTab.guide.tracks.item1': 'User profile (user): who you are, preferences, communication style — injected into every session;',
+  'memoryTab.guide.tracks.item2': 'Long-term memory (memory): environment/tools/global conventions — injected into every session;',
+  'memoryTab.guide.tracks.item3': 'Project key facts (key): long-lived facts of the current project (conventions/decisions/architecture/pitfalls) — injected into current-project sessions, filtered by git branch;',
+  'memoryTab.guide.tracks.item4': 'Project log (project): progress stream of the current project — never injected, read on demand by the AI;',
+  'memoryTab.guide.tracks.item5': 'Daily log (daily): per-day progress records — never injected, read on demand.',
+  'memoryTab.guide.files.title': 'File tabs',
+  'memoryTab.guide.files.body': 'This tab previews AGENTS.md and every memory file (read-only — edit via the memory tool or a system editor to avoid breaking the §-delimited format):',
+  'memoryTab.guide.files.item1': 'Pretty view: § entry cards (time/branch/tag badges + content), searchable, switchable to raw text view;',
+  'memoryTab.guide.files.item2': 'The KEY tab can add long-lived project facts manually (branch scope selectable); they inject from the next turn;',
+  'memoryTab.guide.files.item3': 'Every entry can be edited (injected tracks require confirmation), deleted (exact whole-entry match), archived/promoted.',
+  'memoryTab.guide.branch.title': 'Git branch awareness',
+  'memoryTab.guide.branch.body': 'Different branches of the same project can carry completely different conventions; project-level memory tracks the current branch end to end:',
+  'memoryTab.guide.branch.item1': 'Key entries can carry a branch-scope tag (untagged = visible on every branch); only "untagged + covering current branch" entries are injected;',
+  'memoryTab.guide.branch.item2': 'Log entries carry an automatic source-branch tag ([git branch]), so cross-branch reviews never mix things up.',
+  'memoryTab.guide.maintain.title': 'Edit & maintain',
+  'memoryTab.guide.maintain.body': 'All memory maintenance happens right here:',
+  'memoryTab.guide.maintain.item1': 'Edit content only — timestamps/branch/tags are program-maintained;',
+  'memoryTab.guide.maintain.item2': 'Delete by exact whole-entry match (never substring — no accidental deletion of longer entries containing it), irreversible;',
+  'memoryTab.guide.maintain.item3': 'Archive/promote: memory/user/key ↔ archive files, both directions; archived entries are never injected and can be promoted back anytime.',
+  'memoryTab.guide.suggestions.title': 'Memory suggestions',
+  'memoryTab.guide.suggestions.body': 'Review-produced memory suggestions enter a pending queue first (confirmation system — the AI proposes, you decide):',
+  'memoryTab.guide.suggestions.item1': 'Approve: edit the text if needed, optionally pick the target track (memory/user/key), then it is written and injected with the snapshot;',
+  'memoryTab.guide.suggestions.item2': 'Archive: kept out of the injected memory, can be promoted back; Reject: dropped.',
+  'memoryTab.guide.confirm.title': 'Confirmation system',
+  'memoryTab.guide.confirm.body': 'Memory writes genuinely change the AI\'s behavior (they enter the context and affect later replies), so everything goes through your confirmation first — that is the gate of memory evolution.',
+  // Skills-tab guide (the "Guide" sub-tab: detailed intro of the skill feature itself).
+  'skillsTab.guide.what.title': 'What a skill is',
+  'skillsTab.guide.what.body': 'A skill = a methodology document for the AI (SKILL.md: frontmatter name/description + body): injected into every session\'s system prompt, so the AI follows the process next time it meets the same kind of task.',
+  'skillsTab.guide.what.item1': 'The skill library lives in ~/.agents/skills by default (one directory per skill);',
+  'skillsTab.guide.what.item2': 'DSH also scans project skills, bundled skills and custom dirs — all visible in this tab.',
+  'skillsTab.guide.how.title': 'How skills form',
+  'skillsTab.guide.how.body': 'Methodologies learned the hard way can be solidified into skills:',
+  'skillsTab.guide.how.item1': 'Background review creates them: new skills land in "Skill suggestions" first, approved ones move into the library;',
+  'skillsTab.guide.how.item2': 'The skill_manage tool: the model creates/updates skills directly (read-before-write protection);',
+  'skillsTab.guide.how.item3': 'Creation stays restrained: only "repeatedly painful, hard, likely reused later" skills — keep the library lean.',
+  'skillsTab.guide.pending.title': 'Skill suggestions',
+  'skillsTab.guide.pending.body': 'New skills from review are confirmed here:',
+  'skillsTab.guide.pending.item1': 'Approve: moved into the skill library (~/.agents/skills), injected with the system prompt, available to every session;',
+  'skillsTab.guide.pending.item2': 'Reject: dropped.',
+  'skillsTab.guide.manager.title': 'Skill manager',
+  'skillsTab.guide.manager.body': 'The full skill manager (three panes: skill list / directory tree / file view-edit):',
+  'skillsTab.guide.manager.item1': 'Every skill grouped by source (user user-* / custom / bundled / project project-*), searchable and filterable;',
+  'skillsTab.guide.manager.item2': 'Custom skill dirs: add/remove any skill directory (<dir>/<skill>/SKILL.md or <dir>/<skill>.md layout);',
+  'skillsTab.guide.manager.item3': 'File browsing & editing: directory tree + text view/edit (scoped to the skill dir; out-of-scope/binary/oversized rejected);',
+  'skillsTab.guide.manager.item4': 'Disabled list and custom dirs persist and restore automatically after restart.',
+  'skillsTab.guide.disable.title': 'Disable / enable',
+  'skillsTab.guide.disable.body': 'One click removes a skill from the model\'s skill catalog (runtime shadow — the model no longer sees it and the skill tool refuses to load it):',
+  'skillsTab.guide.disable.item1': 'Re-enable anytime; the choice persists;',
+  'skillsTab.guide.disable.item2': 'System skills (project source) are structurally protected and cannot be disabled.',
+  'skillsTab.guide.dirs.title': 'Custom skill directories',
+  'skillsTab.guide.dirs.body': 'Add/remove your own skill directories in "Skill manager" (e.g. ~/.hermes/skills); paths overlapping an existing skill root are rejected; persisted and reloaded after restart.',
+  'skillsTab.guide.restraint.title': 'Creation discipline',
+  'skillsTab.guide.restraint.body': 'Skills are injected into every session\'s system prompt and affect context/cache — create sparingly:',
+  'skillsTab.guide.restraint.item1': 'Only create skills that are "hard to solve after repeated tries, high difficulty, likely reused later";',
+  'skillsTab.guide.restraint.item2': 'Never create skills for one-off or trivial tasks.',
+  // Todos-tab guide (the "Guide" sub-tab: detailed intro of the todo feature itself).
+  'todosTab.guide.tracks.title': 'Four todo tracks',
+  'todosTab.guide.tracks.body': 'Todos are filed by target, isomorphic to the memory system:',
+  'todosTab.guide.tracks.item1': 'Life: personal errands;',
+  'todosTab.guide.tracks.item2': 'Work: cross-project tasks;',
+  'todosTab.guide.tracks.item3': 'This project: todos of the current working directory (invisible from other dirs — cwd-scoped);',
+  'todosTab.guide.tracks.item4': 'Today (daily): per-day todo files, with past days browsable (grouped by date).',
+  'todosTab.guide.add.title': 'How to add',
+  'todosTab.guide.add.body': 'Two ways:',
+  'todosTab.guide.add.item1': 'Tell the AI "remember / I need to do X" (optionally work/life/this project/today) — it files the todo into the right track directly;',
+  'todosTab.guide.add.item2': 'Use the add box in this tab (quadrant and due date optional).',
+  'todosTab.guide.pending.title': 'Todo suggestions',
+  'todosTab.guide.pending.body': 'AI-proposed todos enter a pending queue first — the AI cannot assign you work on its own:',
+  'todosTab.guide.pending.item1': 'Approve: written into the matching track (a todo stays a todo — it can never become memory);',
+  'todosTab.guide.pending.item2': 'Archive: kept aside; Reject: dropped.',
+  'todosTab.guide.attrs.title': 'Status & attributes',
+  'todosTab.guide.attrs.body': 'Every todo carries full metadata:',
+  'todosTab.guide.attrs.item1': 'Quadrant (q1 important & urgent ~ q4 neither), due date, optional category;',
+  'todosTab.guide.attrs.item2': 'Status: pending / doing / done (done timestamp auto-stamped) / blocked / cancelled;',
+  'todosTab.guide.attrs.item3': 'List filters by track tab + status/quadrant; per-item done/restore, inline edit, delete (confirmed).',
+  'todosTab.guide.view.title': 'Smart view',
+  'todosTab.guide.view.body': 'By default only items needing attention are shown (overdue / due today / current project / important-urgent, max 8):',
+  'todosTab.guide.view.item1': 'Past daily todos load on demand — history is queried only when the "Past" tab is opened;',
+  'todosTab.guide.view.item2': 'Expired leftovers stay hidden unless "Show expired" is ticked (no extra load).',
+  'todosTab.guide.remind.title': 'Due reminders',
+  'todosTab.guide.remind.body': 'The AI checks todos at the end of every turn and reminds you of overdue/due items in its reply — you never have to keep track yourself.',
   'todo.track.life': 'Life',
   'todo.track.all': 'All',
   'todo.track': 'Track',
@@ -523,17 +738,20 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.skill.title': 'Skills (skill_manage)',
   'panel.guide.skill.desc': 'Methodologies learned the hard way can be solidified into reusable skills, so the same kind of task runs on a proven process next time. Creation stays restrained: only high-reuse skills; the skill manager lets you browse, search and enable/disable any skill (disabled skills are never loaded by the AI).',
   'panel.guide.search.title': 'Local search (memory_evolve_search_local_files)',
-  'panel.guide.search.desc': 'When memory is not enough and local material is needed, the AI can search by file name — not just documents: images, code, configs, anything relevant to the project (documents only by default; full-type search available when explicitly requested). **Disabled by default**: toggle it on in the runtime config below, or tell the AI “enable local search”.',
+  'panel.guide.search.desc': 'When memory is not enough and local material is needed, the AI can search by file name — not just documents: images, code, configs, anything relevant to the project (documents only by default; full-type search available when explicitly requested). **Disabled by default**: toggle it on under "Config" in the "Memory Evolve Settings" tab, or tell the AI “enable local search”.',
   'panel.guide.coi.title': 'COI dispatch (de_coi)',
-  'panel.guide.coi.desc': 'Dispatch tasks to external CLI agents (kimi/codex/grok/hermes…): unified non-blocking scheduling, live progress, auto-tiered session management with one-click resume, cross-COI relay, archived results that also sink into memory. Just say “have kimi/codex do X”, or open the CLI Dispatch tab to dispatch manually. **Disabled by default**: enable the COI dispatch toggle in the runtime config below (tools take effect immediately; the tab appears after a refresh).',
+  'panel.guide.coi.desc': 'Dispatch tasks to external CLI agents (kimi/codex/grok/hermes…): unified non-blocking scheduling, live progress, auto-tiered session management with one-click resume, cross-COI relay, archived results that also sink into memory. Just say “have kimi/codex do X”, or open the CLI Dispatch tab to dispatch manually. **Disabled by default**: enable the COI dispatch toggle under "Config" in the "Memory Evolve Settings" tab (tools take effect immediately; the tab appears after a refresh).',
   'panel.guide.prompt.title': 'Prompt manager',
-  'panel.guide.prompt.desc': 'Turn recurring working paradigms into prompt assets (built-in programmer examples: code review/debugging/architecture/tests…; write your own as the main source). Pick one and inject — the content becomes visible to the model next turn without interrupting the reply; supports one-shot, N consecutive turns, or once every M turns (auto-expiring by turn counting), and can be stopped anytime. **Disabled by default**: enable the prompt manager toggle in the runtime config below; the tab appears after a refresh.',
+  'panel.guide.prompt.desc': 'Turn recurring working paradigms into prompt assets (built-in programmer examples: code review/debugging/architecture/tests…; write your own as the main source). Pick one and inject — the content becomes visible to the model next turn without interrupting the reply; supports one-shot, N consecutive turns, or once every M turns (auto-expiring by turn counting), and can be stopped anytime. **Disabled by default**: enable the prompt manager toggle under "Config" in the "Memory Evolve Settings" tab; the tab appears after a refresh.',
+  'panel.guide.broadcast.title': 'Session broadcast (de_broadcast)',
+  'panel.guide.broadcast.desc': 'Pass messages between DSH sessions: copy this session\'s ID (the "⧉ Copy session ID" button in the session header), send the ID to another session, and let its AI broadcast content back to you via de_broadcast send (recipients can be an array of session IDs) — the receiver\'s snapshot gets a targeted unread hint (inbox-style: id + subject + sender + time; visible only to the receiver, other sessions never see it) and the AI reads/processes it with list/read (read consumes the message; it is auto-deleted once every recipient has read it); content over 8 KB is spilled to a file, with a 30-day automatic cleanup. **Switch**: independent "Session broadcast" (broadcastEnabled, off by default, can be enabled alone — unrelated to COI dispatch). Also, the snapshot always leads with a persistent "Your session ID" section (injected into every session regardless of any switch) — the AI uses it to compare against session ids in messages from other modules (who is the sender, who is me) and tells the other side its ID when replying to a broadcast.',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
   'panel.guide.best.1': 'Pick up across sessions: say “check the memory” about project conventions/progress — the AI continues from the project log and key facts instead of asking you to repeat.',
   'panel.guide.best.2': 'Dictate as you think: “remember this / follow up on that” — the AI files it automatically; a one-liner days later reconnects the thread.',
   'panel.guide.best.3': 'Confirm periodically: glance at the memory/todo suggestion tabs and adopt or reject — that is the confirmation loop of memory evolution.',
+  'panel.guide.best.4': 'Cross-session collaboration: copy your session ID, send it to another session, and have its AI broadcast results back to you via de_broadcast (multiple recipients supported; the receiver sees an unread hint next turn).',
   'panel.guide.loop': 'The loop: talk → remember → review → solidify → execute. This is the AI’s long-term working memory.',
   'panel.suggestions.approve': 'Approve',
   'panel.suggestions.archive': 'Archive',
@@ -563,7 +781,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.skills.approve': 'Approve',
   'panel.skills.reject': 'Reject',
   'panel.skills.done': 'Skill {op}',
-  'panel.config.title': 'Runtime config',
+  'panel.config.title': 'Config',
   'panel.config.help': 'Changes apply immediately and persist (overriding the config.yaml entries).',
   'panel.config.reviewEnabled': 'Background review',
   'panel.config.reviewEnabled.hint': 'Automatically review sessions and harvest experience; when off, the memory/skill tools and the snapshot still work — only the automatic review stops',
@@ -583,6 +801,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.scratchEnabled.hint': 'Enable the Scratch Pad tab: a persistent Markdown note for temporary thoughts (auto-saves to ~/.dsh/memories/scratch.md, survives restarts, ready to migrate or delete anytime). Off by default; when off the tab is completely invisible',
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Enable memory_evolve_search_local_files: lets the model search files by name across all local disks/directories (documents md/docx/pdf… by default; all types/folders require explicit parameter confirmation; name matching only, never reads contents). Off by default; when off the tool is completely invisible to the model',
+  'panel.config.broadcastEnabled': 'Session broadcast',
+  'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "⧉ Copy session ID" button in the session header + the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup). **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected',
   'panel.config.promptsEnabled': 'Prompt manager',
   'panel.config.promptsEnabled.hint': 'Enable the Prompts tab: a prompt library (user-written paradigms + built-in examples) plus an injection track (once / N consecutive turns / every M turns — injected content is visible to the model next turn, expires automatically by turn counting, and can be stopped anytime). Off by default; when off the snapshot section, event listener and API are fully uninstalled and the tab hides after refresh',
   'panel.config.save': 'Save config',
@@ -688,35 +908,80 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: prompt stylesheet')
 
-  // Session memory tab (conversation.view): the ONLY memory-management
-  // surface now (the settings-panel section was removed). The label carries
-  // a red-dot pending count (🔴 记忆 (N)) while suggestions/skills await
-  // confirmation. Upstream 08-06 removed ui-slots' deferRegistration; the
-  // replacement is ctx.slots.inject (registers once the slot is declared on
-  // the ledger). Badge changes re-register the entry — the register bump
-  // notifies subscribers, which re-evaluates the label thunk.
+  // 会话页三个核心 tab：记忆 / 技能 / 待办（conversation.view，依次排列）。
+  // 每个 label 携带各自的待确认红点计数（记忆=记忆建议数、技能=技能建议数、
+  // 待办=待办建议数），badge 变化时重新注册触发 label 重求值。
   let tabCancelled = false
-  let badgeCount = 0
-  let disposeTab: (() => void) | undefined
-  const registerTab = (): void => {
-    disposeTab?.()
-    disposeTab = ctx.slots.inject('conversation.view', () =>
+  let memoryBadgeCount = 0
+  let skillsBadgeCount = 0
+  let todosBadgeCount = 0
+  let disposeMemoryTab: (() => void) | undefined
+  let disposeSkillsTab: (() => void) | undefined
+  let disposeTodosTab: (() => void) | undefined
+
+  const registerMemoryTab = (): void => {
+    disposeMemoryTab?.()
+    disposeMemoryTab = ctx.slots.inject('conversation.view', () =>
       ctx.slots.register({
         name: 'conversation.view',
         id: 'memory-files',
         order: 20,
-        label: () => (badgeCount > 0 ? t('memoryTab.label.pending', { count: badgeCount }) : t('memoryTab.label')),
+        label: () => (memoryBadgeCount > 0 ? t('memoryTab.label.pending', { count: memoryBadgeCount }) : t('memoryTab.label')),
       }, (props) => MemoryTabView({ ...props, t })))
   }
+  const registerSkillsTab = (): void => {
+    disposeSkillsTab?.()
+    disposeSkillsTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'skills-hub',
+        order: 21,
+        label: () => (skillsBadgeCount > 0 ? t('skillsTab.label.pending', { count: skillsBadgeCount }) : t('skillsTab.label')),
+      }, (props) => SkillsTabView({ ...props, t })))
+  }
+  const registerTodosTab = (): void => {
+    disposeTodosTab?.()
+    disposeTodosTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'todos-hub',
+        order: 22,
+        label: () => (todosBadgeCount > 0 ? t('todosTab.label.pending', { count: todosBadgeCount }) : t('todosTab.label')),
+      }, (props) => TodosTabView({ ...props, t })))
+  }
+  // 设置 Tab（Memory Evolve 设置，order 45 放最后）：整体指南 + 配置。
+  // 无红点计数，注册一次即可；跟随 memoryTabEnabled 开关（与核心三 tab 一致）。
+  let disposeSettingsTab: (() => void) | undefined
+  const registerSettingsTab = (): void => {
+    disposeSettingsTab?.()
+    disposeSettingsTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'settings-hub',
+        order: 45,
+        label: () => t('settingsTab.label'),
+      }, (props) => SettingsTabView({ ...props, t })))
+  }
   const pollBadge = (): void => {
-    if (tabCancelled || disposeTab === undefined) return
+    // 三个 tab 未注册前不轮询（registerMemoryTab 是探测成功的标志）。
+    if (tabCancelled || disposeMemoryTab === undefined) return
     void fetch('/memory-evolve/api/badge')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data: { count?: number }) => {
-        const count = data.count ?? 0
-        if (count !== badgeCount) {
-          badgeCount = count
-          registerTab()
+      .then((data: { suggestions?: number; skills?: number; todoSuggestions?: number }) => {
+        const suggestions = data.suggestions ?? 0
+        const skills = data.skills ?? 0
+        const todoSuggestions = data.todoSuggestions ?? 0
+        if (suggestions !== memoryBadgeCount) {
+          memoryBadgeCount = suggestions
+          registerMemoryTab()
+        }
+        if (skills !== skillsBadgeCount) {
+          skillsBadgeCount = skills
+          registerSkillsTab()
+        }
+        if (todoSuggestions !== todosBadgeCount) {
+          todosBadgeCount = todoSuggestions
+          registerTodosTab()
         }
       })
       .catch(() => { /* badge is best-effort; the tab still works */ })
@@ -726,7 +991,7 @@ export function apply(ctx: Context): void {
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { config?: { memoryTabEnabled?: boolean; scratchEnabled?: boolean } }) => {
       // 临时信息 tab：受 scratchEnabled 运行时开关控制（默认关闭，与
-      // COI/提示词一致）。开关在「记忆技能待办」Tab 的运行时配置里切换，
+      // COI/提示词一致）。开关在「Memory Evolve 设置」Tab 的「配置」里切换，
       // 开启后刷新页面即出现；关闭时 Tab 完全不可见（host 的
       // /api/scratch 路由仍常驻——纯文件读写、零副作用，不随开关卸载）。
       if (!scratchCancelled && data.config?.scratchEnabled === true && disposeScratchTab === undefined) {
@@ -742,7 +1007,11 @@ export function apply(ctx: Context): void {
       // only config.yaml can turn it off — deliberately NOT a runtime key,
       // since switching it off from inside the tab would hide the tab itself).
       if (tabCancelled || data.config?.memoryTabEnabled !== true) return
-      registerTab()
+      // 四个核心 tab 一起注册：记忆 / 技能 / 待办 / 设置（顺序 20/21/22/45）。
+      registerMemoryTab()
+      registerSkillsTab()
+      registerTodosTab()
+      registerSettingsTab()
       pollBadge()
       const timer = setInterval(pollBadge, BADGE_POLL_MS)
       ctx.effect(() => () => clearInterval(timer), 'memory-evolve: memory tab badge poller')
@@ -756,8 +1025,11 @@ export function apply(ctx: Context): void {
     .catch(() => { /* the tab is optional; a failure just leaves it hidden */ })
   ctx.effect(() => () => {
     tabCancelled = true
-    disposeTab?.()
-  }, 'memory-evolve: memory tab')
+    disposeMemoryTab?.()
+    disposeSkillsTab?.()
+    disposeTodosTab?.()
+    disposeSettingsTab?.()
+  }, 'memory-evolve: memory tabs')
 
   // 临时信息 Tab 的清理（注册本身在 /api/config 探测成功后进行）。
   let scratchCancelled = false
@@ -788,6 +1060,29 @@ export function apply(ctx: Context): void {
     coiCancelled = true
     disposeCoiTab?.()
   }, 'memory-evolve: coi tab')
+
+  // 会话广播配套：会话头部「复制会话 ID」按钮——**独立于 COI 调度**，
+  // 跟随 broadcastEnabled（主 /api/config 返回 RUNTIME_KEYS，含该开关）。
+  // 用户把当前会话 ID 复制给另一个会话，对方 AI 用 de_broadcast 广播。
+  let broadcastCancelled = false
+  let disposeCopyId: (() => void) | undefined
+  void fetch('/memory-evolve/api/config')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then((data: { config?: { broadcastEnabled?: boolean } }) => {
+      if (broadcastCancelled || data.config?.broadcastEnabled !== true) return
+      // 头部 actions 是 strict-session slot：entry 组件自动收到 sessionId。
+      disposeCopyId = ctx.slots.inject('conversation.session.header.actions', () =>
+        ctx.slots.register({
+          name: 'conversation.session.header.actions',
+          id: 'copy-session-id',
+          order: 0,
+        }, (props) => CopySessionIdButton({ ...props, t })))
+    })
+    .catch(() => { /* 广播未启用：复制按钮保持隐藏 */ })
+  ctx.effect(() => () => {
+    broadcastCancelled = true
+    disposeCopyId?.()
+  }, 'memory-evolve: broadcast copy-id button')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
   // API 探测注册（prompts 模块为插件常驻能力，无独立开关）。label 带红点

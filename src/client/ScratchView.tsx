@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import { TabGuideView } from './TabGuideView.tsx'
 
 /** 自动保存防抖间隔（停止输入多久后保存）。 */
 const DEBOUNCE_MS = 800
@@ -37,6 +38,18 @@ export interface ScratchViewProps {
 /** 中英文案（默认中文，不接全局 locale）。 */
 const DICT = {
   zh: {
+    // 「指南」子 tab：临时信息功能的详细介绍（本 Tab 专属）。
+    guide: '指南',
+    note: '便签',
+    guideIntro: '临时信息 Tab = 一个持久化的 Markdown 便签：临时想法、随手记都放这里——自动保存、重启不丢，整理完成后迁移到别处或删除即可。',
+    guideSaveTitle: '自动保存',
+    guideSaveBody: '停止输入约 0.8 秒自动落盘（串行保存队列，失败后 3 秒自动重试）；切走 Tab / 关页面前强制保存，无需手动操作。',
+    guideFreeTitle: '自由文本',
+    guideFreeBody: '与 § 分隔的结构化记忆文件完全无关：内容是自由文本（Markdown），随意编辑不破坏任何解析格式。',
+    guideLimitTitle: '上限与保护',
+    guideLimitBody: '内容上限 512 KiB，**原子写**保护（先写临时文件再 rename）；超限 / 非 UTF-8 时只读保护不覆盖。',
+    guideOpenTitle: '打开文件',
+    guideOpenBody: '一键用系统编辑器 / 访达打开 scratch.md（复用宿主 reveal 通道）；内容保存在 ~/.dsh/memories/scratch.md。',
     help: '临时想法、随手记都放这里（Markdown 格式）：内容自动保存到 ~/.dsh/memories/scratch.md，重启不丢；整理完成后迁移到别处或删除即可。',
     placeholder: '写下临时的想法…\n\n支持 Markdown 格式；停止输入后自动保存，随时回来继续写。',
     saving: '保存中…',
@@ -52,6 +65,18 @@ const DICT = {
     neverSaved: '还没有保存过',
   },
   en: {
+    // "Guide" sub-tab: detailed introduction of the scratch-pad feature.
+    guide: 'Guide',
+    note: 'Note',
+    guideIntro: 'The Scratch Pad tab = a persistent Markdown note: jot down temporary thoughts here — auto-saved, survives restarts, and can be migrated elsewhere or deleted once it has served its purpose.',
+    guideSaveTitle: 'Auto-save',
+    guideSaveBody: 'Saves automatically ~0.8s after you stop typing (serialized save queue, retries every 3s on failure); forces a save when you leave the tab or close the page — no manual saving needed.',
+    guideFreeTitle: 'Free-form text',
+    guideFreeBody: 'Unrelated to the §-delimited structured memory files: content is free-form Markdown; editing it can never break any parser format.',
+    guideLimitTitle: 'Limit & protection',
+    guideLimitBody: '512 KiB cap with **atomic writes** (temp file then rename); read-only protection when over the cap or not UTF-8.',
+    guideOpenTitle: 'Open the file',
+    guideOpenBody: 'One click opens scratch.md with your system editor / Finder (reuses the host reveal channel); content lives in ~/.dsh/memories/scratch.md.',
     help: 'Jot down temporary ideas (Markdown). Content auto-saves to ~/.dsh/memories/scratch.md and survives restarts; migrate it elsewhere or delete it once it has served its purpose.',
     placeholder: 'Write temporary thoughts…\n\nMarkdown is supported; auto-saves after you stop typing.',
     saving: 'Saving…',
@@ -102,6 +127,8 @@ async function revealScratch(): Promise<void> {
  * 失败重试 + 卸载前强制保存。
  */
 export function ScratchView(props: ConvViewProps & ScratchViewProps): JSX.Element {
+  /** 子视图：guide=本 Tab 指南；main=便签（默认）。 */
+  const [view, setView] = useState<'guide' | 'main'>('main')
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [content, setContent] = useState('')
@@ -286,6 +313,38 @@ export function ScratchView(props: ConvViewProps & ScratchViewProps): JSX.Elemen
 
   return (
     <div className="sp-root">
+      {/* 子 tab 条：指南 / 便签（复用 mt- 样式，与其他 Tab 一致） */}
+      <div className="mt-file-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'guide'}
+          className={view === 'guide' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setView('guide')}
+        >
+          {pick(DICT.zh.guide, DICT.en.guide)}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'main'}
+          className={view === 'main' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setView('main')}
+        >
+          {pick(DICT.zh.note, DICT.en.note)}
+        </button>
+      </div>
+      {view === 'guide' ? (
+        // 临时信息专属指南（本 Tab 功能详细介绍，文案见 DICT guide* 键）
+        <TabGuideView sections={[
+          { icon: '📝', title: pick(DICT.zh.guideIntro, DICT.en.guideIntro), body: '' },
+          { icon: '💾', title: pick(DICT.zh.guideSaveTitle, DICT.en.guideSaveTitle), body: pick(DICT.zh.guideSaveBody, DICT.en.guideSaveBody) },
+          { icon: '🔓', title: pick(DICT.zh.guideFreeTitle, DICT.en.guideFreeTitle), body: pick(DICT.zh.guideFreeBody, DICT.en.guideFreeBody) },
+          { icon: '⚠️', title: pick(DICT.zh.guideLimitTitle, DICT.en.guideLimitTitle), body: pick(DICT.zh.guideLimitBody, DICT.en.guideLimitBody) },
+          { icon: '📂', title: pick(DICT.zh.guideOpenTitle, DICT.en.guideOpenTitle), body: pick(DICT.zh.guideOpenBody, DICT.en.guideOpenBody) },
+        ]} />
+      ) : (
+        <>
       <div className="sp-head">
         <span className="sp-path" title={path ?? ''}>
           📝 {path ?? ''}
@@ -328,6 +387,8 @@ export function ScratchView(props: ConvViewProps & ScratchViewProps): JSX.Elemen
         </>
       )}
       {!loaded && error === null && <div className="sp-loading">{pick(DICT.zh.loading, DICT.en.loading)}</div>}
+        </>
+      )}
     </div>
   )
 }

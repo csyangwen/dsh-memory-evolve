@@ -1427,3 +1427,22 @@
   color: var(--dsw-alias-label-dimmed);
   margin: 0;
 }
+
+/* 会话头部「复制会话 ID」按钮（conversation.session.header.actions 插槽）。
+   小尺寸幽灵按钮：跟随 DSH 主题 token，鼠标悬停加深。 */
+.me-copy-session-id {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.35));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.me-copy-session-id:hover {
+  border-color: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.6));
+  color: var(--dsw-alias-label-primary, inherit);
+}

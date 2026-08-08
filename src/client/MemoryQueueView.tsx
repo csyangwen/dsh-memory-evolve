@@ -79,6 +79,7 @@ interface RuntimeConfig {
   perTurnKeyWrites: boolean
   searchDocsEnabled: boolean
   coiEnabled: boolean
+  broadcastEnabled: boolean
   scratchEnabled: boolean
   promptsEnabled: boolean
 }
@@ -208,6 +209,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnKeyWrites: draft.perTurnKeyWrites,
       searchDocsEnabled: draft.searchDocsEnabled,
       coiEnabled: draft.coiEnabled,
+      broadcastEnabled: draft.broadcastEnabled,
       scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
     }
@@ -298,6 +300,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               </span>
             </div>
             <div className="me-guide-row">
+              <span className="me-guide-icon">📨</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.broadcast.title')}</strong>
+                <span>{t('panel.guide.broadcast.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
               <span className="me-guide-icon">🛡️</span>
               <span className="me-guide-body">
                 <strong>{t('panel.guide.confirm.title')}</strong>
@@ -310,6 +319,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
             <li>{t('panel.guide.best.1')}</li>
             <li>{t('panel.guide.best.2')}</li>
             <li>{t('panel.guide.best.3')}</li>
+            <li>{t('panel.guide.best.4')}</li>
           </ul>
           <p className="me-guide-loop">{t('panel.guide.loop')}</p>
         </section>
@@ -586,6 +596,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.coiEnabled}
                     onChange={(event) => patchDraft({ coiEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.broadcastEnabled')}
+                    <em className="me-field-hint">{t('panel.config.broadcastEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.broadcastEnabled}
+                    onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">
