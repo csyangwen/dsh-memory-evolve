@@ -23,6 +23,37 @@
 
 ---
 
+## 2026-08-09 — DSH UI 设置·用户反馈迭代：综合子 tab、功能默认全关、对话区加宽
+
+### 需求（用户拍板，重启实测反馈）
+1. 指南**不细讲**每个小功能怎么用（模块 Tab 指南 + 设置 Tab 指南行都精简）；
+2. 功能开关**不放指南里**——新建子 tab「**综合**」（功能未定型前不精确分类）；
+3. **每个功能都要有独立小开关**；筛选功能开关开了之后才出现筛选条；
+4. **模块默认关（已有）+ 模块内每个功能也默认关**，一律由用户主动开启；
+5. 第二个功能：**对话区加宽**——中间对话历史/输入框区域默认只占右侧一半
+   （748px 居中窄栏）左右留白浪费；开关开启后扩大到约 95%，与上方 Tabs
+   导航条对齐。
+
+### 实现
+- `ui-settings-features.ts`（新）：功能开关共享状态（localStorage +
+  FEATURES_EVENT 事件广播）；默认 `{ sessionFilter:false, wideChat:false }`
+- `UiSettingsView` 重做：子 tab「综合」（默认，功能开关列表，me-switch
+  同款视觉）+「指南」（精简两节）；切换开关即保存并广播
+- `session-filter.ts` 改控制器形态（setEnabled/dispose）：功能关=整体停用
+  （移除筛选条/html 属性/停止 MutationObserver），开=按偏好恢复；筛选条
+  模式偏好（仅进行中 vs 全部）单独记忆、功能开启后无记录默认「仅进行中」
+- `wide-chat.ts`（新）：对话区加宽——覆盖 CSS 变量 `--dsh-chat-content-width`
+  （`html[data-dsh-ui-wide-chat="on"] [data-phase] { --dsh-chat-content-width: 95% }`；
+  [data-phase] 是 ConversationRoot 根 div 稳定锚点；输入框 +32px 派生自动
+  跟随；选择器 specificity 高于原 .root 声明）
+- index.ts 激活块：创建两个控制器 + 按 readFeatures() 初始应用 + 监听
+  FEATURES_EVENT 即时同步
+- 验证（headless Chrome + CDP 真实鼠标点击）：功能默认全关（无筛选条/
+  无属性）→ 模拟开筛选（事件广播）→ 筛选条出现、12→1 行过滤生效 →
+  开宽屏 → 变量 95%、对话区实际宽度 748→1034px（右区 95%）→ 关回 748
+
+---
+
 ## 2026-08-12 — ⚡ 立即注入：快照变更 + 插话，当前回合立即生效（只注入一次）
 
 ### 需求（用户拍板）
