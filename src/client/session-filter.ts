@@ -15,12 +15,16 @@
  *   `html[data-dsh-ui-filter="on"] [role="tree"] div[role="treeitem"][aria-selected]:not(:has([data-state])) { display: none }`
  *   （:has() 需 Chrome 105+，2022-08 起现代浏览器无问题）
  *
- * 本文件负责 JS 侧的两件事：
+ * 本文件负责 JS 侧的事：
  *   1. 注入筛选条（「仅进行中 / 全部」分段按钮）到会话列表顶部；
  *   2. MutationObserver 保活——React 重渲染会清掉注入 DOM，观察变化后
  *      重新注入（技能经验：先匹配目标特征再标记，避免错过更新）；
- *   3. 偏好持久化（localStorage）：无记录默认开启筛选（用户拍板"默认只
- *      显示进行中的会话"），切换后记忆、下次打开自动恢复。
+ *   3. 筛选条模式偏好持久化（localStorage）：功能开启后无记录默认「仅
+ *      进行中」（用户拍板"默认只显示进行中的会话"），切换后记忆；
+ *   4. **功能开关**（用户拍板：模块内每个功能默认关闭、由用户主动开启，
+ *      独立小开关在「综合」子 tab）：setEnabled(false) 时整体停用（移除
+ *      筛选条与 html 属性、停止观察），开启时恢复——由 index.ts 监听
+ *      功能开关事件驱动。
  */
 
 /** 筛选条容器 id（保活查重用）。 */
@@ -42,7 +46,7 @@ export interface SessionFilterTexts {
   off: string
 }
 
-/** 读取偏好；无记录 → 'on'（默认只显示进行中）。 */
+/** 读取筛选条模式偏好；无记录 → 'on'（功能开启后默认只显示进行中）。 */
 function readPref(): FilterMode {
   try {
     const raw = localStorage.getItem(PREF_KEY)
@@ -67,17 +71,21 @@ function applyToDocument(mode: FilterMode): void {
 }
 
 /**
- * 激活会话筛选（模块启用时调用一次）。
+ * 创建会话筛选控制器（模块启用时调用一次）。
  *
  * @param texts - 已翻译文案。
- * @returns dispose：模块卸载/关闭时移除注入与监听。
+ * @returns { setEnabled, dispose }：setEnabled 由功能开关事件驱动
+ *   （false=整体停用，true=按偏好恢复）；dispose 模块卸载时清理。
  */
-export function activateSessionFilter(texts: SessionFilterTexts): () => void {
-  // ——当前状态（模块级快照；点击切换时更新）——
+export function createSessionFilter(texts: SessionFilterTexts): {
+  setEnabled: (enabled: boolean) => void
+  dispose: () => void
+} {
+  // ——当前状态——
   let mode: FilterMode = readPref()
+  let enabled = false // 功能开关（「综合」子 tab），默认由 index.ts 同步
   let disposed = false
-
-  applyToDocument(mode)
+  let observer: MutationObserver | null = null
 
   /** 建筛选条 DOM（分段按钮：「仅进行中」/「全部」）。 */
   const buildBar = (): HTMLElement => {
@@ -96,7 +104,7 @@ export function activateSessionFilter(texts: SessionFilterTexts): () => void {
       button.textContent = label
       button.setAttribute('aria-pressed', mode === btnMode ? 'true' : 'false')
       button.addEventListener('click', () => {
-        if (disposed) return
+        if (disposed || !enabled) return
         mode = btnMode
         applyToDocument(mode)
         writePref(mode)
@@ -122,29 +130,46 @@ export function activateSessionFilter(texts: SessionFilterTexts): () => void {
    * 筛选条后，下一次 mutation 回调会重新插入。
    */
   const ensureBar = (): void => {
-    if (disposed) return
+    if (disposed || !enabled) return
     if (document.getElementById(FILTER_BAR_ID) !== null) return
     const tree = document.querySelector<HTMLElement>('[role="tree"]')
     if (tree === null || tree.parentNode === null) return
     tree.parentNode.insertBefore(buildBar(), tree)
   }
 
-  // 首次尝试（DOM 可能还没渲染完，靠 observer 兜底）。
-  ensureBar()
+  /** 启动保活观察（body childList+subtree；回调先 O(1) 存在性检查）。 */
+  const startObserver = (): void => {
+    if (observer !== null || disposed) return
+    observer = new MutationObserver(() => {
+      if (disposed || !enabled) return
+      if (document.getElementById(FILTER_BAR_ID) === null) ensureBar()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+  }
 
-  // ——MutationObserver 保活：筛选条被 React 重渲染清掉后重新注入——
-  // 观察整个 body（childList + subtree）；回调里先做 O(1) 的存在性检查，
-  // 只有缺失才走查找/插入，避免高频 mutation（聊天流）造成开销。
-  const observer = new MutationObserver(() => {
-    if (disposed) return
-    if (document.getElementById(FILTER_BAR_ID) === null) ensureBar()
-  })
-  observer.observe(document.body, { childList: true, subtree: true })
-
-  return () => {
-    disposed = true
-    observer.disconnect()
-    document.getElementById(FILTER_BAR_ID)?.remove()
-    delete document.documentElement.dataset.dshUiFilter
+  return {
+    /** 功能开关：false=整体停用（移除注入与观察），true=按偏好恢复。 */
+    setEnabled(next: boolean): void {
+      if (disposed) return
+      enabled = next
+      if (enabled) {
+        applyToDocument(mode)
+        ensureBar()
+        startObserver()
+      } else {
+        // 停用：摘掉过滤属性与筛选条（观察停止，下次开启时重新建立）。
+        observer?.disconnect()
+        observer = null
+        document.getElementById(FILTER_BAR_ID)?.remove()
+        delete document.documentElement.dataset.dshUiFilter
+      }
+    },
+    dispose(): void {
+      disposed = true
+      observer?.disconnect()
+      observer = null
+      document.getElementById(FILTER_BAR_ID)?.remove()
+      delete document.documentElement.dataset.dshUiFilter
+    },
   }
 }

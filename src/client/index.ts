@@ -30,7 +30,9 @@ import { HeaderActions } from './HeaderActions.tsx'
 import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
-import { activateSessionFilter } from './session-filter.ts'
+import { createSessionFilter } from './session-filter.ts'
+import { createWideChat } from './wide-chat.ts'
+import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
 import scratchStyles from './scratch-styles.css'
@@ -300,24 +302,25 @@ export const zh = {
   'modelsTab.save': '保存',
   'modelsTab.saving': '保存中…',
   'modelsTab.cancel': '取消',
-  // DSH UI 设置 Tab（ui-settings-hub）：模块说明界面（指南子 Tab）+
-  // 未来扩展位（主题等）。真正的功能（会话筛选）是全局 DOM 增强，不依赖
-  // 本 Tab 打开；筛选条文案（uiSettings.filter.*）由 session-filter.ts
-  // 注入按钮使用（apply 时经 t() 取值）。
+  // DSH UI 设置 Tab（ui-settings-hub）：「综合」= 各功能独立小开关（用户
+  // 拍板：功能未定型前不精确分类，统一收「综合」）；「指南」= 精简简介
+  // （用户拍板：不细讲每个小功能怎么用）。真正的功能注入是全局 DOM 增强
+  // （session-filter.ts / wide-chat.ts），开关经事件广播由 apply 同步，
+  // 不依赖本 Tab 打开。
   'uiSettingsTab.label': 'DSH UI 设置',
+  'uiSettingsTab.feature.mixed': '综合',
   'uiSettingsTab.feature.guide': '指南',
+  'uiSettingsTab.features.title': '功能开关',
+  'uiSettingsTab.features.help': '每个功能都有独立的小开关，**默认全部关闭**、由你主动开启，改动即时生效（功能未定型前统一收在「综合」，后续再分类）。',
   'uiSettingsTab.guide.what.title': 'DSH UI 设置是什么',
   'uiSettingsTab.guide.what.body': '给 DSH web 界面做样式级的小功能——不改框架源码，纯客户端注入（CSS + DOM 增强），随 DSH 更新不掉功能；后期扩展（主题更换等）都收进本模块。',
-  'uiSettingsTab.guide.what.item1': '第一版功能：左侧会话列表「仅显示进行中」筛选——默认只显示进行中的会话，纯 idle 的折叠隐藏，一键切回全部；',
-  'uiSettingsTab.guide.what.item2': '筛选条常驻左侧列表顶部（搜索框下方），状态记忆在浏览器本地，刷新/重开自动恢复；',
-  'uiSettingsTab.guide.what.item3': '筛选是实时的：会话开始生成时状态点出现、行自动恢复显示，跑完空闲后自动隐藏，无需手动刷新。',
-  'uiSettingsTab.guide.filter.title': '会话筛选怎么用',
-  'uiSettingsTab.guide.filter.body': '开启模块后，左侧会话列表顶部出现筛选条（两个分段按钮）：',
-  'uiSettingsTab.guide.filter.item1': '「仅进行中」：只显示活跃会话（正在生成 / 等审批 / 等回答 / 有子代理在跑 / 出错）+ 已完成未查看的——长列表一眼定位正在跑的那一个；',
-  'uiSettingsTab.guide.filter.item2': '「全部」：显示所有会话（含纯 idle），切回原来的浏览方式；',
-  'uiSettingsTab.guide.filter.item3': '搜索会话时筛选自动让位（搜索结果不受影响）；左侧栏收起（rail）状态不显示筛选条。',
   'uiSettingsTab.guide.switch.title': '开关',
-  'uiSettingsTab.guide.switch.body': '本模块默认关闭；在「Memory Evolve 设置」Tab 的「配置」里独立开启/关闭（与其他模块同款开关）——关闭后筛选条与注入样式全部移除，筛选偏好保留，下次开启自动恢复。',
+  'uiSettingsTab.guide.switch.body': '模块开关在「Memory Evolve 设置」Tab 的「配置」里（默认关闭）；本 Tab「综合」里是各功能的独立小开关（默认也全部关闭，由你主动开启）。',
+  // 功能开关行文案（「综合」子 tab 渲染）。
+  'uiSettings.feature.sessionFilter': '会话筛选',
+  'uiSettings.feature.sessionFilter.hint': '左侧会话列表只显示进行中的会话（纯 idle 折叠，可一键切回全部）；开启后才出现筛选条',
+  'uiSettings.feature.wideChat': '对话区加宽',
+  'uiSettings.feature.wideChat.hint': '把中间的对话历史/输入框区域从约一半宽度扩大到右侧约 95%（与上方 Tab 导航条对齐）',
   // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
   'uiSettings.filter.on': '仅进行中',
   'uiSettings.filter.off': '全部',
@@ -535,7 +538,7 @@ export const zh = {
   'panel.guide.sessionOrch.title': '会话编排（de_session）',
   'panel.guide.sessionOrch.desc': '让 AI **程序化创建/唤醒 DSH 会话**（"会话启动另一个会话"）——spawn：新建**标准会话**（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=**完整提示词**（角色/任务自由组合的长文本，如"你是美工，负责…现在开始执行：…"），创建后立即自动开跑，可选 cwd/加入广播房间（roomId）/覆盖模型（model）；wake：唤醒已有会话（sessionId + 提示词，等价替用户发消息，对方 AI 自动醒来处理，忙则排队；进程重启后自动恢复再唤醒）；status/list：查状态（running=正在生成 / idle=已停止 / offline=不在本进程，附 lastActiveAt 最后活动时间）。**协作纪律**：不会自动唤醒任何会话——由拍板人（如产品经理）**有意识地** list/status 查状态、发现员工停止后主动 wake 派活（避免管理混乱）；**边界**：仅同进程会话可唤醒；唤醒=替用户发消息（对方 GUI 可见全程）。**开关**：独立「会话编排」（sessionEnabled，默认关，与 COI/广播/搜索互不影响，可单独开启）；建议配合「会话广播」房间使用（spawn 带 roomId 自动入房）。',
   'panel.guide.uiSettings.title': 'DSH UI 设置',
-  'panel.guide.uiSettings.desc': '给 DSH web 界面加样式级小功能（纯客户端注入，不改框架）：左侧会话列表「仅显示进行中」筛选——默认只显示进行中的会话（正在生成/等审批/等回答/有子代理在跑/出错/已完成未查看），一键切回全部；筛选条常驻列表顶部、状态本地记忆；后期扩展主题更换等样式功能。',
+  'panel.guide.uiSettings.desc': '给 DSH web 界面加样式级小功能（纯客户端注入，不改框架）：各功能的独立小开关在「DSH UI 设置」Tab 的「综合」里——会话筛选（左侧列表只显示进行中）、对话区加宽（中间区域扩大到约 95%）等；后期扩展主题更换。',
   'panel.guide.confirm.title': '确认制（为什么 AI 不能直接写）',
   'panel.guide.confirm.desc': 'AI 自建的记忆、待办、技能都先进待确认队列，等你确认才生效。因为这些写入会真实改变 AI 的行为：记忆会进入上下文、待办是给你派的活、技能会改变 AI 的能力库——如果 AI 擅自写入，可能把它的误判当事实沉淀、或自作主张给你派活。你是最终把关者：AI 只提议，你决定。',
   'panel.guide.best.title': '怎么用得最好',
@@ -871,23 +874,23 @@ export const en: Record<MemoryEvolveKey, string> = {
   'modelsTab.cancel': 'Cancel',
   // DSH UI Settings tab (ui-settings-hub): module intro (guide sub-tab) +
   // future extension seat (themes etc.). The real feature (session filter)
-  // is a global DOM enhancement independent of this tab; the filter-bar
-  // strings (uiSettings.filter.*) are consumed by session-filter.ts
-  // (resolved through t() in apply).
+  // is a global DOM enhancement independent of this tab; the feature
+  // switches (uiSettings.feature.*) are consumed by the "General" sub-tab
+  // and broadcast via event for apply() to sync DOM injection.
   'uiSettingsTab.label': 'DSH UI Settings',
+  'uiSettingsTab.feature.mixed': 'General',
   'uiSettingsTab.feature.guide': 'Guide',
+  'uiSettingsTab.features.title': 'Feature switches',
+  'uiSettingsTab.features.help': 'Every feature has its own small switch, **all off by default** — you turn them on deliberately; changes apply immediately (features stay under "General" until they mature and get their own categories).',
   'uiSettingsTab.guide.what.title': 'What is DSH UI Settings',
   'uiSettingsTab.guide.what.body': 'Style-level tweaks for the DSH web GUI — no framework source changes, pure client-side injection (CSS + DOM enhancement) that survives DSH updates; future extensions (themes, etc.) all land in this module.',
-  'uiSettingsTab.guide.what.item1': 'First feature: the left session list "Running only" filter — by default only active sessions are shown, purely idle ones are collapsed away, one click switches back to all;',
-  'uiSettingsTab.guide.what.item2': 'The filter bar sits at the top of the session list (below the search box); the choice is remembered in the browser and restored on refresh/relaunch;',
-  'uiSettingsTab.guide.what.item3': 'The filter is live: a session\'s status dot appears the moment it starts generating and the row shows back up; when it goes idle the row hides itself — no manual refresh.',
-  'uiSettingsTab.guide.filter.title': 'How to use the session filter',
-  'uiSettingsTab.guide.filter.body': 'With the module enabled, a filter bar with two segmented buttons appears above the left session list:',
-  'uiSettingsTab.guide.filter.item1': '"Running only": shows only active sessions (generating / awaiting approval / awaiting answer / subagents running / error) plus finished-but-unviewed ones — spot the one session actually working in a long list at a glance;',
-  'uiSettingsTab.guide.filter.item2': '"All": shows every session (including purely idle ones) — back to the usual browsing;',
-  'uiSettingsTab.guide.filter.item3': 'The filter steps aside while searching (results are never filtered); the collapsed rail state shows no filter bar.',
-  'uiSettingsTab.guide.switch.title': 'Switch',
-  'uiSettingsTab.guide.switch.body': 'This module is off by default; enable/disable it independently in the "Config" sub-tab of the "Memory Evolve Settings" tab (same switch pattern as other modules) — when off, the filter bar and injected styles are fully removed; the filter preference is kept and restored when re-enabled.',
+  'uiSettingsTab.guide.switch.title': 'Switches',
+  'uiSettingsTab.guide.switch.body': 'The module switch lives in the "Config" sub-tab of the "Memory Evolve Settings" tab (off by default); the per-feature switches live in the "General" sub-tab of this tab — also all off by default, turned on deliberately.',
+  // Feature-switch row labels (rendered by the "General" sub-tab).
+  'uiSettings.feature.sessionFilter': 'Session filter',
+  'uiSettings.feature.sessionFilter.hint': 'The left session list shows only active sessions (purely idle ones collapse; one click switches back to all); the filter bar appears only while this is on',
+  'uiSettings.feature.wideChat': 'Wide conversation area',
+  'uiSettings.feature.wideChat.hint': 'Widen the conversation transcript/input area from roughly half to about 95% of the right pane (aligned with the tabs bar above)',
   // Filter-bar button labels (consumed by session-filter.ts injected DOM).
   'uiSettings.filter.on': 'Running only',
   'uiSettings.filter.off': 'All',
@@ -1105,7 +1108,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.sessionOrch.title': 'Session orchestration (de_session)',
   'panel.guide.sessionOrch.desc': 'Lets the AI **programmatically create/wake DSH sessions** ("a session starts another session") — spawn: creates a **standard session** (identical to one opened manually: system prompt/tools/memory snapshot/persistence; appears in the left session list and can be taken over), prompt = the **full instruction text** (role/task freely composed, e.g. "You are the designer… now execute: …"), it starts running immediately; optional cwd / join a broadcast room (roomId) / model override (model); wake: wakes an existing session (sessionId + prompt, equivalent to sending a message on its behalf — its AI wakes up and processes it; queues while busy; auto-resumed after process restart); status/list: inspect state (running = generating / idle = stopped / offline = not in this process, with lastActiveAt). **Collaboration discipline**: nothing auto-wakes sessions — the decision-maker (e.g. a PM session) **deliberately** runs list/status and actively wakes stopped workers (avoids management chaos); **boundary**: only same-process sessions can be woken; waking = sending a message on their behalf (fully visible in their GUI). **Switch**: independent "Session orchestration" (sessionEnabled, off by default, unrelated to COI/broadcast/search, can be enabled alone); pairs well with "Session broadcast" rooms (spawn with roomId joins automatically).',
   'panel.guide.uiSettings.title': 'DSH UI Settings',
-  'panel.guide.uiSettings.desc': 'Style-level tweaks for the DSH web GUI (pure client-side injection, no framework changes): the left session list "Running only" filter — by default only active sessions are shown (generating / awaiting approval / awaiting answer / subagents running / error / finished-but-unviewed), one click switches back to all; the filter bar stays at the top of the list and the choice is remembered locally; themes and more style features come later.',
+  'panel.guide.uiSettings.desc': 'Style-level tweaks for the DSH web GUI (pure client-side injection, no framework changes): per-feature switches live in the "General" sub-tab of the "DSH UI Settings" tab — session filter (left list shows only active sessions), wide conversation area (~95% of the right pane), and more; themes come later.',
   'panel.guide.confirm.title': 'Confirmation (why the AI cannot write directly)',
   'panel.guide.confirm.desc': 'Anything the AI creates — memory, todos, skills — enters a pending queue first and only takes effect after your confirmation. These writes genuinely change the AI: memory enters the prompt, todos are tasks assigned to you, skills change the AI’s toolbox. Unchecked auto-writes could silently enshrine the AI’s misjudgments as facts or assign you work you never asked for. You are the final gatekeeper: the AI proposes, you decide.',
   'panel.guide.best.title': 'Getting the most out of it',
@@ -1574,24 +1577,46 @@ export function apply(ctx: Context): void {
 
   // DSH UI 设置模块（dsh-ui-settings）：**独立子模块**。探测宿主端
   // /api/ui-settings/state（uiSettingsEnabled 开关，默认关）——成功才：
-  //   1. 激活左侧会话列表「仅显示进行中」筛选（session-filter.ts：注入
-  //      筛选条 + MutationObserver 保活 + localStorage 偏好，默认只显示
-  //      进行中的会话）；
-  //   2. 注册「DSH UI 设置」Tab（conversation.view，模块说明界面）。
-  // 模块关闭（端点 404）时全部不注入；清理 effect 一并卸载。
+  //  DSH UI 设置模块（dsh-ui-settings）：**独立子模块**。探测宿主端
+  //  /api/ui-settings/state（uiSettingsEnabled 开关，默认关）——成功才：
+  //   1. 激活各功能（全局 DOM 增强，不依赖任何 Tab 打开）：
+  //      - 会话筛选（session-filter.ts：筛选条 + MutationObserver 保活 +
+  //        localStorage 偏好，默认只显示进行中的会话）；
+  //      - 对话区加宽（wide-chat.ts：--dsh-chat-content-width 变量覆盖）；
+  //      每个功能有**独立小开关**（「综合」子 tab，localStorage + 事件
+  //      广播）：初始按 readFeatures() 应用，FEATURES_EVENT 时即时同步；
+  //   2. 注册「DSH UI 设置」Tab（conversation.view，综合/指南界面）。
+  //  模块关闭（端点 404）时全部不注入；清理 effect 一并卸载。
   let uiSettingsCancelled = false
   let disposeUiSettingsTab: (() => void) | undefined
   let disposeSessionFilter: (() => void) | undefined
+  let disposeWideChat: (() => void) | undefined
   void fetch('/memory-evolve/api/ui-settings/state')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { enabled?: boolean }) => {
       if (uiSettingsCancelled || data.enabled !== true) return
-      // 1. 激活会话筛选（全局 DOM 增强，不依赖任何 Tab 打开）。
-      disposeSessionFilter = activateSessionFilter({
-        barTitle: t('uiSettingsTab.guide.filter.body'),
+      // 1. 创建两个功能控制器（先创建、后按开关状态 setEnabled）。
+      const sessionFilter = createSessionFilter({
+        barTitle: t('uiSettings.feature.sessionFilter'),
         on: t('uiSettings.filter.on'),
         off: t('uiSettings.filter.off'),
       })
+      disposeSessionFilter = sessionFilter.dispose
+      const wideChat = createWideChat()
+      disposeWideChat = wideChat.dispose
+      // 按「综合」子 tab 的独立开关应用初始状态。
+      const features = readFeatures()
+      sessionFilter.setEnabled(features.sessionFilter)
+      wideChat.setEnabled(features.wideChat)
+      // 开关变更事件（UiSettingsTabView 切换后广播）→ 即时同步注入。
+      const onFeaturesChanged = (event: Event): void => {
+        const next = (event as CustomEvent<ReturnType<typeof readFeatures>>).detail
+        if (next === undefined) return
+        sessionFilter.setEnabled(next.sessionFilter)
+        wideChat.setEnabled(next.wideChat)
+      }
+      window.addEventListener(FEATURES_EVENT, onFeaturesChanged)
+      ctx.effect(() => () => window.removeEventListener(FEATURES_EVENT, onFeaturesChanged), 'memory-evolve: ui-settings features listener')
       // 2. 注册「DSH UI 设置」Tab。
       disposeUiSettingsTab = ctx.slots.inject('conversation.view', () =>
         ctx.slots.register({
@@ -1606,6 +1631,7 @@ export function apply(ctx: Context): void {
     uiSettingsCancelled = true
     disposeUiSettingsTab?.()
     disposeSessionFilter?.()
+    disposeWideChat?.()
   }, 'memory-evolve: ui-settings tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host

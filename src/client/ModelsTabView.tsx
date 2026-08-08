@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import { TabGuideView, type GuideSection } from './TabGuideView.tsx'
 
 /** Locale-bound props（locate namespace：memory-evolve）。 */
 export interface ModelsTabViewProps {
@@ -87,12 +88,61 @@ function capacityText(value: number | undefined): string {
 /** 保存中的模型 key 集合。 */
 type SavingSet = ReadonlySet<string>
 
+/** 模型配置 Tab 的两个子功能：模型配置（表格）/ 指南。 */
+type ModelsFeature = 'models' | 'guide'
+
+/** 跨重挂持久化的子 tab 选择（模块级：快照刷新导致组件重挂后恢复）。 */
+let persistedModelsFeature: ModelsFeature | null = null
+
+/** 模型配置 Tab 专属指南内容（「指南」子 Tab）。 */
+function modelsGuideSections(t: Translate): GuideSection[] {
+  return [
+    {
+      icon: '🧭',
+      title: t('modelsTab.guide.what.title'),
+      body: t('modelsTab.guide.what.body'),
+      items: [
+        t('modelsTab.guide.what.item1'),
+        t('modelsTab.guide.what.item2'),
+        t('modelsTab.guide.what.item3'),
+      ],
+    },
+    {
+      icon: '⚙️',
+      title: t('modelsTab.guide.config.title'),
+      body: t('modelsTab.guide.config.body'),
+      items: [
+        t('modelsTab.guide.config.item1'),
+        t('modelsTab.guide.config.item2'),
+        t('modelsTab.guide.config.item3'),
+        t('modelsTab.guide.config.item4'),
+      ],
+    },
+    {
+      icon: '🤖',
+      title: t('modelsTab.guide.tool.title'),
+      body: t('modelsTab.guide.tool.body'),
+      items: [
+        t('modelsTab.guide.tool.item1'),
+        t('modelsTab.guide.tool.item2'),
+      ],
+    },
+    {
+      icon: '🔌',
+      title: t('modelsTab.guide.switch.title'),
+      body: t('modelsTab.guide.switch.body'),
+    },
+  ]
+}
+
 /**
  * 模型配置表格组件。
  * @param props - 会话上下文 + locale。
  */
 export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.Element {
   const { t } = props
+  /** 当前激活的子 tab（缺省=模型配置表格，指南为附加说明）。 */
+  const [feature, setFeature] = useState<ModelsFeature>(persistedModelsFeature ?? 'models')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -100,6 +150,9 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
   const [showReasoning, setShowReasoning] = useState(true)
   const [expanded, setExpanded] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState<SavingSet>(new Set())
+
+  // 同步子 tab 选择到模块级：组件重挂后恢复。
+  useEffect(() => { persistedModelsFeature = feature }, [feature])
 
   /** 拉取聚合快照。 */
   const load = useCallback((): void => {
@@ -247,7 +300,32 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
 
   return (
     <div className="mt-panel">
-      <div className="mt-toolbar">
+      {/* 子 tab 条：模型配置（表格）/ 指南 */}
+      <div className="mt-file-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'models'}
+          className={feature === 'models' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature('models')}
+        >
+          {t('modelsTab.feature.models')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'guide'}
+          className={feature === 'guide' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature('guide')}
+        >
+          {t('modelsTab.feature.guide')}
+        </button>
+      </div>
+      {feature === 'guide'
+        ? <TabGuideView sections={modelsGuideSections(t)} />
+        : (
+          <>
+            <div className="mt-toolbar">
         <input
           className="mt-search"
           type="search"
@@ -312,6 +390,8 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
           </tbody>
         </table>
       </div>
+          </>
+        )}
     </div>
   )
 }

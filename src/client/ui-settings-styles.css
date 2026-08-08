@@ -25,6 +25,18 @@ html[data-dsh-ui-filter="on"] [role="tree"] div[role="treeitem"][aria-selected]:
   display: none;
 }
 
+/* ── 对话区加宽（wide-chat.ts 控制 html[data-dsh-ui-wide-chat]）─────────
+ *
+ * DSH 对话区宽度由 CSS 变量 --dsh-chat-content-width 控制
+ * （ConversationRoot.module.css：748px；输入框 = +32px 派生，全部自动
+ * 跟随）。在对话区根元素（[data-phase] 是 ConversationRoot 根 div 的稳定
+ * 锚点）上覆盖为 95%（相对右侧区域宽，与上方 Tabs 导航条宽度对齐）；
+ * 本选择器 specificity（html+attr+attr = 0,2,1）高于原 .root（0,1,0），
+ * 稳胜原声明。 */
+html[data-dsh-ui-wide-chat="on"] [data-phase] {
+  --dsh-chat-content-width: 95%;
+}
+
 /* ── 会话列表顶部筛选条（session-filter.ts 注入的 DOM）────────── */
 .dsh-ui-filter-bar {
   display: flex;
