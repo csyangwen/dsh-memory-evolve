@@ -502,7 +502,29 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.equal(capped.prompts.length, 3)
     const none = await promptTool.execute({ action: 'list', filter: '不存在的词' }, exec())
     assert.equal(none.prompts.length, 0)
-    assert.match(none.message, /没有匹配/)
+    assert.match(none.message, /未查到匹配/)
+    // list 多维过滤：name（名称）/ category（分类）/ tag（标签场景）/
+    // description（备注简介）独立条件与组合（AND）
+    const byName = await promptTool.execute({ action: 'list', name: '性能优化' }, exec())
+    assert.equal(byName.prompts.length, 1)
+    assert.equal(byName.prompts[0].name, '性能优化')
+    const byCategory = await promptTool.execute({ action: 'list', category: '测试' }, exec())
+    assert.ok(byCategory.prompts.length >= 1)
+    assert.ok(byCategory.prompts.every((p) => p.category === '测试'))
+    const byTag = await promptTool.execute({ action: 'list', tag: 'debug' }, exec())
+    assert.ok(byTag.prompts.length >= 1) // 「调试与排障」tags 含 debugging
+    const byDescription = await promptTool.execute({ action: 'list', description: '排查' }, exec())
+    assert.ok(byDescription.prompts.length >= 1) // 简介含「排查」（调试与排障）
+    const combo = await promptTool.execute({ action: 'list', category: '开发流程', tag: 'git' }, exec())
+    assert.ok(combo.prompts.length >= 1)
+    assert.ok(combo.prompts.every((p) => p.category === '开发流程' && p.tags.includes('git')))
+    // 未命中：message 明确指出是哪个条件没匹配 + 总数 + 重查指引
+    const miss = await promptTool.execute({ action: 'list', name: '绝不存在', category: '测试' }, exec())
+    assert.equal(miss.prompts.length, 0)
+    assert.match(miss.message, /名称「绝不存在」/)
+    assert.match(miss.message, /分类「测试」/)
+    assert.match(miss.message, /条启用中/)
+    assert.match(miss.message, /去掉部分条件/)
     // get：详情含正文全文与状态字段
     const first = listed.prompts[0]
     const got = await promptTool.execute({ action: 'get', id: first.id }, exec())
@@ -517,6 +539,11 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.equal(injected.ok, true)
     assert.equal(injected.injection.sourcePromptId, first.id)
     assert.equal(injected.injection.roundsLeft, 1)
+    // message 文案必须无歧义：rounds=1 显示「只注入一次 … 之后自动结束」
+    // （不得出现"每回合"等会被误读为持续注入的措辞）
+    assert.match(injected.message, /只注入一次/)
+    assert.match(injected.message, /之后自动结束/)
+    assert.equal(injected.message.includes('每回合'), false)
     const after = await promptTool.execute({ action: 'get', id: first.id }, exec())
     assert.equal(after.prompt.usageCount, 1)
     // 重复注入拒绝
@@ -544,6 +571,45 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.match(denied.message, /禁用/)
     const gotDisabled = await promptTool.execute({ action: 'get', id: first.id }, exec())
     assert.equal(gotDisabled.prompt.enabled, false)
+    // create：模型自建提示词（name+content 必填；分类留空归入「临时」；
+    // 返回完整条目含 id；enabled 默认 true）
+    const created = await promptTool.execute({
+      action: 'create',
+      name: 'AI 自建范式',
+      content: '按以下步骤执行：\n1. 先分析\n2. 再实现',
+      description: 'AI 自己建的提示词',
+      category: '',
+      tags: ['ai', 'workflow'],
+    }, exec())
+    assert.equal(created.ok, true)
+    assert.equal(created.action, 'create')
+    assert.equal(created.prompt.category, '临时')
+    assert.deepEqual(created.prompt.tags, ['ai', 'workflow'])
+    assert.equal(created.prompt.enabled, true)
+    assert.match(created.message, /已创建提示词/)
+    // 创建后 list 可见、get 可取
+    const afterCreate = await promptTool.execute({ action: 'list', name: 'AI 自建' }, exec())
+    assert.equal(afterCreate.prompts.length, 1)
+    assert.equal(afterCreate.prompts[0].id, created.prompt.id)
+    // create 校验：缺 name / 缺 content
+    assert.equal((await promptTool.execute({ action: 'create', content: 'x' }, exec())).ok, false)
+    assert.equal((await promptTool.execute({ action: 'create', name: 'x' }, exec())).ok, false)
+    // update：白名单字段按需修改（改 name + 禁用）
+    const upd = await promptTool.execute({ action: 'update', id: created.prompt.id, name: 'AI 自建V2', enabled: false }, exec())
+    assert.equal(upd.ok, true)
+    assert.equal(upd.prompt.name, 'AI 自建V2')
+    assert.equal(upd.prompt.enabled, false)
+    const gotUpdated = await promptTool.execute({ action: 'get', id: created.prompt.id }, exec())
+    assert.equal(gotUpdated.prompt.name, 'AI 自建V2')
+    // update 后禁用 → 不出现在 list、不能 inject（沿用禁用语义）
+    const relist2 = await promptTool.execute({ action: 'list', name: 'AI 自建' }, exec())
+    assert.equal(relist2.prompts.length, 0)
+    const denied2 = await promptTool.execute({ action: 'inject', id: created.prompt.id }, exec())
+    assert.equal(denied2.ok, false)
+    // update 校验：缺 id / 无字段可改 / id 不存在
+    assert.equal((await promptTool.execute({ action: 'update', name: 'x' }, exec())).ok, false)
+    assert.equal((await promptTool.execute({ action: 'update', id: created.prompt.id }, exec())).ok, false)
+    assert.equal((await promptTool.execute({ action: 'update', id: 'nope', name: 'x' }, exec())).ok, false)
   } finally {
     await close()
     clean(dir)

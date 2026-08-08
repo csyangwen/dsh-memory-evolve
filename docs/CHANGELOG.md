@@ -4,6 +4,48 @@
 
 ---
 
+## 2026-08-12 — de_prompts 新增 create/update：模型可自行创建/修改提示词
+
+### 需求（用户拍板）
+模型此前只能查询/注入提示词，不能创建——"有没有工具能让模型自己去创建提示词？"
+
+### 实现
+- `de_prompts` action 新增 **`create`**（name+content 必填，description/category/tags/enabled 可选；与 GUI 新建同一校验与语义——分类留空自动归入「临时」；返回完整条目含 id，可继续 inject/update）
+- 新增 **`update`**（id 必填 + 至少一个白名单字段 name/content/description/category/tags/enabled，传哪个改哪个；与 GUI 编辑同一校验）
+- 输出归一化抽 `toPromptOutput()`（get/create/update 共用，与 output schema 严格一致）；render 对带 prompt 的结果统一渲染详情
+- description/parameters 同步更新（action enum、字段说明）；测试补 create/update 闭环（建→查→改→禁用→拒绝注入 + 各类校验）；DSH 官方 schema 校验通过；全量 236/236 通过
+
+---
+
+## 2026-08-12 — de_prompts list 多维过滤：名称/场景/备注/分类 + 未命中明确提示
+
+### 需求（用户拍板）
+list 查询要支持按**名称、场景、备注、分类名称**查询；查不到时要有**明确提示**。
+
+### 实现
+- `list` 新增 4 个独立过滤参数（均可选、可组合，同时给多个 = AND 全部满足；子串匹配、大小写不敏感）：
+  - `name`=按名称
+  - `category`=按分类名称
+  - `tag`=按标签/场景
+  - `description`=按备注/简介
+  - 原 `filter`（通用关键词：名称/简介/标签/分类任意字段）保留，可与以上组合
+- **未命中明确提示**：指出是哪个条件没匹配（如「未查到匹配的启用提示词：名称「X」 + 分类「Y」（当前共 N 条启用中——可去掉部分条件重查，或 list 无参数查看全部）」）；一条不剩时提示「暂无启用中的提示词（共 N 条已禁用/不存在）」
+- description/parameters 同步更新；测试补多维过滤与未命中提示断言；全量 235/235 通过
+
+---
+
+## 2026-08-12 — 注入成功文案去歧义（实测反馈）
+
+### 问题
+AI 调 `de_prompts inject`（rounds=1）后，返回 message「已注入「X」：1 次，每回合，模型下一轮生效」——「1 次，每回合」并列易误读为"每回合都注入"，实际语义是一次性（下一轮出现一次、次数用尽自动移除）。模型传参本身无误（description 已写明 rounds=1=一次），问题在输出文案。
+
+### 修复（只改展示文案，不动语义）
+- host 端 message 按次数+间隔组合显示**实际行为**：rounds=1 → 「只注入一次 … 模型下一轮生效，之后自动结束」（一次性时省略节奏括号——every 无实际意义）；rounds=N → 「注入 N 次（每回合/每 M 回合出现）… 用尽自动结束」；rounds=0 → 「持续注入（…出现）… 直到手动停止」
+- 前端 GUI 提示（afterInjected）同构重写，新增 DICT 键（injectedOnceEnding/injectedFiniteEnding/injectedInfiniteEnding/injectInfiniteShort/everyTurnParen/injectCadenceParen）
+- 测试补 message 断言（rounds=1 必含「只注入一次」「之后自动结束」、不含「每回合」）；prompts+plugin 33/33 通过
+
+---
+
 ## 2026-08-12 — 提示词新增「简介」与「启用状态」字段 + de_prompts AI 工具（列表/详情/注入）
 
 ### 🎯 需求（用户拍板）

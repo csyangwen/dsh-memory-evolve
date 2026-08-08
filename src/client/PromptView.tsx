@@ -157,7 +157,13 @@ const DICT = {
     contentRequired: '内容不能为空',
     error: '{message}',
     loadFailed: '加载失败：{message}',
-    injected: '已注入「{name}」：{rounds}，{cadence}，模型下一轮生效',
+    injected: '已注入「{name}」：{rounds}{cadence}，模型下一轮生效{ending}',
+    injectedOnceEnding: '，之后自动结束',
+    injectedFiniteEnding: '，用尽自动结束',
+    injectedInfiniteEnding: '，直到手动停止',
+    injectInfiniteShort: '持续注入',
+    everyTurnParen: '（每回合出现）',
+    injectCadenceParen: '（每 {n} 回合出现）',
     removed: '已移除注入',
     reload: '刷新',
     newCategory: '新分类',
@@ -270,7 +276,13 @@ const DICT = {
     contentRequired: 'Content is required',
     error: '{message}',
     loadFailed: 'Load failed: {message}',
-    injected: 'Injected "{name}": {rounds}, {cadence} — visible to the model next turn',
+    injected: 'Injected "{name}": {rounds}{cadence} — visible next turn{ending}',
+    injectedOnceEnding: ', then auto-ends',
+    injectedFiniteEnding: ', auto-ends when spent',
+    injectedInfiniteEnding: ', until stopped',
+    injectInfiniteShort: 'Keep injecting',
+    everyTurnParen: ' (every turn)',
+    injectCadenceParen: ' (every {n} turns)',
     removed: 'Injection removed',
     reload: 'Reload',
     newCategory: 'New category',
@@ -572,18 +584,33 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
 
   /** 注入成功后的统一收尾：提示 + 重拉 + 打开注入浮层 + 通知 Tab 红点刷新。 */
   const afterInjected = async (injection: Injection): Promise<void> => {
-    const cadence = injection.every === 0
-      ? say('onceOnly')
-      : (injection.every ?? 1) === 1
-        ? say('everyTurn')
-        : say('injectCadence').replace('{n}', String(injection.every))
+    // 注入成功提示：次数+间隔组合的**实际行为**（rounds=1 是一次性，
+    // 不是每回合重复——避免"1 次，每回合"歧义），与 host 端 message 同构：
+    //   次数：只注入一次 / 注入 N 次 / 持续注入（无限）
+    //   节奏括号：every=0 无 /（每回合出现）/（每 N 回合出现）
+    //   收尾：之后自动结束 / 用尽自动结束 / 直到手动停止
     const times = injection.roundsLeft === null
-      ? say('injectInfinite')
-      : say('injectRound').replace('{n}', String(injection.roundsLeft))
+      ? say('injectInfiniteShort')
+      : injection.roundsLeft === 1
+        ? say('onceOnly')
+        : say('injectRound').replace('{n}', String(injection.roundsLeft))
+    // 节奏括号：every=0 或只注入一次（roundsLeft=1）时省略——一次性注入
+    // 无需说明节奏，避免"只注入一次（每回合出现）"的矛盾感
+    const cadence = injection.every === 0 || injection.roundsLeft === 1
+      ? ''
+      : (injection.every ?? 1) === 1
+        ? say('everyTurnParen')
+        : say('injectCadenceParen').replace('{n}', String(injection.every))
+    const ending = injection.every === 0 || injection.roundsLeft === 1
+      ? say('injectedOnceEnding')
+      : injection.roundsLeft === null
+        ? say('injectedInfiniteEnding')
+        : say('injectedFiniteEnding')
     showNotice(say('injected')
       .replace('{name}', injection.title)
       .replace('{rounds}', times)
-      .replace('{cadence}', cadence))
+      .replace('{cadence}', cadence)
+      .replace('{ending}', ending))
     await load()
     setShowInjections(true)
     window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
