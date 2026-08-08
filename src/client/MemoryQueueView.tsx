@@ -78,6 +78,8 @@ interface RuntimeConfig {
   perTurnDailyWrites: boolean
   perTurnKeyWrites: boolean
   searchDocsEnabled: boolean
+  /** 本地搜索四档模式：all / filename / content / off。 */
+  searchDocsMode: string
   coiEnabled: boolean
   broadcastEnabled: boolean
   sessionSearchEnabled: boolean
@@ -214,6 +216,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnDailyWrites: draft.perTurnDailyWrites,
       perTurnKeyWrites: draft.perTurnKeyWrites,
       searchDocsEnabled: draft.searchDocsEnabled,
+      searchDocsMode: draft.searchDocsMode,
       coiEnabled: draft.coiEnabled,
       broadcastEnabled: draft.broadcastEnabled,
       sessionSearchEnabled: draft.sessionSearchEnabled,
@@ -625,12 +628,24 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     {t('panel.config.searchDocsEnabled')}
                     <em className="me-field-hint">{t('panel.config.searchDocsEnabled.hint')}</em>
                   </span>
-                  <input
-                    type="checkbox"
-                    className="me-switch"
-                    checked={draft.searchDocsEnabled}
-                    onChange={(event) => patchDraft({ searchDocsEnabled: event.target.checked })}
-                  />
+                  {/* 四档模式（用户拍板）：all=文件名+内容 / filename=仅文件名 /
+                      content=仅内容 / off=工具不注册。select 比 checkbox 直观。 */}
+                  <select
+                    className="me-todo-select"
+                    value={draft.searchDocsMode ?? (draft.searchDocsEnabled ? 'all' : 'off')}
+                    onChange={(event) => {
+                      const mode = event.target.value
+                      patchDraft({
+                        searchDocsMode: mode,
+                        searchDocsEnabled: mode !== 'off', // 兼容旧键（驱动注册/卸载）
+                      })
+                    }}
+                  >
+                    <option value="all">{t('panel.config.searchDocsMode.all')}</option>
+                    <option value="filename">{t('panel.config.searchDocsMode.filename')}</option>
+                    <option value="content">{t('panel.config.searchDocsMode.content')}</option>
+                    <option value="off">{t('panel.config.searchDocsMode.off')}</option>
+                  </select>
                 </label>
                 <label className="me-field">
                   <span className="me-field-label">

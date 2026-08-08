@@ -265,6 +265,42 @@ test('contentCandidateLimit：扩容且封顶', () => {
   assert.equal(contentCandidateLimit(50), 500) // 50*25=1250 → 封顶 500
 })
 
+test('内容模式候选不按 mtime 截断（防回归：全盘 md 10613 个、目标排 500 名外被截掉的事故）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-no-truncate-'))
+  try {
+    // 600 个候选：599 个"较新"空文件 + 目标文件（含关键词、mtime 最旧）。
+    // 旧逻辑（内容候选上限 500 + mtime 排序截断）会漏掉目标——必须枚举全量。
+    const target = join(dir, '老文档-镇江.md')
+    writeFileSync(target, '# 老文档标题\n正文含 关键词X 在中间\n')
+    const { utimesSync } = await import('node:fs')
+    utimesSync(target, 1000, 1000) // mtime 设为最早
+    for (let i = 0; i < 599; i += 1) {
+      writeFileSync(join(dir, `filler-${i}.md`), '无关键词\n')
+    }
+    let receivedLimit = -1
+    const def = searchDocsToolDefinition(baseConfig(), async (params) => {
+      receivedLimit = params.limit
+      const results = []
+      for (let i = 0; i < 599; i += 1) {
+        results.push({ path: join(dir, `filler-${i}.md`), name: `filler-${i}.md`, mtime: Date.now() - i, size: 1, dir: false })
+      }
+      // 目标排最后、mtime 最旧——若按 mtime 截断前 500 会漏掉它。
+      results.push({ path: target, name: '老文档-镇江.md', mtime: 1000, size: 30, dir: false })
+      return { provider: 'fake', results }
+    })
+    const out = await def.execute({ contentQuery: '关键词X', limit: 5 }, {})
+    assert.equal(out.ok, true)
+    // 内容模式：provider 收到的 limit 必须是 Infinity（枚举全量，不按 mtime 截断）
+    assert.equal(receivedLimit, Number.POSITIVE_INFINITY)
+    // 最旧的目标必须命中
+    assert.equal(out.results.length, 1)
+    assert.equal(out.results[0].name, '老文档-镇江.md')
+    assert.ok(Array.isArray(out.results[0].snippets))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('matchContentInText：字面大小写不敏感 + 上下文 + 每文件上限', () => {
   const text = [
     '前言',
@@ -552,4 +588,89 @@ test('searchFileContents preferNode：强制 Node 路径可命中', async () => 
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---------------------------------------------------------------------------
+// 四档模式（searchDocsMode）：all / filename / content / off
+// ---------------------------------------------------------------------------
+
+test('mode=filename：content/contentQuery 参数被忽略（不读任何文件内容）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-mode-filename-'))
+  try {
+    const f = join(dir, 'target.md')
+    writeFileSync(f, '含 目标词X 的内容\n')
+    const def = searchDocsToolDefinition(
+      { ...baseConfig(), searchDocsMode: 'filename' },
+      async () => ({ provider: 'fake', results: [{ path: f, name: 'target.md', mtime: 1, size: 10, dir: false }] }),
+    )
+    // 即使模型传了 contentQuery，也不会做内容匹配。
+    const out = await def.execute({ query: 'target', contentQuery: '目标词X' }, {})
+    assert.equal(out.ok, true)
+    assert.equal(out.content, false)
+    assert.equal(out.contentQuery, '')
+    assert.equal(out.results.length, 1)
+    assert.equal(out.results[0].snippets, undefined)
+    // description 明确告知内容检索已禁用。
+    assert.match(def.description, /内容检索已由插件配置禁用/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('mode=content：强制内容检索，query 视为内容关键词、文件名过滤停用', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-mode-content-'))
+  try {
+    const f = join(dir, '任意文件名.md')
+    writeFileSync(f, '正文含 关键内容词Y\n')
+    let receivedQuery = 'sentinel'
+    const def = searchDocsToolDefinition(
+      { ...baseConfig(), searchDocsMode: 'content' },
+      async (params) => {
+        receivedQuery = params.query // 文件名过滤关键词必须被清空
+        return { provider: 'fake', results: [{ path: f, name: '任意文件名.md', mtime: 1, size: 10, dir: false }] }
+      },
+    )
+    // 只传 query（无 contentQuery）：content 模式下 query 即内容关键词。
+    const out = await def.execute({ query: '关键内容词Y', limit: 5 }, {})
+    assert.equal(out.ok, true)
+    assert.equal(out.content, true)
+    assert.equal(out.contentQuery, '关键内容词Y')
+    assert.equal(receivedQuery, '') // 文件名过滤停用
+    assert.equal(out.results.length, 1)
+    assert.ok(Array.isArray(out.results[0].snippets))
+    assert.match(def.description, /仅内容搜索/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('controller：mode=off 不注册工具；mode 切换时重注册（description 跟随）', async () => {
+  let runtime = { searchDocsMode: 'off' }
+  const registered = []
+  const ctx = {
+    tools: {
+      register: (def) => {
+        registered.push(def)
+        return () => { registered.splice(registered.indexOf(def), 1) }
+      },
+    },
+  }
+  const { createSearchDocsController } = await import('../lib/search-docs.js')
+  const ctrl = createSearchDocsController(ctx, baseConfig(), () => runtime)
+  // off：不注册
+  assert.equal(registered.length, 0)
+  // filename：注册一次，description 带"禁用"
+  runtime = { searchDocsMode: 'filename' }
+  ctrl.sync()
+  assert.equal(registered.length, 1)
+  assert.match(registered[0].description, /内容检索已由插件配置禁用/)
+  // content：重注册（旧定义卸载、新定义注册），description 更新
+  runtime = { searchDocsMode: 'content' }
+  ctrl.sync()
+  assert.equal(registered.length, 1)
+  assert.match(registered[0].description, /仅内容搜索/)
+  // off：卸载
+  runtime = { searchDocsMode: 'off' }
+  ctrl.sync()
+  assert.equal(registered.length, 0)
 })
