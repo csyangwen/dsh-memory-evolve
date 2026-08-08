@@ -59,8 +59,10 @@ function makeFakeAgents() {
 /** fake ctx：tools.register 捕获 + effect 执行 + inject 同步回调（模拟
  *  agents 服务已就绪；与真实 cordis 行为一致——agents 必须经 inject 拿）。
  *  workspace：fake 工作区注册表（/project/blog 已注册，attach 记录到 attached）。
- *  sessionTitle：fake 名称服务（rename 记录到 renamed）。 */
-function makeCtx(agents) {
+ *  sessionTitle：fake 名称服务（rename 记录到 renamed）。
+ *  sessionPersistence：fake 持久化（inspect 返回会话 log——
+ *  wake offline 恢复时读会话自己最后使用的模型配置）。 */
+function makeCtx(agents, persistence) {
   const registered = []
   const attached = []
   const renamed = []
@@ -78,6 +80,16 @@ function makeCtx(agents) {
     sessionTitle: {
       rename: (session, title) => { renamed.push({ sid: session.id, title }); return { title } },
       get: (session) => (session?.id === 'session-gui' ? { title: '审查者' } : undefined),
+    },
+    sessionPersistence: persistence ?? {
+      // 缺省：session-restored 有自身模型配置（含 webUI 改过的），
+      // 其他会话无记录（events 空）
+      inspect: async (sid) => ({
+        meta: { id: sid },
+        events: sid === 'session-restored'
+          ? [{ type: 'request/header', data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-v4-webui', reasoningEffort: 'high' } } } }]
+          : [],
+      }),
     },
     tools: { register: (def) => { registered.push(def); return () => {} } },
     effect: (fn) => { fn(); return () => {} },
@@ -220,11 +232,37 @@ test('wake: live 直接派发；offline 先 resume 再派发；resume 失败报�
   assert.equal(wakeOffline.ok, true)
   assert.equal(agents.state.resumed.length, 1)
   assert.equal(agents.state.resumed[0].resumeSessionId, 'session-restored')
+  // ⚠️ 模型配置必须传给 resume：inspect 读会话自己最后使用的模型
+  // （request/header，含 webUI 改过的）——否则恢复的 agent.options 为空，
+  // {{model}} 变量无值导致被唤醒会话回合失败（2026-08-11 踩坑修复）
+  assert.deepEqual(agents.state.resumed[0].agentOptions, { provider: 'deepseek-official', model: 'deepseek-v4-webui' }, 'resume 带会话自身模型配置')
   assert.equal(agents.live.get('session-restored').followups[0].content[0].text, '继续')
   // resume 失败（会话不存在）：明确报错
   const wakeMissing = await tool.execute({ action: 'wake', sessionId: 'session-missing', prompt: 'hi' }, {})
   assert.equal(wakeMissing.ok, false)
   assert.match(wakeMissing.message, /不在当前进程且自动恢复失败/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wake offline: 会话 log 无模型记录时 resume 不带 agentOptions（不崩）', async () => {
+  const dir = tempDir()
+  mkdirSync(dir, { recursive: true })
+  const agents = makeFakeAgents()
+  // 持久化：任何会话都无 request/header 记录
+  const persistence = { inspect: async () => ({ meta: {}, events: [] }) }
+  const { AliasStore } = await import('../lib/aliases.js')
+  const orch = new SessionOrch(makeCtx(agents, persistence), { store: new SessionOrchStore(dir), aliasStore: new AliasStore(dir), getBroadcastStore: () => undefined })
+  const tool = sessionToolDefinition(orch)
+  const wake = await tool.execute({ action: 'wake', sessionId: 'session-restored', prompt: '继续' }, {})
+  assert.equal(wake.ok, true)
+  assert.equal(agents.state.resumed.length, 1)
+  assert.equal(agents.state.resumed[0].agentOptions, undefined, '无模型记录不传 agentOptions（保持原行为）')
+  // inspect 抛异常也不影响唤醒（防御）
+  const persistence2 = { inspect: async () => { throw new Error('corrupt') } }
+  const orch2 = new SessionOrch(makeCtx(agents, persistence2), { store: new SessionOrchStore(dir), aliasStore: new AliasStore(dir), getBroadcastStore: () => undefined })
+  const tool2 = sessionToolDefinition(orch2)
+  const wake2 = await tool2.execute({ action: 'wake', sessionId: 'session-restored2', prompt: '继续' }, {})
+  assert.equal(wake2.ok, true)
   rmSync(dir, { recursive: true, force: true })
 })
 
