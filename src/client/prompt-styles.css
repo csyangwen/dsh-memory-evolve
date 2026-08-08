@@ -407,6 +407,15 @@
   background: var(--dsw-alias-state-success-tertiary);
   font-weight: 600;
 }
+/* 禁用提示词：列表置灰 + 「已禁用」徽标（AI 的 de_prompts 列表看不到它） */
+.pm-item-disabled .pm-item-name {
+  color: var(--dsw-alias-label-tertiary);
+  text-decoration: line-through;
+}
+.pm-item-badge-off {
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
 .pm-inject-status {
   display: inline-flex;
   align-items: center;
@@ -534,6 +543,28 @@
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
+}
+/* 启用状态行：label 与开关按钮横排 */
+.pm-enable-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.pm-toggle {
+  flex-shrink: 0;
+  padding: 3px 12px;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-base);
+  cursor: pointer;
+}
+.pm-toggle-on {
+  color: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-tertiary);
+  background: var(--dsw-alias-state-success-tertiary);
+  font-weight: 600;
 }
 .pm-field-grow {
   flex: 1;

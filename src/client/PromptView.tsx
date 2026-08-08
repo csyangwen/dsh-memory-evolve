@@ -21,9 +21,13 @@ import { TabGuideView } from './TabGuideView.tsx'
 interface Prompt {
   id: string
   name: string
+  /** 简介：一句话说明用途（AI 的 de_prompts 列表选词时看这里；列表摘要优先显示它） */
+  description: string
   category: string
   tags: string[]
   content: string
+  /** 启用状态：false = 禁用（不出现在 AI 的 de_prompts 列表、不能注入；GUI 仍可见可编辑） */
+  enabled: boolean
   createdAt: number
   updatedAt: number
   usageCount: number
@@ -63,10 +67,11 @@ const DICT = {
     guideIntro: '提示词注入 = 可复用的「指令范式资产库 + 注入执行器」：把常用工作范式（代码审查 / 调试 / PRD / 测试等）固化成提示词，选中即注入——模型下一轮自动看到、不打断回复。',
     guideLibTitle: '提示词库',
     guideLibBody: '可复用的指令范式资产，来源以用户自写为主：',
-    guideLibItem1: 'CRUD：新建 / 编辑 / 删除，名称 + 分类 + 标签 + 正文（Markdown），新建时分类留空自动归入「临时」；',
+    guideLibItem1: 'CRUD：新建 / 编辑 / 删除，名称 + 简介 + 分类 + 标签 + 正文（Markdown），新建时分类留空自动归入「临时」；',
     guideLibItem2: '分类管理：内置分类 + 自定义添加 / 重命名 / 删除（删除时该分类下提示词自动移到未分类）；',
     guideLibItem3: '搜索（名称/分类/标签/内容）+ 复制到剪贴板 + 使用统计；',
-    guideLibItem4: '内置 13 条来自 GitHub 真实提示词资产的冷启动示例（SpecRoute / Claude-Code-Promts-Skills），并附范式库链接供自取。',
+    guideLibItem4: '内置 13 条来自 GitHub 真实提示词资产的冷启动示例（SpecRoute / Claude-Code-Promts-Skills），并附范式库链接供自取；',
+    guideLibItem5: '启用状态：禁用后 AI 的提示词工具（de_prompts）看不到、也不能注入——GUI 仍可编辑，随时可重新启用；AI 可查询列表（按 ID 取详情）并选择合适提示词注入当前会话，或用作子会话/子代理/CLI 任务提示词。',
     guideInjectTitle: '注入机制',
     guideInjectBody: '选中提示词配置「次数 × 间隔」即注入（次数/间隔可输入任意数字）：',
     guideInjectItem1: '次数：一次性（1 轮）/ 有限 N 次 / 无限（0 = 持续注入直到手动停止）；',
@@ -110,6 +115,12 @@ const DICT = {
     formEdit: '编辑提示词',
     name: '名称',
     namePh: '如：代码审查（Code Review）',
+    description: '简介',
+    descriptionPh: '一句话说明这个提示词的用途（AI 选择提示词时看这里）',
+    enabled: '启用状态',
+    enabledOn: '已启用',
+    enabledOff: '已禁用',
+    disabledHint: '禁用后不出现在 AI 的提示词列表，也不能被 AI 注入；可在本页重新启用',
     category: '分类',
     categoryPh: '如：开发流程（留空自动归入「临时」）',
     tags: '标签',
@@ -168,10 +179,11 @@ const DICT = {
     guideIntro: 'Prompt injection = a reusable "instruction pattern library + injection executor": turn recurring work paradigms (code review / debugging / PRD / testing…) into prompts, then inject one with a click — the model sees it next turn without interrupting the reply.',
     guideLibTitle: 'Prompt library',
     guideLibBody: 'Reusable instruction patterns, mostly user-written:',
-    guideLibItem1: 'CRUD: create / edit / delete, name + category + tags + body (Markdown); new prompts with an empty category go to Temp automatically;',
+    guideLibItem1: 'CRUD: create / edit / delete, name + description + category + tags + body (Markdown); new prompts with an empty category go to Temp automatically;',
     guideLibItem2: 'Category management: built-in categories + custom add / rename / delete (prompts in a deleted category move to Uncategorized);',
     guideLibItem3: 'Search (name/category/tags/content) + copy to clipboard + usage stats;',
-    guideLibItem4: '13 cold-start examples from real GitHub prompt assets (SpecRoute / Claude-Code-Promts-Skills) plus links to public pattern libraries.',
+    guideLibItem4: '13 cold-start examples from real GitHub prompt assets (SpecRoute / Claude-Code-Promts-Skills) plus links to public pattern libraries;',
+    guideLibItem5: 'Enabled state: disabled prompts are hidden from the AI prompt tool (de_prompts) and cannot be injected by AI — still editable here, re-enable anytime; AI can list prompts (fetch details by ID) and inject the right one into the current session, or use it as a sub-session/subagent/CLI task prompt.',
     guideInjectTitle: 'Injection mechanics',
     guideInjectBody: 'Select a prompt, configure "count × cadence" (any integers) and inject:',
     guideInjectItem1: 'Count: once (1 turn) / finite N turns / unlimited (0 = keeps injecting until stopped);',
@@ -215,6 +227,12 @@ const DICT = {
     formEdit: 'Edit prompt',
     name: 'Name',
     namePh: 'e.g. Code Review',
+    description: 'Description',
+    descriptionPh: 'One line about what this prompt does (AI reads this when picking a prompt)',
+    enabled: 'Enabled',
+    enabledOn: 'Enabled',
+    enabledOff: 'Disabled',
+    disabledHint: 'Disabled prompts are hidden from AI lists and cannot be injected by AI; re-enable here anytime',
     category: 'Category',
     categoryPh: 'e.g. workflow (empty = Temp category)',
     tags: 'Tags',
@@ -408,9 +426,12 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
 
   // 详情表单字段（选中或新建时填充；编辑直接改表单再保存）。
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [formCategory, setFormCategory] = useState('')
   const [tags, setTags] = useState('')
   const [content, setContent] = useState('')
+  /** 启用状态（默认 true）；禁用后不出现在 AI 的 de_prompts 列表、不能注入 */
+  const [enabled, setEnabled] = useState(true)
 
   // 浮层点击外部关闭。
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -487,9 +508,11 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     setSelectedId(id)
     setCreating(false)
     setName(p.name)
+    setDescription(p.description ?? '')
     setFormCategory(p.category === '未分类' ? '' : p.category)
     setTags(p.tags.join(', '))
     setContent(p.content)
+    setEnabled(p.enabled !== false)
   }
 
   /** 进入新建模式：清空表单。 */
@@ -497,9 +520,11 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     setSelectedId(null)
     setCreating(true)
     setName('')
+    setDescription('')
     setFormCategory('')
     setTags('')
     setContent('')
+    setEnabled(true)
     setError(null)
   }
 
@@ -507,9 +532,11 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     if (busy) return
     const body = {
       name,
+      description,
       category: formCategory,
       tags: tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
       content,
+      enabled,
     }
     setBusy(true)
     try {
@@ -638,9 +665,11 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
         method: 'POST',
         body: JSON.stringify({
           name: promptName,
+          description,
           category: formCategory.trim(),
           tags: tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
           content: text,
+          enabled,
         }),
       })
       const data = await api<{ injection: Injection }>(
@@ -758,16 +787,21 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     }
   }
 
+  /** 列表摘要：优先显示简介（AI 选词看的字段）；简介为空回退内容首行。 */
   const summaryLine = (p: Prompt): string => {
+    const desc = (p.description ?? '').trim()
+    if (desc) return desc.length > 60 ? `${desc.slice(0, 60)}…` : desc
     const first = p.content.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
     return first.length > 60 ? `${first.slice(0, 60)}…` : first
   }
 
   const selectedIsDirty = selected !== null && (
     name !== selected.name
+    || description !== (selected.description ?? '')
     || (formCategory || '未分类') !== selected.category
     || tags !== selected.tags.join(', ')
     || content !== selected.content
+    || enabled !== (selected.enabled !== false)
   )
 
   return (
@@ -797,7 +831,7 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
         // 提示词注入专属指南（本 Tab 功能详细介绍，文案见 DICT guide* 键）
         <TabGuideView sections={[
           { icon: '📌', title: say('guideIntro'), body: '' },
-          { icon: '📚', title: say('guideLibTitle'), body: say('guideLibBody'), items: [say('guideLibItem1'), say('guideLibItem2'), say('guideLibItem3'), say('guideLibItem4')] },
+          { icon: '📚', title: say('guideLibTitle'), body: say('guideLibBody'), items: [say('guideLibItem1'), say('guideLibItem2'), say('guideLibItem3'), say('guideLibItem4'), say('guideLibItem5')] },
           { icon: '💉', title: say('guideInjectTitle'), body: say('guideInjectBody'), items: [say('guideInjectItem1'), say('guideInjectItem2'), say('guideInjectItem3'), say('guideInjectItem4')] },
           { icon: '🔴', title: say('guideTrackTitle'), body: say('guideTrackBody') },
           { icon: '⚙️', title: say('guideSwitchTitle'), body: say('guideSwitchBody') },
@@ -987,12 +1021,17 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
               <button
                 key={p.id}
                 type="button"
-                className={`pm-item ${selectedId === p.id && !creating ? 'pm-item-active' : ''}`}
+                className={`pm-item ${selectedId === p.id && !creating ? 'pm-item-active' : ''} ${p.enabled === false ? 'pm-item-disabled' : ''}`}
                 onClick={() => selectPrompt(p.id)}
               >
                 <div className="pm-item-row1">
                   <span className="pm-item-name">{p.name}</span>
                   <span className="pm-item-badge">{p.category}</span>
+                  {p.enabled === false && (
+                    <span className="pm-item-badge pm-item-badge-off" title={say('disabledHint')}>
+                      {say('enabledOff')}
+                    </span>
+                  )}
                   {active !== undefined && (
                     <span className="pm-item-badge pm-item-badge-active" title={say('injectHint')}>
                       {active.roundsLeft === null
@@ -1032,6 +1071,15 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   placeholder={say('quickNamePh')}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label className="pm-field">
+                <span className="pm-field-label">{say('description')}</span>
+                <input
+                  className="pm-input"
+                  placeholder={say('descriptionPh')}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                 />
               </label>
               <label className="pm-field pm-field-grow">
@@ -1130,6 +1178,15 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                 />
               </label>
               <label className="pm-field">
+                <span className="pm-field-label">{say('description')}</span>
+                <input
+                  className="pm-input"
+                  placeholder={say('descriptionPh')}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </label>
+              <label className="pm-field">
                 <span className="pm-field-label">{say('category')}</span>
                 <input
                   className="pm-input"
@@ -1159,6 +1216,23 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                 />
+              </label>
+              {/* 启用状态：禁用后不出现在 AI 的 de_prompts 列表、不能被 AI 注入
+                  （GUI 仍可见可编辑，随时可重新启用） */}
+              <label className="pm-field pm-enable-row">
+                <span className="pm-field-label">
+                  {say('enabled')}
+                  <span className="pm-field-hint">{say('disabledHint')}</span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enabled}
+                  className={`pm-toggle ${enabled ? 'pm-toggle-on' : ''}`}
+                  onClick={() => setEnabled(!enabled)}
+                >
+                  {enabled ? say('enabledOn') : say('enabledOff')}
+                </button>
               </label>
               <div className="pm-actions">
                 {!creating && (() => {

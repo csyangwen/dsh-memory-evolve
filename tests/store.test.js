@@ -187,9 +187,50 @@ test('remove deletes the matched entry', () => {
   store.add('user', '用户英文名 Tester')
   const result = store.remove('user', 'Tester')
   assert.equal(result.ok, true)
+  // removed：被删的整条原文（含时间戳）——归档等"移动"场景直接追加用
+  assert.match(result.removed, /^\[\d{4}-\d{2}-\d{2}\] 用户英文名 Tester$/)
   const entries = store.entriesOf('user')
   assert.equal(entries.length, 1)
   assert.match(entries[0], /^\[\d{4}-\d{2}-\d{2}\] 用户中文名测试$/)
+  clean(dir)
+})
+
+test('archive flow: remove from main track then append to archive file', () => {
+  // 模拟 memory 工具 archive action 的组合行为（先删后加）：store.remove
+  // （唯一片段，返回被删整条）→ archive.append（原文追加进归档文件）。
+  // 覆盖三轨：memory / user / key（key 需要 cwd → projects/<hash>/KEY-archive.md）。
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const archive = new ArchiveStore(dir)
+  const cwd = '/work/proj'
+  const agent = { session: { header: { cwd } } }
+  // memory 轨
+  store.add('memory', '低频旧事实 A')
+  const m = store.remove('memory', '旧事实 A', agent)
+  assert.equal(m.ok, true)
+  assert.match(m.removed, /^\[\d{4}-\d{2}-\d{2}\] 低频旧事实 A$/)
+  const ma = archive.append('memory', m.removed)
+  assert.equal(ma.ok, true)
+  assert.deepEqual(archive.entriesOf('memory'), [m.removed])
+  assert.equal(store.entriesOf('memory').length, 0)
+  // user 轨
+  store.add('user', '用户旧习惯 B')
+  const u = store.remove('user', '旧习惯 B', agent)
+  assert.equal(u.ok, true)
+  archive.append('user', u.removed)
+  assert.deepEqual(archive.entriesOf('user'), [u.removed])
+  // key 轨（需 cwd）→ projects/<hash>/KEY-archive.md
+  store.add('key', '旧的项目约定 C', agent)
+  const k = store.remove('key', '旧的项目约定 C', agent)
+  assert.equal(k.ok, true)
+  const ka = archive.append('key', k.removed, cwd)
+  assert.equal(ka.ok, true)
+  assert.deepEqual(archive.entriesOf('key', cwd), [k.removed])
+  assert.equal(store.entriesOf('key', agent).length, 0)
+  // 归档可逆：从归档移除（模拟记忆 Tab「移回主记忆」的删除侧）
+  const back = archive.remove('memory', '低频旧事实 A')
+  assert.equal(back.ok, true)
+  assert.deepEqual(archive.entriesOf('memory'), [])
   clean(dir)
 })
 

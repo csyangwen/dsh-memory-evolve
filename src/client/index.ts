@@ -23,6 +23,7 @@ import { MemoryTabView } from './MemoryTabView.tsx'
 import { SkillsTabView } from './SkillsTabView.tsx'
 import { TodosTabView } from './TodosTabView.tsx'
 import { SettingsTabView } from './SettingsTabView.tsx'
+import { ModelsTabView } from './ModelsTabView.tsx'
 import { CoIView } from './CoIView.tsx'
 import { HeaderActions } from './HeaderActions.tsx'
 import { BroadcastView } from './BroadcastView.tsx'
@@ -233,6 +234,38 @@ export const zh = {
   'todosTab.feature.guide': '指南',
   'todosTab.feature.todoSuggestions': '待确认待办管理',
   'todosTab.feature.todo': '待办',
+  // 模型配置 Tab（models-hub）：表格展示 DSH 供应商/模型 + 每模型
+  // 启用/备注/可用思考等级配置（对应 de_models 工具的 Web 数据面）：
+  'modelsTab.label': '模型配置',
+  'modelsTab.searchPh': '搜索供应商、模型或备注…',
+  'modelsTab.showReasoning': '显示思考等级',
+  'modelsTab.refresh': '刷新',
+  'modelsTab.loading': '加载中…',
+  'modelsTab.count': '共 {total} 个模型 · {enabled} 个启用',
+  'modelsTab.loadFailed': '加载失败：{message}',
+  'modelsTab.empty': '（暂无模型）',
+  'modelsTab.enabled': '启用',
+  'modelsTab.enable': '启用',
+  'modelsTab.disable': '禁用',
+  'modelsTab.provider': '供应商',
+  'modelsTab.model': '模型',
+  'modelsTab.capacity': '上下文/输出',
+  'modelsTab.reasoning': '思考等级',
+  'modelsTab.note': '备注',
+  'modelsTab.notePh': '输入备注…',
+  'modelsTab.dormant': '未激活',
+  'modelsTab.levelsNone': '全部禁用',
+  'modelsTab.editLevels': '配置等级',
+  'modelsTab.closeEditor': '收起',
+  'modelsTab.editorTitle': '可用思考等级（勾选 = 允许该等级；推荐来自模型能力）',
+  'modelsTab.recommended': '推荐',
+  'modelsTab.addLevel': '添加',
+  'modelsTab.removeLevel': '移除',
+  'modelsTab.levelIdPh': '等级 ID（如 ultra）',
+  'modelsTab.levelNamePh': '显示名（如 Ultra）',
+  'modelsTab.save': '保存',
+  'modelsTab.saving': '保存中…',
+  'modelsTab.cancel': '取消',
   // 以下键保留兼容（旧 memory tab 合并布局的遗留，新 UI 不再引用）：
   'memoryTab.feature.config': '配置',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -501,11 +534,11 @@ export const zh = {
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '启用 memory_evolve_search_local_files：让模型能在本机所有磁盘/目录中按文件名搜索文件（默认只搜文档 md/docx/pdf…；全类型/文件夹需显式参数确认；只匹配文件名不读内容）。默认关闭；关闭时工具对模型完全不可见',
   'panel.config.broadcastEnabled': '会话广播',
-  'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——会话头部「⧉ 复制会话ID」按钮 + 快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响',
+  'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）+ 会话广播管理面板 Tab。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响；会话头部「⧉ 复制会话ID」「✎ 别名」按钮属「会话编排」模块（面板顶部另有复制入口）',
   'panel.config.sessionSearchEnabled': '会话搜索',
   'panel.config.sessionSearchEnabled.hint': '启用 de_session_search：让模型搜索本机其他 AI 工具的历史会话（当前支持 Codex：~/.codex/sessions 与 archived_sessions 的明文 JSONL——rg 预筛后毫秒级；DSH 会话暂不支持）。大小写不敏感的字面匹配，只搜用户/助手消息；支持 cwd 项目过滤、relevance/newest/oldest 排序、limit/window 控制规模。**独立子模块**（默认关闭，可单独开启，与 COI 调度/广播无关）；零常驻状态：无索引、无缓存，每次调用实时只读扫描，不修改任何会话文件；关闭时工具对模型完全不可见',
   'panel.config.sessionEnabled': '会话编排',
-  'panel.config.sessionEnabled.hint': '启用会话编排（de_session）：让 AI **程序化创建/唤醒 DSH 会话**——spawn 新建标准会话（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=完整提示词（角色/任务自由组合的长文本），创建后立即自动开跑，可选 cwd/加入广播房间/覆盖模型；wake 唤醒已有会话（等价替用户发消息，对方 AI 自动醒来处理，进程重启后自动恢复）；status/list 查状态。**独立子模块**（默认关闭；依赖 DSH agents 服务，仅同进程会话可唤醒；关闭时工具对模型不可见）',
+  'panel.config.sessionEnabled.hint': '启用会话编排（de_session）：让 AI **程序化创建/唤醒 DSH 会话**——spawn 新建标准会话（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=完整提示词（角色/任务自由组合的长文本），创建后立即自动开跑，可选 cwd/加入广播房间/覆盖模型；wake 唤醒已有会话（等价替用户发消息，对方 AI 自动醒来处理，进程重启后自动恢复）；status/list 查状态；**会话头部「⧉ 复制会话ID」「✎ 别名」按钮随本开关**（会话身份功能，曾误挂在广播下）。**独立子模块**（默认关闭；依赖 DSH agents 服务，仅同进程会话可唤醒；关闭时工具对模型不可见）',
   'panel.config.promptsEnabled': '提示词管理器',
   'panel.config.promptsEnabled.hint': '启用「提示词」Tab：提示词库（用户自写范式 + 内置示例）+ 注入轨（一次性/持续 N 轮/每 M 回合一次，次数与间隔可输入任意数字——写入后模型下一轮自动看到，回合递减自动过期，可随时停止；不建提示词也能临时注入，自动入库归入「临时」分类）。默认关闭；关闭时快照段/事件监听/API 全部卸载，Tab 刷新后隐藏',
   'panel.config.save': '保存配置',
@@ -712,6 +745,36 @@ export const en: Record<MemoryEvolveKey, string> = {
   'todosTab.feature.guide': 'Guide',
   'todosTab.feature.todoSuggestions': 'Todo suggestions',
   'todosTab.feature.todo': 'Todos',
+  'modelsTab.label': 'Models',
+  'modelsTab.searchPh': 'Search provider, model, or note…',
+  'modelsTab.showReasoning': 'Show reasoning levels',
+  'modelsTab.refresh': 'Refresh',
+  'modelsTab.loading': 'Loading…',
+  'modelsTab.count': '{total} models · {enabled} enabled',
+  'modelsTab.loadFailed': 'Load failed: {message}',
+  'modelsTab.empty': '(No models)',
+  'modelsTab.enabled': 'Enabled',
+  'modelsTab.enable': 'Enable',
+  'modelsTab.disable': 'Disable',
+  'modelsTab.provider': 'Provider',
+  'modelsTab.model': 'Model',
+  'modelsTab.capacity': 'Context/Output',
+  'modelsTab.reasoning': 'Reasoning',
+  'modelsTab.note': 'Note',
+  'modelsTab.notePh': 'Add a note…',
+  'modelsTab.dormant': 'Inactive',
+  'modelsTab.levelsNone': 'All disabled',
+  'modelsTab.editLevels': 'Configure levels',
+  'modelsTab.closeEditor': 'Collapse',
+  'modelsTab.editorTitle': 'Available reasoning levels (check = allowed; recommended comes from the model)',
+  'modelsTab.recommended': 'Recommended',
+  'modelsTab.addLevel': 'Add',
+  'modelsTab.removeLevel': 'Remove',
+  'modelsTab.levelIdPh': 'Level ID (e.g. ultra)',
+  'modelsTab.levelNamePh': 'Display name (e.g. Ultra)',
+  'modelsTab.save': 'Save',
+  'modelsTab.saving': 'Saving…',
+  'modelsTab.cancel': 'Cancel',
   // Legacy keys kept for compatibility (old merged memory-tab layout).
   'memoryTab.feature.config': 'Config',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -980,11 +1043,11 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Enable memory_evolve_search_local_files: lets the model search files by name across all local disks/directories (documents md/docx/pdf… by default; all types/folders require explicit parameter confirmation; name matching only, never reads contents). Off by default; when off the tool is completely invisible to the model',
   'panel.config.broadcastEnabled': 'Session broadcast',
-  'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "⧉ Copy session ID" button in the session header + the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup). **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected',
+  'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup) + the broadcast management panel tab. **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected; the header "⧉ Copy session ID" / "✎ alias" buttons belong to "Session orchestration" (the panel top also has a copy entry)',
   'panel.config.sessionSearchEnabled': 'Session search',
   'panel.config.sessionSearchEnabled.hint': 'Enable de_session_search: lets the model search historical sessions of other local AI tools (Codex for now: plain JSONL under ~/.codex/sessions and archived_sessions — rg prefilter keeps it millisecond-fast; DSH sessions not supported yet). Case-insensitive literal matching over user/assistant messages only; supports cwd project filter, relevance/newest/oldest sorting, and limit/window result control. **Independent submodule** (off by default, can be enabled alone — unrelated to COI dispatch/broadcast); zero resident state: no index, no cache, every call scans read-only in real time and never modifies session files; when off the tool is completely invisible to the model',
   'panel.config.sessionEnabled': 'Session orchestration',
-  'panel.config.sessionEnabled.hint': 'Enable session orchestration (de_session): lets AI **programmatically create/wake DSH sessions** — spawn creates a standard session (identical to one opened manually: system prompt/tools/memory snapshot/persistence, appears in the left session list and can be taken over), prompt = the full instruction text (role/task freely composed), it starts running immediately; optional cwd / join a broadcast room / model override; wake wakes an existing session (equivalent to sending a message on its behalf — its AI wakes up and processes it, auto-resumed after process restart); status/list inspect state. **Independent submodule** (off by default; depends on the DSH agents service, only same-process sessions can be woken; when off the tool is invisible to the model)',
+  'panel.config.sessionEnabled.hint': 'Enable session orchestration (de_session): lets AI **programmatically create/wake DSH sessions** — spawn creates a standard session (identical to one opened manually: system prompt/tools/memory snapshot/persistence, appears in the left session list and can be taken over), prompt = the full instruction text (role/task freely composed), it starts running immediately; optional cwd / join a broadcast room / model override; wake wakes an existing session (equivalent to sending a message on its behalf — its AI wakes up and processes it, auto-resumed after process restart); status/list inspect state; the header **"⧉ Copy session ID" / "✎ alias" buttons follow this switch** (session-identity features, previously mis-housed under broadcast). **Independent submodule** (off by default; depends on the DSH agents service, only same-process sessions can be woken; when off the tool is invisible to the model)',
   'panel.config.promptsEnabled': 'Prompt manager',
   'panel.config.promptsEnabled.hint': 'Enable the Prompts tab: a prompt library (user-written paradigms + built-in examples) plus an injection track (once / N consecutive turns / every M turns — count and cadence accept any integers; injected content is visible to the model next turn, expires automatically by turn counting, and can be stopped anytime; quick inject works without saving a prompt first, auto-saved to the Temp category). Off by default; when off the snapshot section, event listener and API are fully uninstalled and the tab hides after refresh',
   'panel.config.save': 'Save config',
@@ -1156,6 +1219,21 @@ export function apply(ctx: Context): void {
         label: () => t('settingsTab.label'),
       }, (props) => SettingsTabView({ ...props, t })))
   }
+  // 模型配置 Tab（order 23，紧挨待办之后）：表格展示 DSH 供应商/模型 +
+  // 每模型启用/备注/可用思考等级配置（de_models 工具的 Web 数据面）。
+  // 常驻无开关无红点，注册一次即可。
+  let disposeModelsTab: (() => void) | undefined
+  const registerModelsTab = (): void => {
+    disposeModelsTab?.()
+    disposeModelsTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'models-hub',
+        order: 23,
+        label: () => t('modelsTab.label'),
+      }, (props) => ModelsTabView({ ...props, t })))
+  }
+  registerModelsTab()
   const pollBadge = (): void => {
     // 三个 tab 未注册前不轮询（registerMemoryTab 是探测成功的标志）。
     if (tabCancelled || disposeMemoryTab === undefined) return
@@ -1296,15 +1374,17 @@ export function apply(ctx: Context): void {
     disposeCoiTab?.()
   }, 'memory-evolve: coi tab')
 
-  // 会话广播配套：会话头部「复制会话 ID」按钮——**独立于 COI 调度**，
-  // 跟随 broadcastEnabled（主 /api/config 返回 RUNTIME_KEYS，含该开关）。
-  // 用户把当前会话 ID 复制给另一个会话，对方 AI 用 de_broadcast 广播。
-  let broadcastCancelled = false
+  // 会话身份配套：会话头部「⧉ 复制会话 ID」「✎ 别名」按钮——**属于会话
+  // 编排/身份**（用户拍板 2026-08-09：不是广播的功能，从 broadcastEnabled
+  // 迁移到 sessionEnabled）。用户把当前会话 ID/别名复制给另一个会话，
+  // 对方 AI 用 de_broadcast 广播或 de_session 编排；广播面板顶部另有
+  // 「我的会话 ID 复制」，只开广播不开会话编排时复制能力仍可用。
+  let sessionHeaderCancelled = false
   let disposeCopyId: (() => void) | undefined
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-    .then((data: { config?: { broadcastEnabled?: boolean } }) => {
-      if (broadcastCancelled || data.config?.broadcastEnabled !== true) return
+    .then((data: { config?: { sessionEnabled?: boolean } }) => {
+      if (sessionHeaderCancelled || data.config?.sessionEnabled !== true) return
       // 头部 actions 是 strict-session slot：entry 组件自动收到 sessionId。
       disposeCopyId = ctx.slots.inject('conversation.session.header.actions', () =>
         ctx.slots.register({
@@ -1313,11 +1393,11 @@ export function apply(ctx: Context): void {
           order: 0,
         }, (props) => HeaderActions({ ...props, t })))
     })
-    .catch(() => { /* 广播未启用：复制按钮保持隐藏 */ })
+    .catch(() => { /* 会话编排未启用：头部按钮保持隐藏 */ })
   ctx.effect(() => () => {
-    broadcastCancelled = true
+    sessionHeaderCancelled = true
     disposeCopyId?.()
-  }, 'memory-evolve: broadcast copy-id button')
+  }, 'memory-evolve: session header buttons')
 
   // 会话广播管理 Tab（conversation.view）：跟随 broadcastEnabled——探测
   // /memory-evolve/api/broadcast 存在才注册（未启用时 API 404，Tab 隐藏）。

@@ -4,6 +4,7 @@
   "prompts": [
     {
       "name": "代码审查（Spec-Driven）",
+      "description": "按 spec 三元组审查 PR/变更集：需求覆盖、测试真实性、正确性/安全/性能/可观测性，输出可执行的审查结论",
       "category": "开发流程",
       "tags": [
         "code-review",
@@ -14,6 +15,7 @@
     },
     {
       "name": "调试与排障（DEBUG 协议）",
+      "description": "DEBUG 五步法系统排查生产问题：症状识别、证据收集、二分定位、根因理解、修复预防",
       "category": "问题排查",
       "tags": [
         "debugging",
@@ -24,6 +26,7 @@
     },
     {
       "name": "安全审计",
+      "description": "OWASP 十大清单 + 依赖/密钥/注入/越权扫描，输出安全风险分级与整改建议",
       "category": "质量",
       "tags": [
         "security",
@@ -34,6 +37,7 @@
     },
     {
       "name": "性能优化",
+      "description": "MEASURE 协议性能优化：基线监控、瓶颈定位、方案实施、基准验证，覆盖前后端与数据库",
       "category": "性能",
       "tags": [
         "performance",
@@ -44,6 +48,7 @@
     },
     {
       "name": "数据库优化",
+      "description": "QUERY 协议数据库设计优化：量化、映射、评估、重设计、验证——schema/索引/查询/迁移",
       "category": "性能",
       "tags": [
         "database",
@@ -54,6 +59,7 @@
     },
     {
       "name": "测试策略",
+      "description": "TEST 协议测试策略：测试金字塔、用例设计模式（等价类/边界）、覆盖率目标与 TDD 引导",
       "category": "测试",
       "tags": [
         "testing",
@@ -64,6 +70,7 @@
     },
     {
       "name": "架构模式与决策",
+      "description": "架构与设计模式决策：澄清需求、识别约束、评估取舍、给出推荐与理由、原型验证",
       "category": "设计",
       "tags": [
         "architecture",
@@ -74,6 +81,7 @@
     },
     {
       "name": "Git 版本控制",
+      "description": "BRANCH 协议 Git 版本控制：分支策略（Git Flow/GitHub Flow/Trunk）、提交规范、冲突协作",
       "category": "开发流程",
       "tags": [
         "git",
@@ -84,6 +92,7 @@
     },
     {
       "name": "技术文档写作",
+      "description": "CLEAR 协议技术文档写作：文档清单盘点、结构写作、准确性审计、持续完善",
       "category": "文档",
       "tags": [
         "documentation",
@@ -94,6 +103,7 @@
     },
     {
       "name": "PRD 转 Spec",
+      "description": "把已批准的 PRD 转成 spec 三元组（requirements/design/tasks），稳定 ID 与需求回溯",
       "category": "产品",
       "tags": [
         "prd",
@@ -104,6 +114,7 @@
     },
     {
       "name": "Spec 转任务拆解",
+      "description": "从已批准的 requirements/design 推导 tasks.md：阶段划分、任务分解、全局编号与需求回溯",
       "category": "开发流程",
       "tags": [
         "spec",
@@ -114,6 +125,7 @@
     },
     {
       "name": "任务实现（Spec-Driven）",
+      "description": "按 spec 任务卡执行实现：目标/上下文/前置/步骤/验收/约束，单 PR 落地",
       "category": "开发流程",
       "tags": [
         "implementation",
@@ -124,6 +136,7 @@
     },
     {
       "name": "行为保持重构",
+      "description": "不改变行为的重构：小步提取、调用方迁移、旧面移除，测试即回归门禁",
       "category": "开发流程",
       "tags": [
         "refactor",

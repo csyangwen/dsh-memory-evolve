@@ -49,17 +49,30 @@ test('PromptStore CRUD 与校验', () => {
     // 空名称/空内容被拒
     assert.throws(() => store.create({ name: '  ', content: 'x' }), /名称不能为空/)
     assert.throws(() => store.create({ name: 'x', content: '  ' }), /内容不能为空/)
-    // 正常创建：分类留空 → 自动归入「临时」，标签去重截断
+    // 正常创建：分类留空 → 自动归入「临时」，标签去重截断；
+    // 简介/启用状态默认值（description=''、enabled=true）
     const p = store.create({ name: '测试提示词', category: '', tags: ['a', 'a', 'b', '', ' '], content: '第一条\n第二行' })
     assert.equal(p.category, '临时')
     assert.deepEqual(p.tags, ['a', 'b'])
     assert.equal(p.usageCount, 0)
-    // 更新
-    const updated = store.update(p.id, { name: '改名', category: '测试', tags: ['c'], content: '新内容' })
+    assert.equal(p.description, '')
+    assert.equal(p.enabled, true)
+    // 创建时带简介与禁用状态
+    const p2 = store.create({ name: '带简介', description: '一句话简介', content: 'x', enabled: false })
+    assert.equal(p2.description, '一句话简介')
+    assert.equal(p2.enabled, false)
+    // 简介超长被拒
+    assert.throws(() => store.create({ name: '超长简介', description: 'x'.repeat(501), content: 'x' }), /简介过长/)
+    // 更新（含简介/启用状态）
+    const updated = store.update(p.id, { name: '改名', category: '测试', tags: ['c'], content: '新内容', description: '新简介', enabled: false })
     assert.equal(updated.name, '改名')
     assert.equal(updated.category, '测试')
+    assert.equal(updated.description, '新简介')
+    assert.equal(updated.enabled, false)
     assert.equal(store.get(p.id).content, '新内容')
-    // 更新校验
+    // 更新校验：简介超长 / enabled 非布尔 / 名称空
+    assert.throws(() => store.update(p.id, { description: 'x'.repeat(501) }), /简介过长/)
+    assert.throws(() => store.update(p.id, { enabled: 'false' }), /布尔/)
     assert.throws(() => store.update(p.id, { name: '' }), /名称不能为空/)
     // 编辑时清空分类 = 移回「未分类」（与删除分类的落点一致；新建留空才是「临时」）
     const uncat = store.update(p.id, { category: '' })
@@ -71,6 +84,24 @@ test('PromptStore CRUD 与校验', () => {
     // 删除
     assert.equal(store.remove(p.id), true)
     assert.equal(store.remove(p.id), false)
+  } finally {
+    clean(dir)
+  }
+})
+
+test('PromptStore listEnabled: 只返回启用中的提示词（禁用/旧数据缺省视为启用）', () => {
+  const dir = tempDir()
+  try {
+    const store = new PromptStore(dir)
+    store.seedIfEmpty()
+    assert.equal(store.listEnabled().length, store.list().length) // seed 全启用
+    const a = store.create({ name: 'A', content: 'x' })
+    const b = store.create({ name: 'B', content: 'y', enabled: false })
+    store.update(b.id, { enabled: false })
+    const ids = store.listEnabled().map((p) => p.id)
+    assert.ok(ids.includes(a.id))
+    assert.ok(!ids.includes(b.id)) // 禁用不进 AI 列表
+    assert.equal(store.list().length, store.listEnabled().length + 1) // GUI 全量仍可见
   } finally {
     clean(dir)
   }
@@ -276,6 +307,7 @@ async function bootApi() {
   const dir = tempDir()
   let turnListener = null
   let snapshotRender = null
+  let promptTool = null
   const ctx = {
     on: (event, listener) => { if (event === 'agent/turn-stopping') turnListener = listener; return () => {} },
     inject: (services, cb) => {
@@ -289,6 +321,9 @@ async function bootApi() {
       return () => {}
     },
     effect: (fn) => { fn(); return () => {} },
+    tools: {
+      register: (def) => { promptTool = def; return () => {} },
+    },
     systemPrompt: {
       context: ({ name, text }) => { if (name === 'prompt:injections') snapshotRender = text; return () => {} },
     },
@@ -307,7 +342,7 @@ async function bootApi() {
     return { status: res.status, data }
   }
   const close = () => new Promise((resolve) => server.close(resolve))
-  return { dir, base, request, close, turnListener, snapshotRender }
+  return { dir, base, request, close, turnListener, snapshotRender, promptTool }
 }
 
 test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async () => {
@@ -317,16 +352,20 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     const list = await request('GET', '/memory-evolve/api/prompts')
     assert.equal(list.status, 200)
     assert.ok(list.data.prompts.length >= 10)
-    // 创建 + 校验：分类留空 → 自动归入「临时」
-    const created = await request('POST', '/memory-evolve/api/prompts', { name: '我的范式', content: '请按以下流程执行：\n1. 先看 {{date}} 的日志' })
+    // 创建 + 校验：分类留空 → 自动归入「临时」；简介/启用状态透传
+    const created = await request('POST', '/memory-evolve/api/prompts', { name: '我的范式', description: '我的简介', content: '请按以下流程执行：\n1. 先看 {{date}} 的日志', enabled: false })
     assert.equal(created.status, 200)
     const id = created.data.prompt.id
     assert.equal(created.data.prompt.category, '临时')
+    assert.equal(created.data.prompt.description, '我的简介')
+    assert.equal(created.data.prompt.enabled, false)
     assert.equal((await request('POST', '/memory-evolve/api/prompts', { name: '', content: 'x' })).status, 400)
-    // 更新
-    const updated = await request('PUT', `/memory-evolve/api/prompts/${id}`, { name: '我的范式V2', category: '工作流' })
+    // 更新（含简介/启用状态）
+    const updated = await request('PUT', `/memory-evolve/api/prompts/${id}`, { name: '我的范式V2', category: '工作流', description: '新简介', enabled: true })
     assert.equal(updated.status, 200)
     assert.equal(updated.data.prompt.name, '我的范式V2')
+    assert.equal(updated.data.prompt.description, '新简介')
+    assert.equal(updated.data.prompt.enabled, true)
     // 注入（一次性）：变量已展开，rounds=1
     const inj = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 1 })
     assert.equal(inj.status, 200)
@@ -429,6 +468,7 @@ test('installPrompts: dispose 可安全调用（开关卸载路径）', async ()
         return () => {}
       },
       effect: (fn) => { fn(); return () => {} },
+      tools: { register: () => () => {} },
       systemPrompt: { context: () => () => {} },
     }
     const installed = installPrompts(ctx, { memoryDir: dir })
@@ -437,6 +477,75 @@ test('installPrompts: dispose 可安全调用（开关卸载路径）', async ()
     assert.doesNotThrow(() => installed.dispose())
     assert.doesNotThrow(() => installed.dispose())
   } finally {
+    clean(dir)
+  }
+})
+
+test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、get 详情、inject 闭环', async () => {
+  const { dir, request, close, promptTool } = await bootApi()
+  const exec = () => ({ agent: { session: { header: { cwd: '/proj/x' } } }, callId: 'c1', signal: new AbortController().signal })
+  try {
+    // 工具随模块安装注册（name 来自配置 promptToolName 默认 de_prompts）
+    assert.ok(promptTool, 'de_prompts tool registered by installPrompts')
+    assert.equal(promptTool.name, 'de_prompts')
+    // list：seed 13 条全启用
+    const listed = await promptTool.execute({ action: 'list' }, exec())
+    assert.equal(listed.ok, true)
+    assert.equal(listed.action, 'list')
+    assert.equal(listed.prompts.length, 13)
+    assert.ok(listed.prompts.every((p) => p.id && p.name && 'description' in p && p.category))
+    assert.equal('content' in listed.prompts[0], false) // 列表不含正文（克制）
+    // list 过滤：filter 命中名称/简介/分类；limit 截断
+    const perf = await promptTool.execute({ action: 'list', filter: '性能' }, exec())
+    assert.ok(perf.prompts.some((p) => p.name.includes('性能')))
+    const capped = await promptTool.execute({ action: 'list', limit: 3 }, exec())
+    assert.equal(capped.prompts.length, 3)
+    const none = await promptTool.execute({ action: 'list', filter: '不存在的词' }, exec())
+    assert.equal(none.prompts.length, 0)
+    assert.match(none.message, /没有匹配/)
+    // get：详情含正文全文与状态字段
+    const first = listed.prompts[0]
+    const got = await promptTool.execute({ action: 'get', id: first.id }, exec())
+    assert.equal(got.ok, true)
+    assert.equal(got.prompt.id, first.id)
+    assert.ok(got.prompt.content.length > 50)
+    assert.equal(got.prompt.enabled, true)
+    assert.ok(got.prompt.lastUsedAt === null) // 从未注入
+    assert.equal((await promptTool.execute({ action: 'get', id: 'nope' }, exec())).ok, false)
+    // inject：默认 rounds=1（一次注入）；注入轨写入 + 使用统计 +1
+    const injected = await promptTool.execute({ action: 'inject', id: first.id }, exec())
+    assert.equal(injected.ok, true)
+    assert.equal(injected.injection.sourcePromptId, first.id)
+    assert.equal(injected.injection.roundsLeft, 1)
+    const after = await promptTool.execute({ action: 'get', id: first.id }, exec())
+    assert.equal(after.prompt.usageCount, 1)
+    // 重复注入拒绝
+    const dup = await promptTool.execute({ action: 'inject', id: first.id }, exec())
+    assert.equal(dup.ok, false)
+    assert.match(dup.message, /已在注入中/)
+    // 移除注入（直接清注入轨文件），再注入自定义 rounds/every
+    await request('DELETE', `/memory-evolve/api/prompts/injections/${injected.injection.id}`)
+    const custom = await promptTool.execute({ action: 'inject', id: first.id, rounds: 7, every: 3 }, exec())
+    assert.equal(custom.ok, true)
+    assert.equal(custom.injection.roundsLeft, 7)
+    assert.equal(custom.injection.every, 3)
+    await request('DELETE', `/memory-evolve/api/prompts/injections/${custom.injection.id}`)
+    // 非法参数拒绝：rounds 负数 / every 负数 / 未知 action
+    assert.equal((await promptTool.execute({ action: 'inject', id: first.id, rounds: -1 }, exec())).ok, false)
+    assert.equal((await promptTool.execute({ action: 'inject', id: first.id, every: -1 }, exec())).ok, false)
+    assert.equal((await promptTool.execute({ action: 'explode' }, exec())).ok, false)
+    // 禁用提示词：不出现在 list、不能注入；get 仍可查（含 enabled=false）
+    const disabled = await request('PUT', `/memory-evolve/api/prompts/${first.id}`, { enabled: false })
+    assert.equal(disabled.status, 200)
+    const relist = await promptTool.execute({ action: 'list' }, exec())
+    assert.equal(relist.prompts.some((p) => p.id === first.id), false)
+    const denied = await promptTool.execute({ action: 'inject', id: first.id }, exec())
+    assert.equal(denied.ok, false)
+    assert.match(denied.message, /禁用/)
+    const gotDisabled = await promptTool.execute({ action: 'get', id: first.id }, exec())
+    assert.equal(gotDisabled.prompt.enabled, false)
+  } finally {
+    await close()
     clean(dir)
   }
 })

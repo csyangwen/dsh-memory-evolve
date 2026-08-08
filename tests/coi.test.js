@@ -352,6 +352,43 @@ test('scheduler: default scope is session (private by default)', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('scheduler: completed tasks accumulate adapter avg duration (de_coi_adapters avgMs)', () => {
+  const dir = tempDir()
+  const { scheduler, harness, tasks } = bootScheduler(dir)
+  // 容差断言（flaky 修复）：startedAt 由测试拨到 N 分钟前，finishedAt 由
+  // #finish 在 close 事件后取 Date.now()——两者间有毫秒级事件循环延迟，
+  // 实际耗时 = N 分钟 + Δ（Δ 通常 0-5ms）。曾用严格 equal(180000) 断言，
+  // Δ>=1ms 时拿到 180001 即失败（偶发，取决于调度时序）。
+  const near = (got, want, tol = 5000) => Math.abs(got - want) <= tol
+  // 任务一：完成前把 startedAt 拨到 3 分钟前 → completed 后聚合 ~180000ms
+  const t1 = scheduler.dispatch({ adapterId: 'grok', prompt: '任务一' })
+  tasks.update(t1.taskId, { startedAt: Date.now() - 3 * 60000 })
+  harness.children[0].emit('close', 0)
+  assert.ok(near(scheduler.adapterAvgMs('grok'), 180000), 'completed 计入平均耗时')
+  // 任务二：failed 不算正常完成，不计入
+  const t2 = scheduler.dispatch({ adapterId: 'grok', prompt: '任务二' })
+  tasks.update(t2.taskId, { startedAt: Date.now() - 60000 })
+  harness.children[1].emit('close', 1)
+  assert.ok(near(scheduler.adapterAvgMs('grok'), 180000), 'failed 不计入平均耗时')
+  // 任务三：再完成一个 5 分钟 → 平均 (3+5)/2 = 4 分钟
+  const t3 = scheduler.dispatch({ adapterId: 'grok', prompt: '任务三' })
+  tasks.update(t3.taskId, { startedAt: Date.now() - 5 * 60000 })
+  harness.children[2].emit('close', 0)
+  assert.ok(near(scheduler.adapterAvgMs('grok'), 4 * 60000), '多次 completed 求平均')
+  // 无记录的适配器返回 0
+  assert.equal(scheduler.adapterAvgMs('kimi'), 0)
+  // de_coi_adapters 输出带 avgMs（schema 已声明）
+  const adaptersTool = coiToolDefinitions(scheduler).find((t) => t.name === 'de_coi_adapters')
+  const out = adaptersTool.execute()
+  const grok = out.adapters.find((a) => a.id === 'grok')
+  assert.ok(near(grok.avgMs, 4 * 60000), 'de_coi_adapters 返回平均耗时（毫秒）')
+  // 持久化：stats.json 在 coiDataDir 下（清理任务记录后平均仍保留）
+  const saved = JSON.parse(readFileSync(join(dir, 'stats.json'), 'utf8'))
+  assert.equal(saved.grok.count, 2)
+  assert.ok(near(saved.grok.totalMs, 8 * 60000), 'totalMs 聚合（含 finish 延迟容差）')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('scheduler: dispatch runs async and completes with session capture', async () => {
   const dir = tempDir()
   const { scheduler, harness, sessions, tasks } = bootScheduler(dir)
@@ -1297,15 +1334,17 @@ test('coi tools: de_broadcast send/list/read/delete via session id', async () =>
   const listA = await msgTool.execute({ action: 'list' }, execA)
   assert.equal(listA.messages.length, 1)
   assert.equal(listA.messages[0].unread, true)
+  assert.equal(listA.messages[0].status, 'unread', '每条带状态：未读')
   assert.equal(listA.messages[0].sender, 'sessB')
   assert.equal(listA.messages[0].subject, '请查看项目日志', '缺省 subject 取内容首行')
   assert.ok(listA.messages[0].content.length <= 60, 'list 只给简短简介（收件箱式）')
   const listOther = await msgTool.execute({ action: 'list' }, { agent: { session: { id: 'sessX' } } })
   assert.equal(listOther.messages.length, 0)
-  // read：返回全文（不截断）+ 已读
+  // read：返回全文（不截断）+ 已读（status=read）
   const read = await msgTool.execute({ action: 'read', id: listA.messages[0].id }, execA)
   assert.equal(read.ok, true)
   assert.ok(read.messages[0].content.includes('项目日志'))
+  assert.equal(read.messages[0].status, 'read', '读后状态=已读')
   // 读即消费：A read 后（唯一接收者）消息自动删除，列表为空
   const listA2 = await msgTool.execute({ action: 'list' }, execA)
   assert.equal(listA2.messages.length, 0, 'read 后消息自动删除（列表为空）')
@@ -1320,6 +1359,55 @@ test('coi tools: de_broadcast send/list/read/delete via session id', async () =>
   // coiToolDefinitions 只含调度工具（广播已独立）
   const toolsPlain = coiToolDefinitions(scheduler)
   assert.deepEqual(toolsPlain.map((t) => t.name), ['de_coi_dispatch', 'de_coi_adapters', 'de_coi_status', 'de_coi_wait', 'de_coi_cancel'])
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast tools: list type 过滤（unread/all/read）+ 批量 read ids', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast)
+  const execA = { agent: { session: { id: 'sA', header: { cwd: '/p' } } } }
+  const execB = { agent: { session: { id: 'sB', header: { cwd: '/p' } } } }
+  // 房间消息（已读也保留——共享讨论语义）便于验证 read 过滤
+  const room = await msgTool.execute({ action: 'room-create', name: '组' }, execA)
+  const rid = room.rooms[0].id
+  await msgTool.execute({ action: 'room-join', roomId: rid }, execB)
+  // B 发 3 条：2 条给 A（显式）+ 1 条到房间（A 可见）
+  await msgTool.execute({ action: 'send', recipients: ['sA'], content: '私信一' }, execB)
+  await msgTool.execute({ action: 'send', recipients: ['sA'], content: '私信二' }, execB)
+  await msgTool.execute({ action: 'send', recipients: [rid], content: '房间消息一' }, execB)
+  // 缺省 = 只显示未读（收件箱视角，省上下文）
+  const unread = await msgTool.execute({ action: 'list' }, execA)
+  assert.equal(unread.messages.length, 3, '缺省 unread：3 条未读')
+  assert.ok(unread.messages.every((m) => m.status === 'unread'))
+  // 读掉 2 条私信（批量 ids 一次读完）
+  const ids = unread.messages.filter((m) => m.subject.startsWith('私信')).map((m) => m.id)
+  const batch = await msgTool.execute({ action: 'read', ids }, execA)
+  assert.equal(batch.ok, true)
+  assert.equal(batch.messages.length, 2, '批量读 2 条返回全文')
+  assert.ok(batch.messages.every((m) => m.status === 'read'))
+  // 读后缺省 list：只剩房间消息未读
+  const unread2 = await msgTool.execute({ action: 'list' }, execA)
+  assert.equal(unread2.messages.length, 1)
+  assert.equal(unread2.messages[0].subject, '房间消息一')
+  // type=all：房间消息（已读保留）+ 自己发的；显式私信已读即删不出现
+  const all = await msgTool.execute({ action: 'list', type: 'all' }, execA)
+  assert.equal(all.messages.length, 1, 'all：房间消息仍在（已读保留回看）')
+  // type=read：只看已读（房间消息已读）
+  const readList = await msgTool.execute({ action: 'list', type: 'read' }, execA)
+  assert.equal(readList.messages.length, 0, '房间消息还没读过 → read 列表为空')
+  // 读掉房间消息 → type=read 能回看
+  await msgTool.execute({ action: 'read', id: unread2.messages[0].id }, execA)
+  const readList2 = await msgTool.execute({ action: 'list', type: 'read' }, execA)
+  assert.equal(readList2.messages.length, 1)
+  assert.equal(readList2.messages[0].status, 'read')
+  // 批量 read 宽容：不存在的 id 跳过并在 message 说明
+  const batchMixed = await msgTool.execute({ action: 'read', ids: [readList2.messages[0].id, 'msg-nope'] }, execA)
+  assert.equal(batchMixed.ok, true)
+  assert.equal(batchMixed.messages.length, 1)
+  assert.match(batchMixed.message, /跳过 1 条/)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1431,12 +1519,17 @@ test('broadcast tools: room-create/join/leave/list + send 到房间', async () =
   const listB = await msgTool.execute({ action: 'list' }, execB)
   assert.equal(listB.messages.length, 1)
   assert.equal(listB.messages[0].unread, true)
-  // B 读后未读提示消失；房间消息保留在列表（回看语义，unread=false）
+  // B 读后未读提示消失；房间消息保留（回看语义）——但 list **缺省只看未读**
+  // （收件箱视角，2026-08-09 起），回看已读须 type='all'/'read'
   const read = await msgTool.execute({ action: 'read', id: listB.messages[0].id }, execB)
   assert.equal(read.ok, true)
+  assert.equal(read.messages[0].status, 'read', 'read 后状态必为已读')
   const listB2 = await msgTool.execute({ action: 'list' }, execB)
-  assert.equal(listB2.messages.length, 1, '房间消息已读后保留（回看）')
-  assert.equal(listB2.messages[0].unread, false)
+  assert.equal(listB2.messages.length, 0, '缺省 list 只看未读：已读房间消息不显示')
+  const listB2All = await msgTool.execute({ action: 'list', type: 'all' }, execB)
+  assert.equal(listB2All.messages.length, 1, 'type=all：已读房间消息保留（回看）')
+  assert.equal(listB2All.messages[0].unread, false)
+  assert.equal(listB2All.messages[0].status, 'read')
   // 解散权限：非创建者拒绝；创建者 room-rm 解散
   const rmDenied = await msgTool.execute({ action: 'room-rm', roomId: rid }, execB)
   assert.equal(rmDenied.ok, false, '非创建者不能解散房间')

@@ -4,6 +4,60 @@
 
 ---
 
+## 2026-08-12 — 提示词新增「简介」与「启用状态」字段 + de_prompts AI 工具（列表/详情/注入）
+
+### 🎯 需求（用户拍板）
+1. 提示词库每条提示词增加**简介**字段（新建/编辑均可填写，AI 选词时看它）；
+2. 提示词有**启用/禁用状态**——AI 获取的列表**不显示禁用的**；
+3. 暴露符合规则的 tool：AI 能**列出启用中的提示词**（id/名称/简介/分类/标签）、**按 id 查详情**（含正文全文），从而**选择合适提示词注入**；提示词列表也可作为**子会话/子代理/CLI 任务提示词**的来源（de_session / subagent / de_coi_dispatch）。
+
+### 实现
+- **数据层**（lib/prompts.js）：条目新增 `description`（简介，上限 500 字符，默认 ''）与 `enabled`（启用状态，默认 true，布尔严格校验）；create/update 白名单支持；新增 `listEnabled()`（只返回启用中）；seed 映射补 description；内置 13 条示例全部补写简介
+- **de_prompts 工具**（随 promptsEnabled 开关整体注册/注销；名字可配置 `promptToolName`，默认 `de_prompts`）：
+  - `list`：只显示**启用中**的提示词（id/名称/简介/分类/标签，**不含正文**——克制输出），支持 filter（名称/简介/标签/分类关键词）与 limit
+  - `get <id>`：按 id 查详情——**全部字段**（含正文全文、启用状态、使用统计、时间戳；禁用提示词也可查，AI 自行判断）
+  - `inject <id>`：把提示词**注入当前会话**（写入注入轨，模型下一轮生效；rounds=次数 0=无限、every=间隔 0=只注入一次，与 Web API 同规则）；**禁用提示词不能注入**、重复注入拒绝
+  - description 写明**正确用途**：给当前会话注入纪律/流程，或取正文用作子会话/子代理/CLI 任务的提示词
+- **GUI**（PromptView）：新建/编辑表单新增**简介输入框**与**启用状态开关**（禁用后列表置灰 + 「已禁用」徽标，AI 不可见不可注入，GUI 可随时重新启用）；列表摘要**优先显示简介**（为空回退内容首行）；临时注入表单同步支持简介
+- **配置**：`promptToolName`（STRING_KEYS 白名单）
+
+### 📝 文档与测试
+- README：特性列表、提示词管理器章节补简介/启用状态/de_prompts
+- 测试：prompts.test.js（字段默认值/校验/listEnabled/API 透传/de_prompts 闭环：list 过滤禁用→get 详情→inject→重复拒绝→禁用拒绝→filter/limit/非法参数）+ plugin.test.js（开关注册/注销、自定义工具名、output schema 校验）；全量 226/227（唯一失败为另一会话进行中的 broadcast 模块改动，与本轮无关）
+
+---
+
+## 2026-08-08 — memory 工具新增 archive 与归档查询：AI 直接归档/检索三轨记忆
+
+### 🎯 需求（用户拍板）
+记忆 Tab 的「归档」按钮（主轨条目 → 归档文件）此前只能用户手动点；用户要求把归档能力**暴露成 tool**，AI 可直接归档、并能**查询归档内容**。
+
+### 实现
+- `memory` 工具 action 新增 **`archive`**（target 限 memory/user/key + match 唯一片段）：与 UI 归档按钮**同一语义**——按唯一子串片段从主轨移除整条（`store.remove`，含 drift guard），**原文追加**进对应归档文件（`MEMORY-archive.md` / `USER-archive.md` / `projects/<项目>/KEY-archive.md`，key 需会话工作目录），**可逆**（记忆 Tab 归档页「移回主记忆」转正）；先删后加，删除失败绝不产生重复归档条目
+- `memory` 工具 `list` 新增 **`archived=true` 查询**：查对应归档文件（仅 memory/user/key 三轨，key 需 cwd），支持 filter / since / until / recent / limit（与主轨 list 语义对齐）——AI 可检索"归档了什么"，需要时提示用户移回或人工转正
+- `MemoryStore.remove` 成功返回新增 `removed` 字段（被删整条原文，含时间戳）——归档等"移动"场景免二次匹配
+- project/daily 不归档（tool 层明确拒绝并提示）
+- subagent 写全局轨（memory/user）的既有门禁对 archive 同样生效
+
+### 📝 文档
+- README：特性列表「记忆读写」补归档、记忆 Tab 段补 memory 工具 archive/archived 查询
+- 测试：store.remove 的 removed 字段断言 + 三轨归档组合流程（remove → append → 可逆）+ tool 层归档闭环（archive → 主轨空 → archived list 可见 → 过滤/隔离/报错）；全量 223/223 通过
+
+---
+
+## 2026-08-09 — 会话编排增强：rename 标记 + 工作区分组 + 头部按钮迁移
+
+### 🎯 新能力
+- **me（我是谁）**：`de_session me`——查当前会话自身信息（session ID / 会话名称 / 别名 / cwd / provider+model / 状态），AI 确认自己身份、把 ID/别名告知他人协作时用（AI 反馈无法直接查到自己的 ID/名称/别名）
+- **rename（改名称/别名做标记）**：`de_session rename`——sessionId + title（可选，**会话名称**=左侧列表标题，走 DSH sessionTitle.rename，user source pin 住不被自动覆盖；需 live 会话，offline 可先 wake 恢复）+ alias（可选，**会话别名**≤10 字，广播/快照显示，空串=清除）——两者至少给一个、可同时改；产品经理给员工会话做标记后谁是谁一目了然
+- **spawn 挂工作区分组**：新会话自动 attach 到 cwd 对应 workspace（左侧"项目"分组）——曾漏 attach 导致 cwd 正确但会话显示在「未分组」
+- **头部按钮迁移（架构）**：会话头部「⧉ 复制会话ID」「✎ 别名」按钮从广播模块**迁移到会话编排**（跟随 sessionEnabled）——会话身份功能本不属于广播；广播面板顶部保留复制入口，只开广播时复制能力不丢
+- **共享别名存储**：AliasStore 单实例（lib/index.js 创建）供 /api/aliases 与 de_session rename 共用，避免多实例内存缓存互覆写
+- **文档**：README（spawn/wake/rename/分组/按钮归属）、设置 Tab 指南与开关 hint 同步
+- **测试**：rename（live 改名/别名设清/offline 报错/同时改）；全量 220/220 通过
+
+---
+
 ## 2026-08-09 — 会话编排迭代修复（实测排坑）
 
 ### 🎯 实测中发现并修复（产品经理协作实跑）

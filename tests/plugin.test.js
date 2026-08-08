@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -195,6 +195,53 @@ test('memory tool end-to-end add/list/replace/remove', async () => {
   assert.equal(removed.ok, true)
   assert.equal('entries' in removed, false)
   assert.equal(readFileSync(join(dir, 'USER.md'), 'utf8').trim(), '')
+  clean(dir)
+})
+
+test('memory tool archive + archived list round-trip', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  const execCwd = (cwd) => ({ agent: { session: { header: { cwd } } }, callId: 'c1', signal: new AbortController().signal })
+
+  // 归档一条 user 记忆：主轨移除、归档文件可见
+  await tool.execute({ action: 'add', target: 'user', content: '要归档的旧习惯' }, fakeExec())
+  const archived = await tool.execute({ action: 'archive', target: 'user', match: '要归档的旧习惯' }, fakeExec())
+  assert.equal(archived.ok, true)
+  const listed = await tool.execute({ action: 'list', target: 'user' }, fakeExec())
+  assert.equal(listed.entries.length, 0) // 主轨已移除
+  const archivedList = await tool.execute({ action: 'list', target: 'user', archived: true }, fakeExec())
+  assert.equal(archivedList.ok, true)
+  assert.equal(archivedList.entries.length, 1)
+  assert.match(archivedList.entries[0], /要归档的旧习惯/)
+  // 归档查询过滤：filter / recent / limit
+  const filtered = await tool.execute({ action: 'list', target: 'user', archived: true, filter: '不存在的词' }, fakeExec())
+  assert.equal(filtered.entries.length, 0)
+  const filteredHit = await tool.execute({ action: 'list', target: 'user', archived: true, filter: '旧习惯' }, fakeExec())
+  assert.equal(filteredHit.entries.length, 1)
+  // project/daily 无归档 → 明确报错
+  const bad = await tool.execute({ action: 'list', target: 'project', archived: true }, fakeExec())
+  assert.equal(bad.ok, false)
+  assert.match(bad.message, /不归档/)
+  // key 归档查询需要 cwd；给 cwd 后走项目归档文件。
+  // key 轨 add 走待确认队列（不落盘），这里直接写 KEY.md 构造主轨条目。
+  const keyCwd = '/proj/x'
+  const keyDir = join(dir, 'projects', projectHash(keyCwd))
+  mkdirSync(keyDir, { recursive: true })
+  writeFileSync(join(keyDir, 'KEY.md'), '[2026-08-08] 旧的项目约定\n')
+  const noCwd = await tool.execute({ action: 'list', target: 'key', archived: true }, fakeExec())
+  assert.equal(noCwd.ok, false)
+  assert.match(noCwd.message, /工作目录/)
+  const keyArchived = await tool.execute({ action: 'archive', target: 'key', match: '旧的项目约定' }, execCwd(keyCwd))
+  assert.equal(keyArchived.ok, true)
+  const keyList = await tool.execute({ action: 'list', target: 'key', archived: true }, execCwd(keyCwd))
+  assert.equal(keyList.ok, true)
+  assert.equal(keyList.entries.length, 1)
+  assert.match(keyList.entries[0], /旧的项目约定/)
+  // 另一 cwd 看不到（项目隔离）
+  const otherKey = await tool.execute({ action: 'list', target: 'key', archived: true }, execCwd('/proj/y'))
+  assert.equal(otherKey.entries.length, 0)
   clean(dir)
 })
 
@@ -706,4 +753,83 @@ test('reviewMode gates subagent global writes: suggest refuses, auto approves', 
   assert.ok(readFileSync(join(dir, 'MEMORY.md'), 'utf8').includes('自动模式的全局事实'))
   assert.equal(approvals.length, 1)
   clean(dir)
+})
+
+test('de_prompts tool: promptsEnabled 开关注册/注销，list/get/inject 与禁用语义闭环', async () => {
+  // 默认（promptsEnabled=false）：工具不注册（模型不可见）
+  const offDir = tempDir()
+  const offCtx = fakeCtx()
+  apply(offCtx, { memoryDir: offDir })
+  assert.ok(!offCtx.state.tools.some((t) => t.name === 'de_prompts'), '默认不注册 de_prompts')
+  clean(offDir)
+
+  // 配置开启：注册 + output schema 合法（DSH 硬约束校验）
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir, promptsEnabled: true })
+  const tool = ctx.state.tools.find((t) => t.name === 'de_prompts')
+  assert.ok(tool, 'promptsEnabled=true 时注册 de_prompts')
+  assertValidOutputSchema(tool.output.schema)
+  const exec = () => ({ agent: { session: { header: { cwd: '/proj/x' } } }, callId: 'c1', signal: new AbortController().signal })
+
+  // list：seed 13 条全启用，含 id/名称/简介/分类/标签、不含正文
+  const listed = await tool.execute({ action: 'list' }, exec())
+  assert.equal(listed.ok, true)
+  assert.equal(listed.prompts.length, 13)
+  assert.ok(listed.prompts.every((p) => p.id && p.name && 'description' in p && p.category))
+  assert.equal('content' in listed.prompts[0], false)
+  // filter / limit
+  const perf = await tool.execute({ action: 'list', filter: '性能' }, exec())
+  assert.ok(perf.prompts.length >= 1)
+  const capped = await tool.execute({ action: 'list', limit: 3 }, exec())
+  assert.equal(capped.prompts.length, 3)
+  const none = await tool.execute({ action: 'list', filter: '绝不存在' }, exec())
+  assert.equal(none.prompts.length, 0)
+  // get：正文全文 + enabled/lastUsedAt 可空字段归一
+  const first = listed.prompts[0]
+  const got = await tool.execute({ action: 'get', id: first.id }, exec())
+  assert.equal(got.ok, true)
+  assert.ok(got.prompt.content.length > 50)
+  assert.equal(got.prompt.enabled, true)
+  assert.equal(got.prompt.lastUsedAt, null)
+  assert.equal((await tool.execute({ action: 'get', id: 'nope' }, exec())).ok, false)
+  // inject：默认一次注入；重复注入拒绝；注入轨落盘（prompt-injections.json）
+  const injected = await tool.execute({ action: 'inject', id: first.id }, exec())
+  assert.equal(injected.ok, true)
+  assert.equal(injected.injection.sourcePromptId, first.id)
+  assert.equal(injected.injection.roundsLeft, 1)
+  assert.equal((await tool.execute({ action: 'inject', id: first.id }, exec())).ok, false)
+  const injectionsFile = JSON.parse(readFileSync(join(dir, 'prompt-injections.json'), 'utf8'))
+  assert.equal(injectionsFile.injections.length, 1)
+  assert.equal(injectionsFile.injections[0].sourcePromptId, first.id)
+  // 清注入轨，测自定义 rounds/every 与非法参数
+  writeFileSync(join(dir, 'prompt-injections.json'), JSON.stringify({ injections: [] }))
+  const custom = await tool.execute({ action: 'inject', id: first.id, rounds: 7, every: 3 }, exec())
+  assert.equal(custom.injection.roundsLeft, 7)
+  assert.equal(custom.injection.every, 3)
+  assert.equal((await tool.execute({ action: 'inject', id: first.id, rounds: -1 }, exec())).ok, false)
+  assert.equal((await tool.execute({ action: 'inject', id: first.id, every: -1 }, exec())).ok, false)
+  assert.equal((await tool.execute({ action: 'explode' }, exec())).ok, false)
+  // 禁用语义：直接改 prompts.json 把第一条禁用 → list 隐藏、inject 拒绝、get 仍可查
+  writeFileSync(join(dir, 'prompt-injections.json'), JSON.stringify({ injections: [] }))
+  const file = join(dir, 'prompts.json')
+  const data = JSON.parse(readFileSync(file, 'utf8'))
+  data.prompts[0].enabled = false
+  writeFileSync(file, JSON.stringify(data))
+  const relist = await tool.execute({ action: 'list' }, exec())
+  assert.equal(relist.prompts.some((p) => p.id === first.id), false)
+  const denied = await tool.execute({ action: 'inject', id: first.id }, exec())
+  assert.equal(denied.ok, false)
+  assert.match(denied.message, /禁用/)
+  const gotDisabled = await tool.execute({ action: 'get', id: first.id }, exec())
+  assert.equal(gotDisabled.prompt.enabled, false)
+  clean(dir)
+
+  // 自定义工具名（config.promptToolName）生效
+  const dir2 = tempDir()
+  const ctx2 = fakeCtx()
+  apply(ctx2, { memoryDir: dir2, promptsEnabled: true, promptToolName: 'my_prompts' })
+  assert.ok(ctx2.state.tools.some((t) => t.name === 'my_prompts'))
+  assert.ok(!ctx2.state.tools.some((t) => t.name === 'de_prompts'))
+  clean(dir2)
 })

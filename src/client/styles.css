@@ -1480,3 +1480,248 @@
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* ---- 模型配置 Tab（models-hub）----
+ * mt-models-* 前缀，token 与风格与现有 mt- 类一致（不自建样式体系）。
+ * 表格 + 行内配置（启用开关 / 思考等级标签与编辑器 / 备注输入）。 */
+
+/* 表格滚动容器（表格可能超出面板高度）。 */
+.mt-models-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.mt-models-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mt-models-cell {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  vertical-align: top;
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+}
+
+.mt-models-table thead .mt-models-cell {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mt-models-table tbody .mt-models-row:last-child .mt-models-cell {
+  border-bottom: none;
+}
+
+/* 禁用行：整行降透明 + 名称划线弱化。 */
+.mt-models-row-muted .mt-models-cell {
+  opacity: 0.55;
+}
+
+.mt-models-col-enable {
+  width: 44px;
+}
+
+.mt-models-col-capacity {
+  width: 96px;
+  white-space: nowrap;
+}
+
+.mt-models-col-reasoning {
+  min-width: 180px;
+}
+
+.mt-models-provider {
+  font-weight: 600;
+}
+
+.mt-models-tag {
+  display: inline-block;
+  margin: 1px 4px 1px 0;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 17px;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.mt-models-tag-rec {
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
+}
+
+.mt-models-tag-dormant {
+  margin-left: 4px;
+  color: var(--dsw-alias-state-warning-primary);
+  background: var(--dsw-alias-state-warning-tertiary);
+}
+
+.mt-models-model {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.mt-models-model-name {
+  font-weight: 600;
+}
+
+.mt-models-model-id {
+  font-size: 11px;
+  color: var(--dsw-alias-label-dimmed);
+  word-break: break-all;
+}
+
+.mt-models-capacity {
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mt-models-muted-cell {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.mt-models-levels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.mt-models-level-none {
+  font-size: 11px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.mt-models-level-more {
+  font-size: 10px;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.mt-models-link {
+  appearance: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-state-accent-primary, #4c8dff);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mt-models-link:hover {
+  text-decoration: underline;
+}
+
+.mt-models-link-danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.mt-models-note {
+  width: 100%;
+  min-width: 140px;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.mt-models-note:hover {
+  border-color: var(--dsw-alias-border-l3);
+}
+
+.mt-models-note:focus {
+  border-color: var(--dsw-alias-state-accent-primary, #4c8dff);
+  background: var(--dsw-alias-bg-base);
+}
+
+.mt-models-note::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* 展开的思考等级编辑器（占整行）。 */
+.mt-models-expanded {
+  padding: 10px 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.mt-models-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mt-models-editor-title {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mt-models-editor-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mt-models-editor-level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mt-models-editor-level-name {
+  font-weight: 600;
+}
+
+.mt-models-editor-level-id {
+  font-size: 11px;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.mt-models-editor-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mt-models-editor-add .mt-search {
+  flex: 0 1 180px;
+}
+
+.mt-models-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.mt-models-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
