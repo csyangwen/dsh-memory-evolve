@@ -112,9 +112,14 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
   const [filter, setFilter] = useState<'unread' | 'all' | 'read'>('unread')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
-  // 房间消息视图：与消息列表同款的筛选/搜索/分页（展开/收起房间时重置）
-  const [roomFilter, setRoomFilter] = useState<'unread' | 'all' | 'read'>('unread')
+  // 房间消息视图（展开房间后）：与消息列表同款的筛选/搜索/分页（展开/收起时重置）
+  const [roomMsgFilter, setRoomMsgFilter] = useState<'unread' | 'all' | 'read'>('unread')
+  const [roomMsgQuery, setRoomMsgQuery] = useState('')
+  const [roomMsgPage, setRoomMsgPage] = useState(1)
+  // 房间视图（列表）：搜索（名字）/状态筛选（全部/活跃/已解散）/时间筛选（最近N天）/分页
   const [roomQuery, setRoomQuery] = useState('')
+  const [roomStatus, setRoomStatus] = useState<'all' | 'active' | 'dissolved'>('active')
+  const [roomDays, setRoomDays] = useState(0)   // 0=不限；7/30=最近 N 天创建
   const [roomPage, setRoomPage] = useState(1)
   // 展开状态
   const [expanded, setExpanded] = useState<string | null>(null)   // 消息视图展开全文的消息 id
@@ -181,20 +186,34 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
   // 房间消息筛选/搜索/分页（纯前端，基于 roomMessages 派生）
   const filteredRoomMessages = useMemo(() => {
     let items = roomMessages
-    if (roomFilter === 'unread') items = items.filter((m) => m.readBy.length === 0)
-    if (roomFilter === 'read') items = items.filter((m) => m.readBy.length > 0)
-    if (roomQuery.trim() !== '') {
-      const q = roomQuery.trim().toLowerCase()
+    if (roomMsgFilter === 'unread') items = items.filter((m) => m.readBy.length === 0)
+    if (roomMsgFilter === 'read') items = items.filter((m) => m.readBy.length > 0)
+    if (roomMsgQuery.trim() !== '') {
+      const q = roomMsgQuery.trim().toLowerCase()
       items = items.filter((m) =>
         m.subject.toLowerCase().includes(q)
         || m.sender.toLowerCase().includes(q)
         || m.content.toLowerCase().includes(q))
     }
     return items
-  }, [roomMessages, roomFilter, roomQuery])
+  }, [roomMessages, roomMsgFilter, roomMsgQuery])
 
   const roomTotalPages = Math.max(1, Math.ceil(filteredRoomMessages.length / PAGE_SIZE))
-  const roomPageItems = filteredRoomMessages.slice((roomPage - 1) * PAGE_SIZE, roomPage * PAGE_SIZE)
+  const roomPageItems = filteredRoomMessages.slice((roomMsgPage - 1) * PAGE_SIZE, roomMsgPage * PAGE_SIZE)
+
+  // 房间列表筛选（名字搜索 + 状态 + 最近 N 天 + 分页，纯前端派生）
+  const filteredRooms = useMemo(() => {
+    const items = rooms ?? []
+    const q = roomQuery.trim().toLowerCase()
+    const since = roomDays > 0 ? Date.now() - roomDays * 86400000 : 0
+    return items
+      .filter((r) => roomStatus === 'all' || r.status === roomStatus)
+      .filter((r) => q === '' || r.name.toLowerCase().includes(q))
+      .filter((r) => since === 0 || r.createdAt >= since)
+  }, [rooms, roomQuery, roomStatus, roomDays])
+
+  const roomListTotalPages = Math.max(1, Math.ceil(filteredRooms.length / PAGE_SIZE))
+  const roomListPageItems = filteredRooms.slice((roomPage - 1) * PAGE_SIZE, roomPage * PAGE_SIZE)
 
   const deleteMessage = async (msg: Msg): Promise<void> => {
     if (!window.confirm(t('broadcast.message.deleteConfirm', { subject: msg.subject }))) return
@@ -229,16 +248,16 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
     if (openRoom === room.id) {
       setOpenRoom(null)
       setRoomMsgExpanded(null)
-      setRoomFilter('unread')
-      setRoomQuery('')
-      setRoomPage(1)
+      setRoomMsgFilter('unread')
+      setRoomMsgQuery('')
+      setRoomMsgPage(1)
       return
     }
     setOpenRoom(room.id)
     setRoomMsgExpanded(null)
-    setRoomFilter('unread')
-    setRoomQuery('')
-    setRoomPage(1)
+    setRoomMsgFilter('unread')
+    setRoomMsgQuery('')
+    setRoomMsgPage(1)
     try {
       const res = await fetchJson<{ presence: Presence[] }>(`/rooms/${encodeURIComponent(room.id)}/presence`)
       setPresence((prev) => ({ ...prev, [room.id]: res.presence }))
@@ -467,8 +486,41 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
       {view === 'rooms' && (
         <div className="bb-list">
           {rooms === null && <div className="bb-empty">{t('broadcast.loading')}</div>}
-          {rooms !== null && rooms.length === 0 && <div className="bb-empty">{t('broadcast.rooms.empty')}</div>}
-          {rooms?.map((room) => {
+          {rooms !== null && (
+            <>
+              {/* 房间列表工具栏：名字搜索 + 状态筛选（全部/活跃/已解散）+ 时间筛选 + 分页 */}
+              <div className="bb-toolbar">
+                {(['all', 'active', 'dissolved'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`bb-chip${roomStatus === s ? ' bb-chip-active' : ''}`}
+                    onClick={() => { setRoomStatus(s); setRoomPage(1) }}
+                  >
+                    {t(`broadcast.roomStatus.${s}`)}
+                  </button>
+                ))}
+                {([0, 7, 30] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`bb-chip${roomDays === d ? ' bb-chip-active' : ''}`}
+                    onClick={() => { setRoomDays(d); setRoomPage(1) }}
+                  >
+                    {t(`broadcast.roomDays.${d}`)}
+                  </button>
+                ))}
+                <input
+                  className="bb-search"
+                  placeholder={t('broadcast.roomSearchPh')}
+                  value={roomQuery}
+                  onChange={(e) => { setRoomQuery(e.target.value); setRoomPage(1) }}
+                />
+              </div>
+              {filteredRooms.length === 0 && (
+                <div className="bb-empty">{t('broadcast.rooms.empty')}</div>
+              )}
+              {roomListPageItems.map((room) => {
             const dissolved = room.status === 'dissolved'
             const online = room.onlineCount > 0 && !dissolved
             const statusLabel = dissolved
@@ -536,10 +588,10 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
                         <span className="bb-count">{roomMessages.length}</span>
                       </div>
                       {renderToolbar(
-                        roomFilter,
-                        (f) => { setRoomFilter(f); setRoomPage(1) },
-                        roomQuery,
-                        (q) => { setRoomQuery(q); setRoomPage(1) },
+                        roomMsgFilter,
+                        (f) => { setRoomMsgFilter(f); setRoomMsgPage(1) },
+                        roomMsgQuery,
+                        (q) => { setRoomMsgQuery(q); setRoomMsgPage(1) },
                       )}
                       {roomMessages.length === 0 && (
                         <div className="bb-empty bb-empty-sm">{t('broadcast.room.messages.empty')}</div>
@@ -548,13 +600,16 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
                         <div className="bb-empty bb-empty-sm">{t('broadcast.room.messages.empty')}</div>
                       )}
                       {roomPageItems.map((m) => renderMsgCard(m, roomMsgExpanded, setRoomMsgExpanded))}
-                      {renderPager(roomPage, roomTotalPages, setRoomPage)}
+                      {renderPager(roomMsgPage, roomTotalPages, setRoomMsgPage)}
                     </div>
                   </>
                 )}
               </div>
             )
           })}
+              {renderPager(roomPage, roomListTotalPages, setRoomPage)}
+            </>
+          )}
         </div>
       )}
     </div>

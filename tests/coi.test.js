@@ -1429,8 +1429,9 @@ test('broadcast rooms: create/join/leave/list/remove + 伪接收者可见性', (
   assert.equal(rooms.join(rid, 'B').ok, true)
   assert.equal(rooms.join(rid, 'B').ok, true, '重复加入幂等')
   assert.equal(rooms.join('room-nope', 'B').ok, false, '不存在房间拒绝')
-  assert.equal(rooms.list('B').length, 1, 'B 加入后可见房间')
-  assert.equal(rooms.list('X').length, 0)
+  assert.equal(rooms.list('B').rooms.length, 1, 'B 加入后可见房间（list 返回 { rooms, total }）')
+  assert.equal(rooms.list('B').total, 1)
+  assert.equal(rooms.list('X').rooms.length, 0)
   // 发消息到房间：非成员被拒、成员成功
   assert.equal(broadcast.send({ sender: 'X', recipients: [`${rid}`], content: '潜入' }).ok, false, '非成员不能发房间消息')
   const sent = broadcast.send({ sender: 'A', recipients: [rid], content: '开始审核', subject: '同步' })
@@ -1448,11 +1449,17 @@ test('broadcast rooms: create/join/leave/list/remove + 伪接收者可见性', (
   assert.equal(broadcast.unreadCount('B'), 0, '已读后未读归零')
   // remove：房间成员可删（B 可删 A 发的房间消息）
   assert.equal(broadcast.remove(msgId, 'B').ok, true, '房间成员可删除房间消息')
-  // leave：退出后不可见；最后一个退出房间删除
+  // leave：退出后不可见；最后一个退出 = 房间软解散（记录保留可追溯）
   assert.equal(rooms.leave(rid, 'B').ok, true)
   assert.equal(rooms.get(rid).members.length, 1)
   assert.equal(rooms.leave(rid, 'A').ok, true)
-  assert.equal(rooms.get(rid), undefined, '最后一个成员退出后房间删除')
+  const lastLeft = rooms.get(rid)
+  assert.equal(lastLeft.status, 'dissolved', '最后一人退出 = 房间解散（软删除，不再物理删除）')
+  assert.ok(lastLeft.dissolvedAt > 0, '记录解散时间')
+  assert.equal(rooms.list('A').rooms.length, 0, '解散后列表缺省不显示')
+  // 最后一人退出后 members 已清空，A 不再是成员 → type=all 也不可见
+  // （"我所在的房间"语义；已解散房间的追溯走管理面板全量 rooms API）
+  assert.equal(rooms.list('A', { type: 'all' }).rooms.length, 0)
   // dissolve：仅创建者可解散（软删除：记录保留 status=dissolved 供追溯）
   const r2 = rooms.create({ name: '组2', createdBy: 'A' })
   assert.equal(rooms.dissolve(r2.room.id, 'B').ok, false, '非创建者不能解散')
@@ -1461,6 +1468,51 @@ test('broadcast rooms: create/join/leave/list/remove + 伪接收者可见性', (
   assert.equal(dissolved.status, 'dissolved', '软删除：记录保留带状态')
   assert.ok(dissolved.dissolvedAt > 0, '记录解散时间')
   assert.equal(rooms.join(r2.room.id, 'C').ok, false, '已解散房间拒绝加入')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('broadcast room-list: 筛选（active/all/搜索/sinceDays）+ 分页', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast)
+  const execA = { agent: { session: { id: 'sA' } } }
+  // 建 5 个房间（名字可搜索区分）
+  const names = ['项目A-前端', '项目A-后端', '项目B-设计', '闲聊群', '测试组']
+  for (const n of names) {
+    const r = await msgTool.execute({ action: 'room-create', name: n }, execA)
+    assert.equal(r.ok, true)
+  }
+  // 缺省：只显示未解散，全量返回 + total
+  const all = await msgTool.execute({ action: 'room-list' }, execA)
+  assert.equal(all.ok, true)
+  assert.equal(all.rooms.length, 5)
+  assert.equal(all.total, 5)
+  assert.ok(all.rooms.every((r) => r.status === 'active'), '缺省 active 且带 status')
+  // 分页：page=1 pageSize=2 → 2 条 + total 5（翻页依据）
+  const page1 = await msgTool.execute({ action: 'room-list', page: 1, pageSize: 2 }, execA)
+  assert.equal(page1.rooms.length, 2)
+  assert.equal(page1.total, 5)
+  const page3 = await msgTool.execute({ action: 'room-list', page: 3, pageSize: 2 }, execA)
+  assert.equal(page3.rooms.length, 1, '第 3 页剩 1 条')
+  // 名字搜索（大小写不敏感子串）
+  const search = await msgTool.execute({ action: 'room-list', query: '项目A' }, execA)
+  assert.equal(search.total, 2)
+  assert.ok(search.rooms.every((r) => r.name.includes('项目A')))
+  // 解散一个房间：缺省列表消失；roomType=all 可见带 status
+  const diss = await msgTool.execute({ action: 'room-rm', roomId: all.rooms[0].id }, execA)
+  assert.equal(diss.ok, true)
+  const active = await msgTool.execute({ action: 'room-list' }, execA)
+  assert.equal(active.total, 4, '解散后缺省不显示')
+  const withDissolved = await msgTool.execute({ action: 'room-list', roomType: 'all' }, execA)
+  assert.equal(withDissolved.total, 5, 'roomType=all 含已解散')
+  assert.equal(withDissolved.rooms.find((r) => r.id === all.rooms[0].id).status, 'dissolved')
+  // sinceDays：把第一个房间创建时间拨到 8 天前 → sinceDays=7 不显示
+  const room0 = broadcast.rooms.get(all.rooms[0].id)
+  room0.createdAt = Date.now() - 8 * 86400000
+  const recent = await msgTool.execute({ action: 'room-list', sinceDays: 7 }, execA)
+  assert.equal(recent.total, 4, 'sinceDays=7 过滤掉 8 天前创建的')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1504,7 +1556,7 @@ test('broadcast tools: room-create/join/leave/list + send 到房间', async () =
   const created = await msgTool.execute({ action: 'room-create', name: '协作组' }, execA)
   assert.equal(created.ok, true)
   assert.equal(created.rooms.length, 1)
-  assert.deepEqual(Object.keys(created.rooms[0]).sort(), ['createdAt', 'id', 'members', 'name'], 'room 输出不含 createdBy 等内部字段')
+  assert.deepEqual(Object.keys(created.rooms[0]).sort(), ['createdAt', 'id', 'members', 'name', 'status'], 'room 输出不含 createdBy 等内部字段（status 已入 schema）')
   const rid = created.rooms[0].id
   // B 加入（用户告知 room id）
   const joined = await msgTool.execute({ action: 'room-join', roomId: rid }, execB)
