@@ -63,16 +63,17 @@ const DICT = {
     guideIntro: '提示词注入 = 可复用的「指令范式资产库 + 注入执行器」：把常用工作范式（代码审查 / 调试 / PRD / 测试等）固化成提示词，选中即注入——模型下一轮自动看到、不打断回复。',
     guideLibTitle: '提示词库',
     guideLibBody: '可复用的指令范式资产，来源以用户自写为主：',
-    guideLibItem1: 'CRUD：新建 / 编辑 / 删除，名称 + 分类 + 标签 + 正文（Markdown）；',
+    guideLibItem1: 'CRUD：新建 / 编辑 / 删除，名称 + 分类 + 标签 + 正文（Markdown），新建时分类留空自动归入「临时」；',
     guideLibItem2: '分类管理：内置分类 + 自定义添加 / 重命名 / 删除（删除时该分类下提示词自动移到未分类）；',
     guideLibItem3: '搜索（名称/分类/标签/内容）+ 复制到剪贴板 + 使用统计；',
     guideLibItem4: '内置 13 条来自 GitHub 真实提示词资产的冷启动示例（SpecRoute / Claude-Code-Promts-Skills），并附范式库链接供自取。',
     guideInjectTitle: '注入机制',
-    guideInjectBody: '选中提示词配置「次数 × 间隔」即注入：',
-    guideInjectItem1: '次数：一次性（1 轮）/ 有限 N 次 / 无限（持续注入直到手动停止）；',
-    guideInjectItem2: '间隔：每回合 / 每 M 回合出现 1 次（如"每 3 回合提醒一次"）；',
+    guideInjectBody: '选中提示词配置「次数 × 间隔」即注入（次数/间隔可输入任意数字）：',
+    guideInjectItem1: '次数：一次性（1 轮）/ 有限 N 次 / 无限（0 = 持续注入直到手动停止）；',
+    guideInjectItem2: '间隔：每回合（1）/ 每 M 回合出现 1 次（如"每 3 回合提醒一次"）；',
     guideInjectItem3: '写后即时注入、不打断回复：内容写入注入轨，模型下一轮生成时自动看到；',
     guideInjectItem4: '正文支持 {{date}} / {{time}} 变量，注入时自动展开。',
+    guideInjectItem5: '临时注入：不建提示词也能注入——详情栏直接输入内容点「注入」，自动存入提示词库（分类留空归入「临时」），一次操作同时入库并生效；',
     guideTrackTitle: '注入状态',
     guideTrackBody: '每个提示词有明确状态（未注入 / 注入中·剩 N 次 / 持续注入中），可随时停止；「注入中」浮层实时展示；会话页 Tab 栏有活跃注入时显示红点 🔴。',
     guideSwitchTitle: '开关',
@@ -83,7 +84,6 @@ const DICT = {
     uncategorized: '未分类',
     inject: '注入',
     injectRound: '注入 {n} 次',
-    injectOnce: '注入 1 次（一次性）',
     injectInfinite: '无限次（持续注入）',
     injectCadence: '每 {n} 回合一次',
     everyTurn: '每回合',
@@ -106,13 +106,12 @@ const DICT = {
     sourcesHint: '以下仓库有大量高质量提示词/规范（用户自取，不做自动导入）：',
     empty: '还没有提示词。点「新建提示词」开始，或从右侧来源链接获取灵感。',
     noMatch: '没有匹配的提示词',
-    selectHint: '从左侧选择一个提示词查看，或点「新建提示词」',
     formNew: '新建提示词',
     formEdit: '编辑提示词',
     name: '名称',
     namePh: '如：代码审查（Code Review）',
     category: '分类',
-    categoryPh: '如：开发流程（留空为「未分类」）',
+    categoryPh: '如：开发流程（留空自动归入「临时」）',
     tags: '标签',
     tagsPh: '逗号分隔，如：review, 质量',
     content: '内容',
@@ -122,6 +121,15 @@ const DICT = {
     neverUsed: '从未注入过',
     rounds: '次数',
     cadence: '间隔',
+    roundsHint: '0 = 无限次',
+    everyHint: '1 = 每回合',
+    roundsInvalid: '次数必须是 ≥0 的整数（0 = 无限次）',
+    everyInvalid: '间隔必须是 ≥1 的整数',
+    quickTitle: '临时注入',
+    quickDesc: '不建提示词也能注入：直接输入内容点「注入」，会自动存入提示词库（分类留空归入「临时」），一次操作同时入库并生效。',
+    quickNamePh: '名称（可选，留空取内容首行）',
+    quickCategoryPh: '分类（可选，留空归入「临时」）',
+    contentRequired: '内容不能为空',
     error: '{message}',
     loadFailed: '加载失败：{message}',
     injected: '已注入「{name}」：{rounds}，{cadence}，模型下一轮生效',
@@ -146,16 +154,17 @@ const DICT = {
     guideIntro: 'Prompt injection = a reusable "instruction pattern library + injection executor": turn recurring work paradigms (code review / debugging / PRD / testing…) into prompts, then inject one with a click — the model sees it next turn without interrupting the reply.',
     guideLibTitle: 'Prompt library',
     guideLibBody: 'Reusable instruction patterns, mostly user-written:',
-    guideLibItem1: 'CRUD: create / edit / delete, name + category + tags + body (Markdown);',
+    guideLibItem1: 'CRUD: create / edit / delete, name + category + tags + body (Markdown); new prompts with an empty category go to Temp automatically;',
     guideLibItem2: 'Category management: built-in categories + custom add / rename / delete (prompts in a deleted category move to Uncategorized);',
     guideLibItem3: 'Search (name/category/tags/content) + copy to clipboard + usage stats;',
     guideLibItem4: '13 cold-start examples from real GitHub prompt assets (SpecRoute / Claude-Code-Promts-Skills) plus links to public pattern libraries.',
     guideInjectTitle: 'Injection mechanics',
-    guideInjectBody: 'Select a prompt, configure "count × cadence" and inject:',
-    guideInjectItem1: 'Count: once (1 turn) / finite N turns / unlimited (keeps injecting until stopped);',
-    guideInjectItem2: 'Cadence: every turn / once every M turns (e.g. "remind every 3 turns");',
+    guideInjectBody: 'Select a prompt, configure "count × cadence" (any integers) and inject:',
+    guideInjectItem1: 'Count: once (1 turn) / finite N turns / unlimited (0 = keeps injecting until stopped);',
+    guideInjectItem2: 'Cadence: every turn (1) / once every M turns (e.g. "remind every 3 turns");',
     guideInjectItem3: 'Injects without interrupting the reply: written to the injection track, visible to the model on the next turn;',
     guideInjectItem4: '{{date}} / {{time}} variables expand at injection time.',
+    guideInjectItem5: 'Quick inject: no need to save a prompt first — type content and inject; it is auto-saved to the library (empty category → Temp) in one step;',
     guideTrackTitle: 'Injection state',
     guideTrackBody: 'Every prompt has an explicit state (not injected / injecting·N left / injecting·ongoing) and can be stopped anytime; the "Injecting" overlay shows live entries; the session tab shows a red dot 🔴 while anything is active.',
     guideSwitchTitle: 'Switch',
@@ -166,7 +175,6 @@ const DICT = {
     uncategorized: 'Uncategorized',
     inject: 'Inject',
     injectRound: 'Inject {n} times',
-    injectOnce: 'Inject once',
     injectInfinite: 'Unlimited (until stopped)',
     injectCadence: 'every {n} turns',
     everyTurn: 'every turn',
@@ -189,13 +197,12 @@ const DICT = {
     sourcesHint: 'These repos host high-quality prompts/specs (browse yourself — no auto import):',
     empty: 'No prompts yet. Click "New prompt" to start, or grab ideas from the source links.',
     noMatch: 'No matching prompts',
-    selectHint: 'Select a prompt to view, or click "New prompt"',
     formNew: 'New prompt',
     formEdit: 'Edit prompt',
     name: 'Name',
     namePh: 'e.g. Code Review',
     category: 'Category',
-    categoryPh: 'e.g. workflow (empty = Uncategorized)',
+    categoryPh: 'e.g. workflow (empty = Temp category)',
     tags: 'Tags',
     tagsPh: 'Comma-separated, e.g. review, quality',
     content: 'Content',
@@ -205,6 +212,15 @@ const DICT = {
     neverUsed: 'Never injected',
     rounds: 'Count',
     cadence: 'Cadence',
+    roundsHint: '0 = unlimited',
+    everyHint: '1 = every turn',
+    roundsInvalid: 'Count must be an integer ≥ 0 (0 = unlimited)',
+    everyInvalid: 'Cadence must be an integer ≥ 1',
+    quickTitle: 'Quick inject',
+    quickDesc: 'Inject without saving a prompt first: type content and hit Inject — it is auto-saved to the library (empty category goes to Temp) in one step.',
+    quickNamePh: 'Name (optional; defaults to first content line)',
+    quickCategoryPh: 'Category (optional; empty = Temp)',
+    contentRequired: 'Content is required',
     error: '{message}',
     loadFailed: 'Load failed: {message}',
     injected: 'Injected "{name}": {rounds}, {cadence} — visible to the model next turn',
@@ -257,10 +273,48 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-/** 注入次数选项：0 = 无限（默认）。 */
-const ROUND_OPTIONS = [0, 1, 3, 5, 10]
-/** 注入间隔（回合数）选项：1 = 每回合（连续）。 */
-const EVERY_OPTIONS = [1, 2, 3, 5, 10]
+/** 注入参数（次数/间隔）由用户自由输入任意整数，不再限定固定选项。 */
+
+/**
+ * 解析注入参数输入框文本 → 合法数字。
+ *   rounds：空 = 0（无限）；必须 ≥0 整数。
+ *   every：空 = 1（每回合）；必须 ≥1 整数。
+ * host 端有同样的校验兜底，这里先拦一次给出友好文案。
+ * @returns {{rounds: number, every: number}} 解析后的数字。
+ */
+function parseInjectNums(roundsText: string, everyText: string, say: (k: keyof typeof DICT.zh) => string): { rounds: number; every: number } {
+  const rounds = roundsText.trim() === '' ? 0 : Number(roundsText)
+  const every = everyText.trim() === '' ? 1 : Number(everyText)
+  if (!Number.isInteger(rounds) || rounds < 0) throw new Error(say('roundsInvalid'))
+  if (!Number.isInteger(every) || every < 1) throw new Error(say('everyInvalid'))
+  return { rounds, every }
+}
+
+/** 注入次数/间隔数字输入框（type=number，任意整数；hint 展示语义说明）。 */
+function NumInput(props: {
+  label: string
+  hint: string
+  value: string
+  min: number
+  onChange: (v: string) => void
+}): JSX.Element {
+  return (
+    <label className="pm-field pm-num-field">
+      <span className="pm-field-label">
+        {props.label}
+        <span className="pm-field-hint">{props.hint}</span>
+      </span>
+      <input
+        type="number"
+        className="pm-input pm-num-input"
+        min={props.min}
+        step={1}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+    </label>
+  )
+}
 
 /**
  * 提示词 tab 组件。三栏信息架构：
@@ -286,8 +340,9 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
   const [showSources, setShowSources] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [rounds, setRounds] = useState(0) // 默认无限次
-  const [every, setEvery] = useState(1)
+  /** 注入参数输入框文本（自由数字；'' 表示未输入，解析时回默认）。 */
+  const [roundsText, setRoundsText] = useState('0') // 默认无限次
+  const [everyText, setEveryText] = useState('1') // 默认每回合
   const [busy, setBusy] = useState(false)
   /** 分类管理：正在添加新分类（显示输入框）。 */
   const [addingCategory, setAddingCategory] = useState(false)
@@ -433,28 +488,90 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
     }
   }
 
+  /** 注入成功后的统一收尾：提示 + 重拉 + 打开注入浮层 + 通知 Tab 红点刷新。 */
+  const afterInjected = async (injection: Injection): Promise<void> => {
+    const cadence = (injection.every ?? 1) === 1
+      ? say('everyTurn')
+      : say('injectCadence').replace('{n}', String(injection.every))
+    const times = injection.roundsLeft === null
+      ? say('injectInfinite')
+      : say('injectRound').replace('{n}', String(injection.roundsLeft))
+    showNotice(say('injected')
+      .replace('{name}', injection.title)
+      .replace('{rounds}', times)
+      .replace('{cadence}', cadence))
+    await load()
+    setShowInjections(true)
+    window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
+  }
+
+  /** 注入选中提示词（次数/间隔来自自由数字输入框）。 */
   const injectPrompt = async (): Promise<void> => {
     if (selectedId === null) return
+    let nums: { rounds: number; every: number }
+    try {
+      nums = parseInjectNums(roundsText, everyText, say)
+    } catch (err) {
+      showError(errText(err))
+      return
+    }
     try {
       const data = await api<{ injection: Injection }>(
         `/memory-evolve/api/prompts/${encodeURIComponent(selectedId)}/inject`,
-        { method: 'POST', body: JSON.stringify({ rounds, every }) },
+        { method: 'POST', body: JSON.stringify(nums) },
       )
-      const cadence = (data.injection.every ?? 1) === 1
-        ? say('everyTurn')
-        : say('injectCadence').replace('{n}', String(data.injection.every))
-      const times = data.injection.roundsLeft === null
-        ? say('injectInfinite')
-        : say('injectRound').replace('{n}', String(data.injection.roundsLeft))
-      showNotice(say('injected')
-        .replace('{name}', data.injection.title)
-        .replace('{rounds}', times)
-        .replace('{cadence}', cadence))
-      await load()
-      setShowInjections(true)
-      window.dispatchEvent(new CustomEvent('dsh-memory-evolve:badge-change'))
+      await afterInjected(data.injection)
     } catch (err) {
       showError(errText(err))
+    }
+  }
+
+  /**
+   * 临时注入（详情栏未选中提示词时）：内容直接注入，一步完成"自动入库 +
+   * 注入生效"，解决"必须先把提示词存进库才能注入"的流程问题。
+   *   1. 校验内容非空、参数合法；
+   *   2. POST /prompts 创建（分类留空 → host 自动归入「临时」；名称留空
+   *      取内容首行前 20 字，保证注入轨与列表都有可读标题）；
+   *   3. POST /:id/inject 注入 → 选中新条目（表单回填，可继续编辑/改名）。
+   */
+  const quickInject = async (): Promise<void> => {
+    if (busy) return
+    const text = content.trim()
+    if (!text) {
+      showError(say('contentRequired'))
+      return
+    }
+    let nums: { rounds: number; every: number }
+    try {
+      nums = parseInjectNums(roundsText, everyText, say)
+    } catch (err) {
+      showError(errText(err))
+      return
+    }
+    setBusy(true)
+    try {
+      // 名称留空 → 取内容首个非空行前 20 字（截断 + 省略号标识）
+      const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+      const promptName = name.trim() || (firstLine.length > 20 ? `${firstLine.slice(0, 20)}…` : firstLine) || '未命名提示词'
+      const created = await api<{ prompt: Prompt }>('/memory-evolve/api/prompts', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: promptName,
+          category: formCategory.trim(),
+          tags: tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
+          content: text,
+        }),
+      })
+      const data = await api<{ injection: Injection }>(
+        `/memory-evolve/api/prompts/${encodeURIComponent(created.prompt.id)}/inject`,
+        { method: 'POST', body: JSON.stringify(nums) },
+      )
+      await afterInjected(data.injection)
+      selectPrompt(created.prompt.id) // 回填表单：新建条目已选中，可改名/改分类
+    } catch (err) {
+      showError(errText(err))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -820,7 +937,64 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
         {/* 右：详情表单 */}
         <div className="pm-pane-detail">
           {(selected === null && !creating) && (
-            <div className="pm-detail-hint">{say('selectHint')}</div>
+            // 未选中提示词 → 「临时注入」快速表单：不建提示词也能直接注入
+            // （自动入库 + 注入一步完成，分类留空归入「临时」）
+            <div className="pm-form">
+              <div className="pm-form-title">{say('quickTitle')}</div>
+              <div className="pm-quick-sub">{say('quickDesc')}</div>
+              <label className="pm-field">
+                <span className="pm-field-label">{say('name')}</span>
+                <input
+                  className="pm-input"
+                  placeholder={say('quickNamePh')}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label className="pm-field pm-field-grow">
+                <span className="pm-field-label">{say('content')} *</span>
+                <textarea
+                  className="pm-textarea"
+                  placeholder={say('contentPh')}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                />
+              </label>
+              <label className="pm-field">
+                <span className="pm-field-label">{say('category')}</span>
+                <input
+                  className="pm-input"
+                  list="pm-category-list"
+                  placeholder={say('quickCategoryPh')}
+                  value={formCategory}
+                  onChange={(e) => setFormCategory(e.target.value)}
+                />
+                <datalist id="pm-category-list">
+                  {displayCategories.map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </label>
+              <div className="pm-num-row">
+                <NumInput
+                  label={say('rounds')}
+                  hint={say('roundsHint')}
+                  value={roundsText}
+                  min={0}
+                  onChange={setRoundsText}
+                />
+                <NumInput
+                  label={say('cadence')}
+                  hint={say('everyHint')}
+                  value={everyText}
+                  min={1}
+                  onChange={setEveryText}
+                />
+              </div>
+              <div className="pm-actions">
+                <button type="button" className="pm-primary-btn" onClick={() => void quickInject()} disabled={busy}>
+                  {busy ? say('saving') : say('inject')}
+                </button>
+              </div>
+            </div>
           )}
           {(selected !== null || creating) && (
             <div className="pm-form">
@@ -887,28 +1061,20 @@ export function PromptView(_props: ConvViewProps & PromptViewProps): JSX.Element
                   return (
                     <>
                       <div className="pm-inject-group">
-                        <select
-                          className="pm-select pm-rounds"
-                          value={rounds}
-                          onChange={(e) => setRounds(Number(e.target.value))}
-                          title={say('rounds')}
-                        >
-                          {ROUND_OPTIONS.map((r) => (
-                            <option key={r} value={r}>
-                              {r === 0 ? say('injectInfinite') : r === 1 ? say('injectOnce') : say('injectRound').replace('{n}', String(r))}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="pm-select pm-rounds"
-                          value={every}
-                          onChange={(e) => setEvery(Number(e.target.value))}
-                          title={say('cadence')}
-                        >
-                          {EVERY_OPTIONS.map((e) => (
-                            <option key={e} value={e}>{e === 1 ? say('everyTurn') : say('injectCadence').replace('{n}', String(e))}</option>
-                          ))}
-                        </select>
+                        <NumInput
+                          label={say('rounds')}
+                          hint={say('roundsHint')}
+                          value={roundsText}
+                          min={0}
+                          onChange={setRoundsText}
+                        />
+                        <NumInput
+                          label={say('cadence')}
+                          hint={say('everyHint')}
+                          value={everyText}
+                          min={1}
+                          onChange={setEveryText}
+                        />
                         <button type="button" className="pm-primary-btn" onClick={() => void injectPrompt()}>
                           {say('inject')}
                         </button>

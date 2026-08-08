@@ -49,9 +49,9 @@ test('PromptStore CRUD 与校验', () => {
     // 空名称/空内容被拒
     assert.throws(() => store.create({ name: '  ', content: 'x' }), /名称不能为空/)
     assert.throws(() => store.create({ name: 'x', content: '  ' }), /内容不能为空/)
-    // 正常创建：分类默认「未分类」，标签去重截断
+    // 正常创建：分类留空 → 自动归入「临时」，标签去重截断
     const p = store.create({ name: '测试提示词', category: '', tags: ['a', 'a', 'b', '', ' '], content: '第一条\n第二行' })
-    assert.equal(p.category, '未分类')
+    assert.equal(p.category, '临时')
     assert.deepEqual(p.tags, ['a', 'b'])
     assert.equal(p.usageCount, 0)
     // 更新
@@ -61,6 +61,9 @@ test('PromptStore CRUD 与校验', () => {
     assert.equal(store.get(p.id).content, '新内容')
     // 更新校验
     assert.throws(() => store.update(p.id, { name: '' }), /名称不能为空/)
+    // 编辑时清空分类 = 移回「未分类」（与删除分类的落点一致；新建留空才是「临时」）
+    const uncat = store.update(p.id, { category: '' })
+    assert.equal(uncat.category, '未分类')
     // 使用统计
     store.bumpUsage(p.id)
     assert.equal(store.get(p.id).usageCount, 1)
@@ -79,27 +82,30 @@ test('InjectionStore: rounds 计数、间隔注入、重复来源与级联清理
   const dir = tempDir()
   try {
     const store = new InjectionStore(dir)
-    // rounds 默认 1；非法值回退 1；上限截断；every 同规则；rounds=0 无限
+    // rounds 默认 1；非法值回退 1；防御上限截断（界面放开自由输入，只挡笔误）；
+    // every 同规则；rounds=0 无限
     const a = store.add({ title: 'A', content: '内容A' })
     assert.equal(a.roundsLeft, 1)
     assert.equal(a.every, 1)
     const b = store.add({ title: 'B', content: '内容B', rounds: 3 })
     assert.equal(b.roundsLeft, 3)
     assert.equal(store.add({ title: 'C', content: 'C', rounds: 0 }).roundsLeft, null) // 无限
-    assert.equal(store.add({ title: 'D', content: 'D', rounds: 999 }).roundsLeft, 50)
+    assert.equal(store.add({ title: 'D', content: 'D', rounds: 999 }).roundsLeft, 999) // 任意数字
+    assert.equal(store.add({ title: 'F', content: 'F', rounds: 99999 }).roundsLeft, 9999) // 防御上限截断
     assert.equal(store.add({ title: 'E', content: 'E', every: 0 }).every, 1)
+    assert.equal(store.add({ title: 'G', content: 'G', rounds: 10, every: 7 }).every, 7) // 间隔任意数字
     // 同来源重复注入被标记
     assert.equal(store.hasSource('src-1'), false)
     store.add({ sourcePromptId: 'src-1', title: 'S1', content: 'x' })
     assert.equal(store.hasSource('src-1'), true)
     // tickTurn（every=1）：有限次数每回合消耗一次；无限（C）永不消耗
-    assert.equal(store.list().length, 6)
-    store.tickTurn() // 第 1 回合：A/E/S1 归零移除，B=2，D=49，C（无限）不动
-    assert.equal(store.list().length, 3)
-    assert.deepEqual(store.list().map((i) => i.title), ['B', 'C', 'D'])
-    store.tickTurn() // B=1, D=48
-    store.tickTurn() // B=0 → 移除，剩 C、D
-    assert.equal(store.list().length, 2)
+    assert.equal(store.list().length, 8)
+    store.tickTurn() // 第 1 回合：A/E/S1 归零移除，B=2，D=998，F=9998，G=9（countdown=6），C（无限）不动
+    assert.equal(store.list().length, 5)
+    assert.deepEqual(store.list().map((i) => i.title), ['B', 'C', 'D', 'F', 'G'])
+    store.tickTurn() // B=1, D=997, F=9997, G=8
+    store.tickTurn() // B=0 → 移除，剩 C、D、F、G
+    assert.equal(store.list().length, 4)
     assert.equal(store.list()[1].title, 'D')
     // 空轨 tick 安全
     assert.deepEqual(store.tickTurn(), [])
@@ -128,8 +134,8 @@ test('InjectionStore: rounds 计数、间隔注入、重复来源与级联清理
     store.add({ sourcePromptId: 'src-2', title: 'X', content: 'x', rounds: 2 })
     store.add({ sourcePromptId: 'src-2', title: 'Y', content: 'y' })
     store.removeBySource('src-2')
-    assert.equal(store.list().length, 2)
-    assert.deepEqual(store.list().map((i) => i.title), ['C', 'D']) // 上一段的 C（无限）/D 不受影响
+    assert.equal(store.list().length, 4)
+    assert.deepEqual(store.list().map((i) => i.title), ['C', 'D', 'F', 'G']) // 上一段的 C（无限）/D/F/G 不受影响
     // remove 单条
     const z = store.add({ title: 'Z', content: 'z' })
     assert.equal(store.remove(z.id), true)
@@ -283,11 +289,11 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     const list = await request('GET', '/memory-evolve/api/prompts')
     assert.equal(list.status, 200)
     assert.ok(list.data.prompts.length >= 10)
-    // 创建 + 校验
+    // 创建 + 校验：分类留空 → 自动归入「临时」
     const created = await request('POST', '/memory-evolve/api/prompts', { name: '我的范式', content: '请按以下流程执行：\n1. 先看 {{date}} 的日志' })
     assert.equal(created.status, 200)
     const id = created.data.prompt.id
-    assert.equal(created.data.prompt.category, '未分类')
+    assert.equal(created.data.prompt.category, '临时')
     assert.equal((await request('POST', '/memory-evolve/api/prompts', { name: '', content: 'x' })).status, 400)
     // 更新
     const updated = await request('PUT', `/memory-evolve/api/prompts/${id}`, { name: '我的范式V2', category: '工作流' })
@@ -302,7 +308,7 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     const dup = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 3 })
     assert.equal(dup.status, 400)
     assert.match(dup.data.error, /已在注入中/)
-    // rounds 非法
+    // 仍在注入中 → 任何再注入请求（含 rounds=0 无限）都被拒
     const badRounds = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 0 })
     assert.equal(badRounds.status, 400)
     // 注入轨可见
@@ -321,13 +327,13 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     // 手动移除注入
     const injId = (await request('GET', '/memory-evolve/api/prompts/injections')).data.injections[0].id
     assert.equal((await request('DELETE', `/memory-evolve/api/prompts/injections/${injId}`)).data.ok, true)
-    // 间隔注入（every 参数透传；非法 every 被拒）
+    // 间隔注入（every 参数透传；非法 every 被拒）；次数/间隔均为任意数字
     const badEvery = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2, every: 0 })
     assert.equal(badEvery.status, 400)
-    const iv = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2, every: 3 })
+    const iv = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 7, every: 4 })
     assert.equal(iv.status, 200)
-    assert.equal(iv.data.injection.every, 3)
-    assert.equal(iv.data.injection.roundsLeft, 2)
+    assert.equal(iv.data.injection.every, 4)
+    assert.equal(iv.data.injection.roundsLeft, 7)
     // 停止间隔注入后重注入无限次（rounds=0）
     await request('DELETE', `/memory-evolve/api/prompts/injections/${iv.data.injection.id}`)
     const inf = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 0 })

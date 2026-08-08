@@ -473,6 +473,35 @@
   color: var(--dsw-alias-label-primary);
   flex-shrink: 0;
 }
+
+/* 快速注入（临时注入）说明文字 */
+.pm-quick-sub {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+}
+
+/* 注入参数数字输入框（次数/间隔，自由输入任意整数） */
+.pm-num-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pm-num-field {
+  flex: 1;
+  min-width: 0;
+}
+.pm-num-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.pm-field-hint {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
 .pm-field {
   display: flex;
   flex-direction: column;
