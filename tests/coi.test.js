@@ -1697,6 +1697,8 @@ test('broadcast snapshot: 房间动态段渲染即消费（成员状态变化快
   const block1 = buildBroadcastBlock(config, 'sessA')
   assert.ok(block1 !== null)
   assert.ok(block1.includes('房间动态'), '动态段出现')
+  // 标题带当前时间锚点（快照渲染时刻，精确到秒）——模型对比事件时间判断新旧
+  assert.match(block1, /房间动态（成员状态变化 · ⏰ 当前 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}）/, '标题含当前时间锚点（秒级）')
   assert.ok(block1.includes('sessB 干完/闲了'), '合并为最新状态 idle')
   assert.ok(block1.includes('wake'), 'idle 语义明确：提示需 wake')
   assert.ok(!block1.includes('开始干活（协作组）'), 'running 中间态被合并掉')
