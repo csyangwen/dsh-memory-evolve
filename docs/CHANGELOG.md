@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-08 — 会话搜索独立模块（de_session_search）
+
+### 🎯 新能力：搜索其他 AI 工具的历史会话（当前仅 Codex）
+- **独立子模块**（沿用用户拍板纪律：不挂在 COI/广播等任何模块下）：**独立开关 `sessionSearchEnabled`**（默认关，设置 Tab「会话搜索」开关，与 COI 调度/广播互不影响）+ 独立装配 `installSessionSearch`（lib/search/ 目录）+ 零常驻状态（无索引/缓存/定时器，每次调用实时只读扫描，不修改任何会话文件）
+- **工具（单个）**：`de_session_search`——`query` 必填（大小写不敏感字面匹配，中英文/标点同一规则，只搜用户/助手消息），可选 `source`（当前枚举仅 codex，预留扩展）/ `cwd`（按工作目录子串限定项目，Codex 会话记录 cwd）/ `sort`（relevance 默认 / newest / oldest）/ `limit`（默认 10 上限 50）/ `window`（默认 10 上限 30）；返回命中会话 + 最强消息摘要（snippet，命中为中心 350 字符）+ 上下文消息窗口（每条裁剪 600 字符防撑爆上下文）
+- **实现**：发现（`~/.codex/sessions` + `archived_sessions` 递归、有界深度）→ **rg 字面预筛**（`--files-with-matches --fixed-strings --ignore-case`，本机 46MB 语料全扫 12ms；rg 缺失/失败/超时 30s/输出超限 8MB/查询含 JSON 转义字符时**回退全量解析**，结果正确性不依赖 rg）→ 流式逐行解析（防御上限：单文件 64MB/单行 512KB/单消息 4KB；**坏行宽容**——单行损坏只跳过该行，绝不淘汰整个会话，吸取 dsh-session-search"一行坏 = 整会话消失"的教训）→ 有界 Top-K 累积（内存有界）+ abort 取消支持
+- **Codex 双格式兼容**（Grok 审查发现）：旧 codex-cli 格式（`event_msg` / `user_message` / `agent_message`）与新 codex-tui 0.147+ 格式（`response_item` / payload.type=message / role=user|assistant|developer，developer 系统注入跳过；content 块数组 input_text/output_text）都支持——新 TUI 会话不再漏搜；msgId 优先取 payload.id
+- **设置指南**：「Memory Evolve 设置」Tab 指南新增「会话搜索」条目（zh/en）；开关文案同步
+
+### 📝 文档同步
+- README：简介（第 3 行）与 30 秒了解章节补「会话搜索」；特性列表新增独立条目；新增独立「会话搜索（de_session_search）」章节（参数/搜索语义/实现/性能/配置/安全）；配置表新增 `sessionSearchEnabled` / `sessionSearchRoots`
+- 测试：新增 tests/session-search.test.js（25 个用例：core 纯函数 / Codex 新旧格式解析 / rg 预筛与回退 / cwd 过滤 / Top-K / 转义字符 / schema 形状 / 装配卸载），全量 201/201 通过
+
+---
 ## 2026-08-08 — 提示词管理器迭代：临时注入 + 自由数字（次数/间隔）
 
 ### 🎯 临时注入（不建提示词直接注入）

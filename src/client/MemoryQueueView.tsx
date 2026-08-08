@@ -80,6 +80,7 @@ interface RuntimeConfig {
   searchDocsEnabled: boolean
   coiEnabled: boolean
   broadcastEnabled: boolean
+  sessionSearchEnabled: boolean
   scratchEnabled: boolean
   promptsEnabled: boolean
 }
@@ -210,6 +211,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       searchDocsEnabled: draft.searchDocsEnabled,
       coiEnabled: draft.coiEnabled,
       broadcastEnabled: draft.broadcastEnabled,
+      sessionSearchEnabled: draft.sessionSearchEnabled,
       scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
     }
@@ -304,6 +306,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.broadcast.title')}</strong>
                 <span>{t('panel.guide.broadcast.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">📡</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.session.title')}</strong>
+                <span>{t('panel.guide.session.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -608,6 +617,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.broadcastEnabled}
                     onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.sessionSearchEnabled')}
+                    <em className="me-field-hint">{t('panel.config.sessionSearchEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.sessionSearchEnabled}
+                    onChange={(event) => patchDraft({ sessionSearchEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">

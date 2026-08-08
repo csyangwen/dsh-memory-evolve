@@ -1,6 +1,6 @@
 # dsh-memory-evolve
 
-为 DeepSeek Harness 带来「跨会话长期记忆 + 后台自我进化」能力的纯插件实现：**五轨记忆 · git 分支感知 · 回合内自我审查 · 技能自我进化与技能管理器 · 四轨待办 · COI 调度 · 会话广播 · 提示词管理器 · 临时信息便签**——**零核心修改、零运行时依赖**，随装随用、卸载即净。
+为 DeepSeek Harness 带来「跨会话长期记忆 + 后台自我进化」能力的纯插件实现：**五轨记忆 · git 分支感知 · 回合内自我审查 · 技能自我进化与技能管理器 · 四轨待办 · COI 调度 · 会话广播 · 会话搜索 · 提示词管理器 · 临时信息便签**——**零核心修改、零运行时依赖**，随装随用、卸载即净。
 
 > **🚀 COI 调度使用文档**：[docs/COI-调度.md](docs/COI-调度.md) —— 把任务派给 kimi/codex/grok/hermes 等外部 CLI：三层入口、适配器管理、会话分层、记忆注入、命令/工具参考。**默认禁用**，启用见「Memory Evolve 设置」Tab 的「配置」。
 >
@@ -18,6 +18,7 @@
 - 🛠️ **技能沉淀**：反复踩坑的方法论固化为可复用技能，同类任务下次直接按流程执行（创建保持克制）；「技能管理」里可浏览、搜索并**一键启用/禁用**技能
 - 🚀 **COI 调度**：把任务派给外部 CLI 代理（kimi / codex / grok / hermes 等）——**统一调度不卡 DSH 主进程**、实时看进度、会话自动分层管理可一键恢复、跨 COI 接力、任务结果留档并**自动沉淀到记忆**；内置四家适配器开箱即用，UI 可自定义添加任意 CLI
 - 📨 **会话广播**：DSH 会话之间传递消息——复制本会话 ID 发给另一个会话，让它的 AI 用 `de_broadcast` 把结果**广播给你**；接收方快照**定点注入**未读提示（只对接收者可见），read 即消费；**独立开关**（broadcastEnabled，默认关闭），与 COI 调度互不影响
+- 📡 **会话搜索**：让 AI 搜索**其他 AI 工具的历史会话**（当前支持 Codex：`~/.codex/sessions` + `archived_sessions` 的明文 JSONL——rg 预筛毫秒级；DSH 会话暂不支持）——"之前 Codex 里做过 XX"直接问 AI，它按关键词搜出命中会话 + 上下文窗口；支持 `cwd` 项目过滤、`sort`/`limit`/`window` 控制；**零常驻状态**（无索引/缓存，每次调用实时只读扫描）；**独立开关**（sessionSearchEnabled，默认关闭）
 - 📌 **提示词管理器**：可复用的**指令范式资产库 + 注入执行器**——把常用工作范式（代码审查 / 调试 / PRD / 测试等）固化成提示词，**选中即注入：模型下一轮自动看到、不打断回复**（次数/间隔可输入任意数字，支持持续注入 / 间隔提醒，可随时停止）；也能**临时注入**——不建提示词直接输入内容注入，自动存入提示词库；内置 13 条 GitHub 真实提示词（SpecRoute / Claude-Code-Promts-Skills），分类可自定义；**默认关闭**，按需在「Memory Evolve 设置」Tab 的「配置」启用
 - 📝 **临时信息**：会话页独立的「临时信息」Tab——Markdown 便签随手记，内容持久保存在 `~/.dsh/memories/scratch.md`，重启不丢，整理完后迁移或删除即可
 - 🔍 **本地搜索**：记忆不足时按文件名搜本地文件——**不止文档，图片/代码/配置等一切与项目相关的文件都能找**（默认只搜文档扩展名，需要时可全类型搜索）
@@ -39,6 +40,7 @@
 - **本地文件搜索（search_local_files）**：可选的 `memory_evolve_search_local_files` 工具——让模型在本机**所有磁盘/目录**中按文件名搜索文件（md/docx/pdf…，只匹配文件名、不读内容）。**默认禁用**：关闭时工具根本不注册，模型请求里没有它。启用后走**三层自适应**：平台索引（macOS `mdfind` Spotlight / Windows `es.exe`）→ `rg --files`（`--no-messages` 容忍外置卷权限错误）→ Node 并发遍历+结果缓存（零依赖兜底）；实现**可替换**：`registerSearchProvider` 注册新 provider，`searchDocsProviders` 配置顺序即可换实现，工具名/参数/返回不变。切换入口：「Memory Evolve 设置」Tab「配置」开关或 `/memory_evolve_search_files on|off`，**即时生效无需重启**；
 - **COI 调度（de_coi，默认禁用）**：统一调度外部 CLI 代理的**适配器框架**——内置 kimi/codex/grok/hermes 四家开箱即用（各家命令模板/会话恢复参数/session id 提取/内置使用指南），UI 可**自定义添加任意 CLI**（含无会话恢复能力的 plain-cli 普通命令，两级配置：常用表单 + 高级规则）。**非阻塞调度**：任务后台进程化（`de_coi_dispatch` 工具 / `/de_coi run` / Web 面板三种入口立即返回 taskId），**绝不卡死 DSH 主进程**；终止杀进程树、超时兜底、会话并发锁（同一会话不并发）。**主动通知**：任务完成时结果摘要（输出尾部 1KB）注入模型**下一次生成前**的上下文（快照「COI 任务状态」段，运行中+最近完成各一行；回合内继续生成才自动可见，结束回合后需用户发消息触发）。**进度可视化**：Web「COI调度」Tab 实时日志流 + 完成回传（`de_coi_wait` 可同步等待结果，完成即返回不浪费）。**会话分层管理**：session id 自动捕获 → 按 临时/会话/项目/全局 分层入库（**默认「会话」层级 = 仅发起会话可见的私有默认**，需要跨会话协作时显式选 project/global；项目级可挂 **git 分支**，与 key 记忆同构），备注/检索/一键恢复/导出（kimi export/grok export）。**协作**：跨 COI 接力（引用任务输出自动拼接）、任务模板、任务跨会话可见、留档检索与清理（默认 90 天）、用量统计、完成通知（可配置命令模板推微信/飞书）、DSH 重启崩溃恢复（中断任务标记并可恢复会话）。**记忆融合**：任务完成自动把摘要沉淀到 project/daily 记忆轨（模块内部直连，停用记忆轨不影响调度）；**记忆注入由 AI 每次派发自主选择**（`injectTracks: ['memory','user','key']`，与 scope 无关——scope 只管归属/可见性，不注入 AGENTS.md）。入口：`de_coi_dispatch` 等工具、`/de_coi` 命令族、Web「COI调度」Tab；命令前缀 `de_` 防插件冲突；
 - **会话广播（de_broadcast，默认禁用，独立于 COI 调度）**：DSH 会话之间传递消息——会话头部「⧉ 复制会话ID」按钮复制当前会话 ID，告诉另一个会话的 AI 后它可 `de_broadcast send` 发广播（可同时发给多个会话）；接收方快照**定点注入**未读提示（收件箱式 id+主题+发送者+时间，只对接收者可见，其他会话无感知），`read` 即消费、全部接收者读完后自动删除；超过 8KB 内容自动落文件、30 天清理；快照最前面另有**常驻「你的会话 ID」段**（不随开关、每会话始终注入，供 AI 比对消息收发方）。**独立开关 `broadcastEnabled`**（与 COI 调度互不影响）+ 独立存储目录（`broadcastDataDir`，默认 `<memoryDir>/broadcast`）；
+- **会话搜索（de_session_search，默认禁用，独立子模块）**：让模型搜索本机**其他 AI 工具的历史会话**——当前支持 **Codex**（`~/.codex/sessions` + `archived_sessions` 的明文 JSONL：rg 字面预筛 + 流式解析，**毫秒级**；DSH 会话（zstd 拼接帧）暂不实现）。大小写不敏感的字面匹配（中英文/标点同一规则），只搜用户/助手消息（工具输出不搜）；返回命中会话 + 最强消息摘要（snippet）+ 命中处上下文窗口。参数：`query`（必填）/`source`（当前仅 codex）/`cwd`（项目过滤）/`sort`（relevance/newest/oldest）/`limit`/`window`。**零常驻状态**：无索引、无缓存、无定时器，每次调用实时只读扫描，不修改任何会话文件（防御式上限：单文件 64MB/单行 512KB/单消息 4KB；坏行宽容，不淘汰整文件）。**独立开关 `sessionSearchEnabled`**（默认关，与 COI/广播互不影响，注册即占模型工具列表故默认禁用）；
 - **临时信息便签（scratch）**：会话页独立 Tab「临时信息」——一个持久化的 Markdown 便签（`<memoryDir>/scratch.md`，512 KiB 上限，**原子写**保护），临时想法/随手记放这里，**跨 DSH web 重启保留**；与结构化记忆文件（§ 分隔）完全无关，是自由文本，随意编辑不破坏任何解析格式。等宽编辑区 + 显式保存（**Cmd/Ctrl+S** 快捷键，未保存有脏标记提示）+ 保存时间展示 + **一键用系统工具打开**（复用 reveal 通道）；宿主端 `GET/POST /memory-evolve/api/scratch` 路由（读不存在返回空内容，POST 整体覆盖写入）；
 - **提示词管理器（Prompt Manager，默认关闭）**：会话页独立 Tab「提示词注入」——可复用的**指令范式资产库 + 注入执行器**。**库**：提示词 CRUD（名称/分类/标签/正文 Markdown）+ **分类管理**（默认 9 个内置分类（含「临时」）+ 自定义添加/删除——删除时该分类下提示词自动移到未分类，编辑提示词输入新分类名自动注册入列，**新建/临时注入时分类留空自动归入「临时」**）+ 分类树 + 搜索（名称/分类/标签/内容）+ 复制到剪贴板 + 使用统计；来源以**用户自写**为主（内置 **13 个来自 GitHub 真实提示词资产**的冷启动示例——[SpecRoute](https://github.com/Enovatr-Labs/SpecRoute)（spec-driven：代码审查/PRD→Spec/Spec→任务/任务实现/行为保持重构）与 [Claude-Code-Promts-Skills](https://github.com/Rtur2003/Claude-Code-Promts-Skills)（DEBUG 协议/安全审计/性能优化/测试策略等），**英文原文保留未加工**、内容完整（单条 2-24 KB），存放于插件包内 `lib/prompts-seed.json`（数据与代码分离，可独立替换），另附 **GitHub 范式库链接**（awesome-chatgpt-prompts、GitHub Spec Kit、SpecRoute 等，用户自取，不做爬虫导入）。**注入（有状态）**：选中提示词配置「次数 × 间隔」注入——**写入注入轨（prompt-injections.json），复用「写后即时注入、不打断回复」通道，模型下一轮自动看到**；次数支持**无限（默认，持续注入直到手动停止）**/ 一次性（1 次）/ 有限 N 次，间隔支持每回合 / **每 M 回合出现 1 次**（如"每 3 回合提醒一次"），**次数与间隔都可输入任意数字**（防御上限 9999，防手滑）；宿主监听 `agent/turn-stopping` 按回合推进（**只计主会话回合，subagent 不消耗**），有限次数耗尽自动移除、无限次永不自动过期；**每个提示词有明确状态**（未注入/注入中·剩 N 次/持续注入中），**可随时停止注入**；「注入中」浮层实时展示；**会话页 Tab 栏有活跃注入时显示红点「🔴 提示词注入 (N)」**（30s 轮询 + 注入/停止即时刷新）；正文支持 `{{date}}`/`{{time}}` 变量注入时展开。**临时注入**：不建提示词也能注入——详情栏直接输入内容点「注入」，**自动存入提示词库 + 注入生效一步完成**（分类留空归入「临时」，名称留空取内容首行，注入后自动选中可改名/改分类）。快照段 `prompt:injections` 只在出现轮非空时渲染（克制原则，间隔等待轮零开销）；注入 API 即**预留的外部触发入口**（未来监测注入只对接注入轨 add，无需改本模块）；删除提示词级联清理其活跃注入。**开关**：「Memory Evolve 设置」Tab「配置」的「提示词管理器」（默认关闭，同本地搜索/COI——普通用户不需要此功能；关闭时快照段/事件监听/API 整体卸载）；
 - **建议确认制**：全局记忆（用户档案/全局事实）写入需经会话页记忆 Tab 或 `/memory_review` 确认；新技能同样需确认，杜绝无人把关的自我修改；
@@ -172,6 +174,23 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 - **常驻「你的会话 ID」快照段**：快照**最前面**有一个常驻段（**不随任何开关，每个会话始终注入**）：`## 你的会话 ID … - 你的会话 ID：session-xxx`——AI 始终知道"我是谁"：接收/回复广播消息时用自己的 ID 与消息里 sender/recipients 比对判断谁是发件人、谁是自己（不依赖 → 符号）；回复时把自己的 ID 告知对方；未来其他模块的消费者也会用；subagent 等无会话视角不注入。
 
 ![会话广播](docs/images/会话广播.png)
+
+## 会话搜索（de_session_search）
+
+搜索本机**其他 AI 工具历史会话**的独立子模块（**独立开关 `sessionSearchEnabled`，默认关闭**——注册即占模型工具列表，需要时才开；与 COI 调度/会话广播互不影响）。**当前仅支持 Codex 源**；DSH 会话（zstd 拼接帧、无 rg 预筛、全量解压数百 MB）暂不实现——DSH 官方 `session-query`（SQLite FTS5）落地后再对接，不做自建索引。
+
+- **工具（单个）**：`de_session_search`，参数：
+  - `query`（**必填**）：搜索文本，大小写不敏感的字面匹配（中英文/标点同一规则，非正则）；
+  - `source`（可选）：会话来源，当前枚举仅 `codex`（未来扩展 claude/pi/opencode）；
+  - `cwd`（可选）：只搜工作目录包含该子串的会话（大小写不敏感）——Codex 会话记录工作目录，**建议优先用它限定项目**；
+  - `sort`（可选）：`relevance`（命中次数优先，默认）/ `newest` / `oldest`；
+  - `limit`（可选）：最多返回的会话数（默认 10，上限 50）；
+  - `window`（可选）：每个命中返回的消息窗口大小（默认 10，上限 30）。
+- **搜索语义**：只搜用户与助手消息（工具输出不搜）；每个会话以"命中次数最多的消息"为代表，同分按时间/seq 决胜；结果含 命中会话（来源/sessionId/标题/cwd/更新时间）+ 最强消息摘要（snippet，命中为中心 350 字符）+ 上下文消息窗口（每条裁剪 600 字符防撑爆上下文）。
+- **实现**（`lib/search/`）：发现（`sessions/` + `archived_sessions/` 递归，有界深度）→ **rg 预筛**（`rg --files-with-matches --fixed-strings --ignore-case`，对明文 JSONL 毫秒级；rg 缺失/失败/超时（30s）/输出超限/查询含 JSON 转义字符时**回退全量解析**，结果正确性不依赖 rg）→ 流式逐行解析（防御式上限：单文件 64MB、单行 512KB、单消息 4KB；**坏行宽容**——单行损坏只跳过该行，绝不淘汰整会话）→ 有界 Top-K 累积（内存有界）。
+- **性能**：本机实测 Codex 语料（约 46MB/33 文件）rg 全扫 12ms、完整搜索 30-180ms；无索引设计对明文 JSONL 语料完全够用。
+- **配置**：`sessionSearchEnabled`（开关）/ `sessionSearchRoots`（可选，每源根目录覆盖，如 `{ codex: '/path/to/.codex' }`）。
+- **安全**：全程只读（不修改任何会话文件、不建索引/缓存）；`rg` 参数化调用（`--` 分隔，无 shell 注入面）；支持工具 abort 取消。
 
 ## 安装
 
@@ -347,6 +366,8 @@ agent 会通过 `memory` 工具读写记忆，通过 `skill_manage` 工具管理
 | `coiEnabled` | `false` | COI 调度模块总开关：de_coi_* 工具 + `/de_coi` 命令 + Web「COI调度」Tab + API（统一调度 kimi/codex/grok/hermes 等 CLI 代理）。**默认禁用**（插件本职是记忆/待办/技能，调度按需增强）：「Memory Evolve 设置」Tab「配置」可随时切换，工具/命令即时生效，Tab 刷新后出现；关闭时以上全部不可见（「你的会话 ID」常驻快照段不受影响；会话广播不受本开关影响，见 broadcastEnabled） |
 | `broadcastEnabled` | `false` | 会话广播模块总开关（**独立于 COI 调度**）：de_broadcast 工具 + 会话头部「⧉ 复制会话ID」按钮 + 快照「会话广播」未读提示（DSH 会话间消息传递，收件箱式/read 即消费/30 天清理）。默认禁用；关闭时以上全部不可见 |
 | `broadcastDataDir` | `<memoryDir>/broadcast` | 会话广播数据目录（broadcast.json + broadcasts/ 长内容文件） |
+| `sessionSearchEnabled` | `false` | 会话搜索模块总开关（**独立子模块**）：de_session_search 工具（搜索本机 Codex 历史会话，rg 预筛毫秒级；DSH 会话暂不支持）。默认禁用——注册即占模型工具列表，需要时才开；关闭时工具对模型完全不可见 |
+| `sessionSearchRoots` | `null` | 会话搜索每源根目录覆盖（如 `{ codex: '/path/to/.codex' }`）；`null` = 各源默认主目录 |
 | `coiDataDir` | `<memoryDir>/coi` | COI 数据目录（适配器/会话/任务/模板/配置/留档） |
 | `coiSummaryEnabled` | `true` | 任务完成自动把摘要沉淀到 project/daily 记忆轨（内部直连；关 = 不沉淀，调度不受影响） |
 | `coiNotifyCommand` | `null` | 完成通知命令模板（`null`=不通知；占位符 `{taskId}` `{coi}` `{status}` `{summary}`，如 `hermes send --platform weixin "COI 任务 {taskId} {status}"`） |
