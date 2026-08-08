@@ -8,9 +8,11 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
-  SearchAborted, createSearchDocsController, createSearcher, defaultRoots,
-  isAllTypes, matchQuery, normalizeExts, renderSearchResult, resolveProviders,
-  searchDocsCommand, searchDocsToolDefinition,
+  SearchAborted, contentCandidateLimit, createSearchDocsController, createSearcher,
+  defaultRoots, isAllTypes, matchContentInText, matchQuery, normalizeExts,
+  nodeSearchFileContents, parseRgContentOutput, probeContentFile,
+  renderSearchResult, resolveContentSearchArgs, resolveProviders,
+  searchDocsCommand, searchDocsToolDefinition, searchFileContents,
 } from '../lib/search-docs.js'
 
 /** 快速构造一个已解析的插件配置。 */
@@ -229,4 +231,325 @@ test('命令：on/off/status', () => {
   assert.match(status.text, /已禁用/)
   cmd.handler({ rawInput: 'on' })
   assert.match(cmd.handler({ rawInput: '' }).text, /已启用/)
+})
+
+// ---------------------------------------------------------------------------
+// 内容检索（RAG 轻量版）：参数解析 / 文本匹配 / 安全跳过 / 工具 execute 集成
+// ---------------------------------------------------------------------------
+
+test('resolveContentSearchArgs：content / contentQuery 开关语义', () => {
+  // 默认关闭（兼容旧调用）
+  assert.deepEqual(resolveContentSearchArgs({}, 'foo'), { enabled: false, contentQuery: '' })
+  assert.deepEqual(resolveContentSearchArgs({ content: false }, 'foo'), { enabled: false, contentQuery: '' })
+  // content=true → 开启，关键词复用 query
+  assert.deepEqual(resolveContentSearchArgs({ content: true }, 'foo'), { enabled: true, contentQuery: 'foo' })
+  // contentQuery 非空 → 隐式开启，且覆盖 query
+  assert.deepEqual(
+    resolveContentSearchArgs({ contentQuery: '  bar  ' }, 'foo'),
+    { enabled: true, contentQuery: 'bar' },
+  )
+  // 两者同传：contentQuery 优先作为正文关键词
+  assert.deepEqual(
+    resolveContentSearchArgs({ content: true, contentQuery: 'bar' }, 'foo'),
+    { enabled: true, contentQuery: 'bar' },
+  )
+  // content=true 但 query/contentQuery 都空 → 开启但关键词空（execute 层会报错）
+  assert.deepEqual(resolveContentSearchArgs({ content: true }, ''), { enabled: true, contentQuery: '' })
+  // 空字符串 contentQuery 不隐式开启
+  assert.deepEqual(resolveContentSearchArgs({ contentQuery: '   ' }, 'foo'), { enabled: false, contentQuery: '' })
+})
+
+test('contentCandidateLimit：扩容且封顶', () => {
+  assert.equal(contentCandidateLimit(20), 500) // 20*25=500
+  assert.equal(contentCandidateLimit(1), 100)  // 至少 100
+  assert.equal(contentCandidateLimit(50), 500) // 50*25=1250 → 封顶 500
+})
+
+test('matchContentInText：字面大小写不敏感 + 上下文 + 每文件上限', () => {
+  const text = [
+    '前言',
+    'Hello World',
+    '中间行',
+    'hello again',
+    '结尾',
+    'HELLO third',
+    '更多',
+  ].join('\n')
+  const hits = matchContentInText(text, 'hello', { maxSnippets: 2, contextLines: 1 })
+  assert.equal(hits.length, 2, '最多 2 个片段')
+  assert.equal(hits[0].line, 2)
+  assert.match(hits[0].text, /Hello World/i)
+  assert.match(hits[0].context, /前言/)
+  assert.match(hits[0].context, /中间行/)
+  assert.equal(hits[1].line, 4)
+  // 无命中
+  assert.deepEqual(matchContentInText(text, 'no-such-token'), [])
+})
+
+test('parseRgContentOutput：解析 rg --json 命中与上下文', () => {
+  // 模拟 rg --json -C 1 的 NDJSON 流（context → match → context）
+  const stdout = [
+    JSON.stringify({ type: 'context', data: { path: { text: '/tmp/a.md' }, line_number: 1, lines: { text: 'before\n' } } }),
+    JSON.stringify({ type: 'match', data: { path: { text: '/tmp/a.md' }, line_number: 2, lines: { text: 'match line\n' } } }),
+    JSON.stringify({ type: 'context', data: { path: { text: '/tmp/a.md' }, line_number: 3, lines: { text: 'after\n' } } }),
+    JSON.stringify({ type: 'match', data: { path: { text: '/tmp/b.md' }, line_number: 10, lines: { text: 'only match\n' } } }),
+  ].join('\n')
+  const map = parseRgContentOutput(stdout, 3)
+  assert.equal(map.size, 2)
+  const a = map.get('/tmp/a.md')
+  assert.equal(a.length, 1)
+  assert.equal(a[0].line, 2)
+  assert.equal(a[0].text, 'match line')
+  assert.match(a[0].context, /before/)
+  assert.match(a[0].context, /after/)
+  const b = map.get('/tmp/b.md')
+  assert.equal(b[0].line, 10)
+  assert.equal(b[0].text, 'only match')
+})
+
+test('probeContentFile：二进制 / 空文件 / 正常文本', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-probe-'))
+  try {
+    const textPath = join(dir, 'ok.md')
+    const binPath = join(dir, 'bin.dat')
+    const emptyPath = join(dir, 'empty.md')
+    writeFileSync(textPath, 'hello\n')
+    writeFileSync(binPath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+    writeFileSync(emptyPath, '')
+    assert.equal(probeContentFile(textPath).skip, false)
+    assert.equal(probeContentFile(binPath).skip, true)
+    assert.equal(probeContentFile(binPath).reason, 'binary')
+    assert.equal(probeContentFile(emptyPath).skip, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('nodeSearchFileContents：命中 / 未命中 / 跳过二进制', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-node-content-'))
+  try {
+    const hit = join(dir, 'hit.md')
+    const miss = join(dir, 'miss.md')
+    const bin = join(dir, 'x.bin')
+    writeFileSync(hit, '# 标题\n本文提到了智云鸿道项目。\n结尾\n')
+    writeFileSync(miss, '无关内容\n')
+    writeFileSync(bin, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d])) // PNG 头 + NUL
+    const entries = [
+      { path: hit, name: 'hit.md', mtime: 3, size: 50, dir: false },
+      { path: miss, name: 'miss.md', mtime: 2, size: 20, dir: false },
+      { path: bin, name: 'x.bin', mtime: 1, size: 6, dir: false },
+    ]
+    const hits = await nodeSearchFileContents(entries, '智云鸿道')
+    assert.equal(hits.length, 1)
+    assert.equal(hits[0].name, 'hit.md')
+    assert.ok(hits[0].snippets.length >= 1)
+    assert.match(hits[0].snippets[0].text, /智云鸿道/)
+    // 未命中
+    const none = await nodeSearchFileContents(entries, '完全不存在的词XYZ')
+    assert.equal(none.length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('工具 execute：content=false 行为不变（不返回 snippets）', async () => {
+  const def = searchDocsToolDefinition(baseConfig(), async () => ({
+    provider: 'fake',
+    results: [{ path: '/x/a.md', name: 'a.md', mtime: 1, size: 2, dir: false }],
+  }))
+  const out = await def.execute({ query: 'a' }, {})
+  assert.equal(out.ok, true)
+  assert.equal(out.content, false)
+  assert.equal(out.contentQuery, '')
+  assert.equal(out.results.length, 1)
+  assert.equal(out.results[0].snippets, undefined)
+})
+
+test('工具 execute：content=true 命中与片段返回', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-tool-content-'))
+  try {
+    const f1 = join(dir, 'alpha.md')
+    const f2 = join(dir, 'beta.md')
+    writeFileSync(f1, 'line1\n关键字Alpha出现在这里\nline3\n')
+    writeFileSync(f2, '没有目标词\n')
+    // fake 文件名搜索返回两个候选；内容阶段再过滤
+    const def = searchDocsToolDefinition(baseConfig(), async () => ({
+      provider: 'fake',
+      results: [
+        { path: f1, name: 'alpha.md', mtime: 20, size: 40, dir: false },
+        { path: f2, name: 'beta.md', mtime: 10, size: 20, dir: false },
+      ],
+    }))
+    const out = await def.execute({ query: 'alpha', content: true }, {})
+    assert.equal(out.ok, true)
+    assert.equal(out.content, true)
+    assert.equal(out.contentQuery, 'alpha') // content=true 复用 query
+    assert.equal(out.results.length, 1)
+    assert.equal(out.results[0].name, 'alpha.md')
+    assert.ok(Array.isArray(out.results[0].snippets))
+    assert.ok(out.results[0].snippets.length >= 1)
+    assert.equal(typeof out.results[0].snippets[0].line, 'number')
+    assert.match(out.results[0].snippets[0].text, /Alpha/i)
+    assert.equal(typeof out.results[0].snippets[0].context, 'string')
+    // render 含片段
+    const rendered = renderSearchResult(out)
+    assert.match(rendered, /内容关键词/)
+    assert.match(rendered, /L\d+:/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('工具 execute：contentQuery 覆盖 query，并隐式开启内容检索', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-tool-cq-'))
+  try {
+    const f = join(dir, 'note.md')
+    writeFileSync(f, '正文提到 成都 与项目规划。\n')
+    const calls = []
+    const def = searchDocsToolDefinition(baseConfig(), async (params) => {
+      calls.push(params)
+      return {
+        provider: 'fake',
+        results: [{ path: f, name: 'note.md', mtime: 1, size: 30, dir: false }],
+      }
+    })
+    // 不传 content=true，只传 contentQuery → 隐式开启
+    const out = await def.execute({ query: 'note', contentQuery: '成都' }, {})
+    assert.equal(out.ok, true)
+    assert.equal(out.content, true)
+    assert.equal(out.contentQuery, '成都')
+    assert.equal(out.results.length, 1)
+    assert.match(out.results[0].snippets[0].text, /成都/)
+    // 文件名搜索仍用 query=note（contentQuery 不替代文件名）
+    assert.equal(calls[0].query, 'note')
+    // 内容模式内部候选 limit 扩容
+    assert.ok(calls[0].limit >= 100)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('工具 execute：内容未命中返回空 results', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-tool-miss-'))
+  try {
+    const f = join(dir, 'empty-hit.md')
+    writeFileSync(f, '完全无关的文字\n')
+    const def = searchDocsToolDefinition(baseConfig(), async () => ({
+      provider: 'fake',
+      results: [{ path: f, name: 'empty-hit.md', mtime: 1, size: 20, dir: false }],
+    }))
+    const out = await def.execute({ contentQuery: '绝对不会出现的词QQQ' }, {})
+    assert.equal(out.ok, true)
+    assert.equal(out.content, true)
+    assert.equal(out.count, 0)
+    assert.deepEqual(out.results, [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('工具 execute：大文件与二进制安全跳过', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-tool-safe-'))
+  try {
+    const bin = join(dir, 'photo.bin')
+    const big = join(dir, 'huge.md')
+    const ok = join(dir, 'ok.md')
+    writeFileSync(bin, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]))
+    // 构造 >2MB 的大文件（内容检索上限）
+    writeFileSync(big, 'x'.repeat(2 * 1024 * 1024 + 100))
+    writeFileSync(ok, 'safe keyword here\n')
+    const def = searchDocsToolDefinition(baseConfig(), async () => ({
+      provider: 'fake',
+      results: [
+        { path: bin, name: 'photo.bin', mtime: 3, size: 5, dir: false },
+        { path: big, name: 'huge.md', mtime: 2, size: 2 * 1024 * 1024 + 100, dir: false },
+        { path: ok, name: 'ok.md', mtime: 1, size: 20, dir: false },
+      ],
+    }))
+    const out = await def.execute({ contentQuery: 'keyword' }, {})
+    assert.equal(out.ok, true)
+    // 二进制与大文件被跳过，只剩 ok.md
+    assert.equal(out.results.length, 1)
+    assert.equal(out.results[0].name, 'ok.md')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('工具 execute：content=true 且无关键词 → ok:false', async () => {
+  const def = searchDocsToolDefinition(baseConfig(), async () => {
+    throw new Error('不应调用 search')
+  })
+  const out = await def.execute({ content: true, query: '' }, {})
+  assert.equal(out.ok, false)
+  assert.match(out.message, /关键词/)
+  assert.equal(out.content, true)
+})
+
+test('工具 execute：type=dir 时忽略内容检索参数', async () => {
+  const calls = []
+  const def = searchDocsToolDefinition(baseConfig(), async (params) => {
+    calls.push(params)
+    return {
+      provider: 'fake',
+      results: [{ path: '/tmp/folder', name: 'folder', mtime: 1, size: 0, dir: true }],
+    }
+  })
+  const out = await def.execute({ type: 'dir', query: 'folder', contentQuery: '不该搜正文' }, {})
+  assert.equal(out.ok, true)
+  assert.equal(out.content, false)
+  assert.equal(out.results[0].snippets, undefined)
+  // 目录搜索不扩容候选
+  assert.equal(calls[0].limit, 20)
+})
+
+test('工具 schema：content 相关参数与 output 字段合法（type 单一字符串、required 为数组）', () => {
+  const def = searchDocsToolDefinition(baseConfig(), async () => ({ provider: 'x', results: [] }))
+  assert.ok(def.parameters.properties.content)
+  assert.equal(def.parameters.properties.content.type, 'boolean')
+  assert.equal(def.parameters.properties.contentQuery.type, 'string')
+  assert.ok(def.description.includes('内容检索'))
+  assert.ok(def.description.includes('contentQuery'))
+
+  // 递归校验 DSH JSON Schema 硬约束
+  const walk = (node, path, inProperties = false) => {
+    if (node === null || typeof node !== 'object') return
+    if (!inProperties) {
+      if (Object.hasOwn(node, 'type') && typeof node.type !== 'string') {
+        throw new Error(`${path}.type 必须是单一字符串: ${JSON.stringify(node.type)}`)
+      }
+      if (Object.hasOwn(node, 'required') && !Array.isArray(node.required)) {
+        throw new Error(`${path}.required 必须是数组: ${JSON.stringify(node.required)}`)
+      }
+    }
+    for (const [key, value] of Object.entries(node)) {
+      walk(value, `${path}.${key}`, key === 'properties')
+    }
+  }
+  walk(def.parameters, 'parameters')
+  walk(def.output.schema, 'output')
+
+  // snippets 子 schema 存在且字段齐全
+  const snip = def.output.schema.properties.results.items.properties.snippets
+  assert.equal(snip.type, 'array')
+  assert.deepEqual(snip.items.required, ['line', 'text', 'context'])
+  assert.equal(def.output.schema.properties.content.type, 'boolean')
+  assert.equal(def.output.schema.properties.contentQuery.type, 'string')
+})
+
+test('searchFileContents preferNode：强制 Node 路径可命中', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-prefer-node-'))
+  try {
+    const f = join(dir, 'doc.md')
+    writeFileSync(f, 'force node path KEYWORD_XYZ\n')
+    const hits = await searchFileContents(
+      [{ path: f, name: 'doc.md', mtime: 1, size: 30, dir: false }],
+      'KEYWORD_XYZ',
+      { preferNode: true },
+    )
+    assert.equal(hits.length, 1)
+    assert.match(hits[0].snippets[0].text, /KEYWORD_XYZ/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
