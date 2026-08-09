@@ -295,6 +295,12 @@
   gap: 16px;
 }
 
+/* 适配器卡片：平均耗时徽标（有完成记录才渲染） */
+.coi-avg-ms {
+  color: var(--dsw-alias-state-success-primary);
+  font-weight: 600;
+}
+
 .coi-input,
 .coi-select,
 .coi-textarea {

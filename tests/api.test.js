@@ -642,3 +642,14 @@ test('archive endpoints: archive a suggestion, list, promote, delete', async () 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('searchDocsMode：校验合法枚举，null=未设置合法，非法值拒绝（保存回显 null 的回归）', () => {
+  // null 合法：GET /api/config 回显的就是 null（DEFAULTS 占位），
+  // 设置面板原样保存必须通过——否则一保存就报错（用户实测 bug）。
+  validateRuntimePatch('searchDocsMode', null)
+  for (const mode of ['all', 'filename', 'content', 'off']) {
+    validateRuntimePatch('searchDocsMode', mode)
+  }
+  assert.throws(() => validateRuntimePatch('searchDocsMode', 'everything'), /searchDocsMode/)
+  assert.throws(() => validateRuntimePatch('searchDocsMode', 1), /searchDocsMode/)
+})

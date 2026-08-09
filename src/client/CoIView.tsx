@@ -30,6 +30,8 @@ interface Adapter {
   resume?: { kind: 'flag'; flag: string; arg: string } | { kind: 'args'; args: string[] }
   continue?: { kind: 'flag'; flag: string } | { kind: 'args'; args: string[] }
   sessionIdExtract?: { source: 'stdout' | 'stderr' | 'any' | 'none'; regex: string | null }
+  /** 平均完成耗时（毫秒，host 计算；0=暂无完成记录）。 */
+  avgMs?: number
 }
 
 /** 任务状态机。 */
@@ -1606,6 +1608,12 @@ function AdaptersPane(): JSX.Element {
               <div className="coi-row-line coi-muted coi-small">
                 <span className="coi-mono">{a.binary}</span>
                 {a.args.length > 0 && <span className="coi-mono">{a.args.join(' ')}</span>}
+                {/* 平均完成耗时（有完成记录才显示）：分钟一位小数，与工具 render 同格式 */}
+                {a.avgMs !== undefined && a.avgMs > 0 && (
+                  <span className="coi-avg-ms" title="历史 completed 任务的平均耗时（de_coi_adapters 同源）">
+                    ⏱ 均耗时 {(a.avgMs / 60000).toFixed(1)} 分钟
+                  </span>
+                )}
               </div>
               <div className="coi-row-line coi-muted coi-small">
                 {useCaseEditId === a.id ? (

@@ -975,6 +975,10 @@ test('coi api: adapters, tasks dispatch + status + cancel flow', async () => {
     const adapters = await api.request('GET', '/memory-evolve/api/coi/adapters')
     assert.equal(adapters.data.adapters.length, 4)
     assert.ok(adapters.data.adapters.find((a) => a.id === 'kimi').guide)
+    // 每个适配器带 avgMs（平均完成耗时毫秒；无完成记录 = 0）——GUI 列表展示用
+    for (const a of adapters.data.adapters) {
+      assert.equal(typeof a.avgMs, 'number', `${a.id} 带 avgMs 字段`)
+    }
 
     const dispatch = await api.request('POST', '/memory-evolve/api/coi/tasks', { adapterId: 'kimi', prompt: 'API 任务', scope: 'project', cwd: '/p', dsSessionId: 'ds-sess-1' })
     assert.equal(dispatch.status, 200)
