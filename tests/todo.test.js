@@ -416,6 +416,32 @@ test('dtodo tool: list target=project with cwd= queries another project', async 
   }
 })
 
+test('todo store: single-track project list is reversed (newest first), mixed/others unchanged', () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    // 直接写两条不同 time 的条目：文件内旧条目在前、新条目在后
+    store.write('project', '/proj/p', [
+      rawEntry('2026-08-01 09:00', 'aaaa0001', '旧条目'),
+      rawEntry('2026-08-05 10:00', 'aaaa0002', '新条目'),
+    ])
+    // 单轨 project：反转生效，最新在前
+    const single = store.listTodos(['project'], { all: true }, '/proj/p')
+    assert.deepEqual(single.items.map((i) => i.text), ['新条目', '旧条目'])
+    // 混合查询（默认四轨）：project 条目保持原排序（旧在前），不受反转影响
+    const mixed = store.listTodos(TODO_TARGETS, { all: true }, '/proj/p')
+    const m = mixed.items.filter((i) => i.target === 'project')
+    assert.deepEqual(m.map((i) => i.text), ['旧条目', '新条目'])
+    // 其他单轨（life）不受影响：按原排序（时间正序）
+    store.addTodo('life', '生活的事', {}, undefined)
+    store.write('life', undefined, [rawEntry('2026-08-03 08:00', 'aaaa0003', '旧生活'), ...store.itemsOf('life')])
+    const life = store.listTodos(['life'], { all: true }, '/proj/p')
+    assert.deepEqual(life.items.map((i) => i.text), ['旧生活', '生活的事'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('suggestions approve: todo suggestions ignore target overrides (todo stays todo)', () => {
   const dir = tempDir()
   try {
