@@ -12,7 +12,8 @@
  *    数组、additionalProperties:false——DSH 硬约束）
  *  - installWsCoord：事件监听注册/dispose 清理；pre-execute 软模式（放行+
  *    记录警告）/ 硬模式（deny）；post-execute 警告注入（additionalContexts）；
- *    fs/observed 自动登记；turn-stopping 释放 observed 锁
+ *    fs/observed 自动登记；observed 锁保留 TTL（不随回合结束释放——先后
+ *    写入检测的前提，2026-08-09 教训）
  */
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -271,7 +272,7 @@ test('工具 schema：三工具符合 DSH 硬约束（单一 type/顶层 require
   }
 })
 
-test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post-execute 注入 + fs/observed 登记 + turn-stopping 释放', async () => {
+test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post-execute 注入 + fs/observed 登记 + observed 锁保留 TTL', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()
   const config = baseConfig(dir)
@@ -282,10 +283,12 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   })
   // 工具注册了 3 个
   assert.equal(ctx.state.tools.length, 3)
-  // 事件监听齐了：agent/status、fs/observed、pre/post-execute、turn-stopping
-  for (const ev of ['agent/status', 'fs/observed', 'tools/pre-execute', 'tools/post-execute', 'agent/turn-stopping']) {
+  // 事件监听：agent/status、fs/observed、pre/post-execute；**刻意不监听
+  // turn-stopping**（回合结束释放会让"先后写入"检测不到，2026-08-09 教训）
+  for (const ev of ['agent/status', 'fs/observed', 'tools/pre-execute', 'tools/post-execute']) {
     assert.equal(typeof ctx.state.listeners[ev], 'function', `缺少监听 ${ev}`)
   }
+  assert.equal(typeof ctx.state.listeners['agent/turn-stopping'], 'undefined', '不应监听 turn-stopping（observed 锁保留 TTL）')
   // 会话 A 声明占用 /w/a.js
   installed.store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlMinutes: 60 })
   const pre = ctx.state.listeners['tools/pre-execute']
@@ -312,9 +315,9 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   const bLocks = installed.store.list({ cwd: '/w', sessionId: 'B' })
   assert.equal(bLocks.length, 1)
   assert.equal(bLocks[0].source, 'observed')
-  // turn-stopping：B 回合结束 → observed 锁释放
-  ctx.state.listeners['agent/turn-stopping']({ agent: { session: { id: 'B' } } })
-  assert.equal(installed.store.list({ cwd: '/w', sessionId: 'B' }).length, 0)
+  // **先后写入场景（防回归）**：B "回合结束"后（无 turn-stopping 释放），
+  // 模拟 C 再写 b.js 仍能检测到 B 的 observed 锁 → 冲突命中
+  assert.ok(installed.store.conflictFor('C', '/w/b.js', '/w'), '回合结束后 observed 锁必须保留（TTL 内）')
   // dispose：工具注销 + 监听清理
   installed.dispose()
   assert.equal(ctx.state.tools.length, 0)

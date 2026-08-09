@@ -21,6 +21,11 @@
 ### 验证
 - npm test 288 全绿；npm run build 成功；工具 schema 过递归 walk（type 单一字符串、required 顶层数组、additionalProperties:false）。宿主端改动需重启 dsh web 生效。
 
+### 修复（2026-08-09 实测迭代）
+- **renderSnapshot 误用闭包变量名**（wsCoordStoreRef is not defined）：模块级函数体内引用 apply 闭包变量导致快照渲染崩溃——改为参数传递，加防回归测试；
+- **回合结束不再释放 observed 锁**：曾用 agent/turn-stopping 回合结束即释放自动登记锁，实测导致"先后写入"（A 改完回合结束 → 锁消失 → B 再改）完全检测不到——改为保留 TTL 30 分钟（de_ws_release all 可主动清空），先后写入也能触发警告/通知；**与官方 fs-policy 版本守卫（FS_STALE_VERSION 回合内实时兜底）互补成两层防护**；
+- **设置 UI 迁移**（用户拍板）：子功能开关放广播面板「设置」子 Tab，Memory Evolve 设置只控制大模块开关。
+
 ---
 
 ## 2026-08-09 — 会话书签独立子模块（bookmarkEnabled）：每轮星标 + 列表跳转 + 任意轮官方分支
