@@ -480,12 +480,18 @@ test('status / list: 状态视图（running/idle/offline + spawn 记录）', asy
   assert.ok(String(rendered[0].text).includes('running'), 'render 输出含状态')
   assert.ok(String(rendered[0].text).includes(spawnedId), 'render 输出含会话 ID')
   assert.ok(String(st1.message).includes('running'), 'status live 分支带 message 文案')
+  // ⏰ 当前时间锚点（2026-08-12 用户要求）：lastActiveAt 是事件时间（可能
+  // 是过往），now 让模型对比判断新旧；render 输出前置「⏰ 当前时间」精确到秒
+  assert.equal(typeof st1.now, 'number', 'status 返回当前时间锚点')
+  assert.equal(typeof st3b.now, 'number', 'offline status 也带锚点')
+  const renderedText = String(rendered[0].text)
+  assert.match(renderedText, /^⏰ 当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/m, 'render 输出以当前时间锚点开头（精确到秒）')
   // status：从未见过的会话 offline
   const st3 = await tool.execute({ action: 'status', sessionId: 'session-ghost' }, {})
   assert.equal(st3.status, 'offline')
   assert.equal(st3.spawned, false)
   assert.equal(st3.lastActiveAt, null)
-  // list：live 全量 + spawn 记录（带状态与 lastActiveAt）
+  // list：live 全量 + spawn 记录（带状态与 lastActiveAt + now 锚点）
   const list = await tool.execute({ action: 'list' }, {})
   assert.equal(list.ok, true)
   assert.equal(list.live.length, 2)
@@ -494,6 +500,9 @@ test('status / list: 状态视图（running/idle/offline + spawn 记录）', asy
   assert.equal(list.sessions[0].status, 'running')
   assert.equal(list.sessions[0].spawnedBy, 's-pm')
   assert.equal(list.sessions[0].lastActiveAt, 1700000000000)
+  assert.equal(typeof list.now, 'number', 'list 也带当前时间锚点')
+  const listRendered = tool.output.render({}, list)
+  assert.match(String(listRendered[0].text), /^⏰ 当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/m, 'list render 同样前置时间锚点')
   rmSync(dir, { recursive: true, force: true })
 })
 
