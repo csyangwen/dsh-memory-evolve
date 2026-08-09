@@ -232,6 +232,21 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 - **配置**：`sessionEnabled`（开关）/ `sessionDataDir`（存储目录，默认 `<memoryDir>/session-orch`）。
 - **实现**（`lib/session-orch.js`）：`SessionOrchStore`（spawn 记录落盘）+ `SessionOrch`（封装 DSH agents 服务 create/resume/get/list + `agent.followup(userMessage)` 派发）+ `installSession`（独立装配，`getBroadcastStore` 桥接广播入房）。
 
+## 渠道通知（de_notify）
+
+**"AI 完成任务后通过 IM 渠道主动发通知给你"** 的独立子模块（**独立开关 `notifyEnabled`，默认关闭**——注册即占模型工具列表；与 COI 调度/会话广播互不影响）。一期支持**飞书**单渠道（用户拍板）；QQ/微信/企业微信二期扩展。
+
+- **两种触发**（用户拍板两者都要）：
+  - `de_notify` 手动工具：任何会话里模型自主调用（**随时可发、无频率限制**——用户拍板不做约束）；参数 `channels`（缺省 feishu，支持 all=全部已注册渠道）/ `content`（必填）/ `target`（可选，缺省=该渠道**最近交互的对话**，可显式传 chatKey 如 `p2p:oc_xxx`）；逐渠道返回成功/失败原因/消息 id，**失败如实呈现**。
+  - COI 完成自动通知：COI 运行时配置 `coiNotifyChannels`（如 `"feishu"` / `"feishu,qq"`，null=关）——任务终态时自动发固定模板通知（`[COI] 任务 …（适配器）状态：摘要`），与 `coiNotifyCommand`（外部命令）可并存。
+- **架构（方案 A：渠道插件全局注册表，用户拍板）**：渠道插件（dsh-feishu 等**公共插件**）在 apply 时把主动发送能力登记到 `globalThis.__dshChannelNotify`（无侵入钩子）；本模块工具执行时读取调用，**零依赖**渠道插件：
+  - 渠道插件没装 / 旧版本无钩子 → de_notify 如实报「渠道未注册」，主插件零影响；
+  - 只装渠道插件不装本插件 → 渠道插件行为与官方版完全一致；
+  - 渠道插件侧改造契约见 dsh-feishu 的 README「与 dsh-memory-evolve 的集成」节。
+- **前置条件**：飞书机器人主动发消息要求你添加过该机器人；通知默认发给「最近交互的飞书对话」（需曾与机器人聊过）。
+- **配置**：`notifyEnabled`（开关，记忆 Tab 运行时配置可切）/ COI 侧 `coiNotifyChannels`（COI 运行时配置）。
+- **实现**（`lib/notify.js`）：`sendChannelNotify`（发送内核：注册表遍历 + 逐渠道回执 + 永不抛错）+ `notifyToolDefinition`（de_notify 工具定义）+ `installNotify`（独立装配）；COI 侧 `buildNotify`（lib/coi/index.js，命令+渠道组合回调，无配置时零开销）。
+
 ## 安装
 
 ### 标准安装（DSH 08-06+ profiles 架构，推荐）

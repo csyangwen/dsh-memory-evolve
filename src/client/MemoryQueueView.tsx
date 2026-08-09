@@ -90,6 +90,8 @@ interface RuntimeConfig {
   uiSettingsEnabled: boolean
   /** 会话书签（独立子模块，默认关）。 */
   bookmarkEnabled: boolean
+  /** 渠道通知（de_notify，独立子模块，默认关）：AI 完成任务后经 IM 渠道主动发通知。 */
+  notifyEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -226,6 +228,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       modelsEnabled: draft.modelsEnabled,
       uiSettingsEnabled: draft.uiSettingsEnabled,
       bookmarkEnabled: draft.bookmarkEnabled,
+      notifyEnabled: draft.notifyEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -669,6 +672,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.broadcastEnabled}
                     onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.notifyEnabled')}
+                    <em className="me-field-hint">{t('panel.config.notifyEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.notifyEnabled}
+                    onChange={(event) => patchDraft({ notifyEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">
