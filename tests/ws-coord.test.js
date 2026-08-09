@@ -79,7 +79,7 @@ test('declare：登记文件/服务 + TTL + 重复声明刷新 + conflicts 检�
   const dir = tempDir()
   const store = new WsCoordStore(dir)
   // 会话 A 先占用 /w/a.js
-  const first = store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlMinutes: 60 })
+  const first = store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlSeconds: 60 })
   assert.equal(first.declared.length, 1)
   assert.equal(first.conflicts.length, 0)
   assert.equal(first.declared[0].target, '/w/a.js')
@@ -91,7 +91,7 @@ test('declare：登记文件/服务 + TTL + 重复声明刷新 + conflicts 检�
   assert.equal(svc.declared.length, 1)
   assert.equal(svc.declared[0].kind, 'service')
   // 同会话重复声明同一文件：刷新不新增（declared 1 条，note 更新）
-  const again = store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: '/w/a.js', note: '重构 v2' }], ttlMinutes: 30 })
+  const again = store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: '/w/a.js', note: '重构 v2' }], ttlSeconds: 30 })
   assert.equal(again.declared.length, 1)
   assert.equal(again.declared[0].note, '重构 v2')
   assert.equal(store.list({ cwd: '/w' }).length, 2)
@@ -128,7 +128,7 @@ test('observe：自动登记（fs/observed）+ 同文件续期 + 非法输入跳
 test('conflictFor：自己占用放行 / 他人占用命中 / 相对路径归一化 / 过期不命中', async () => {
   const dir = tempDir()
   const store = new WsCoordStore(dir)
-  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js' }], ttlMinutes: 60 })
+  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js' }], ttlSeconds: 60 })
   // 他人占用命中（B 写 /w/a.js，相对路径也能命中）
   assert.ok(store.conflictFor('B', 'a.js', '/w'))
   assert.ok(store.conflictFor('B', '/w/a.js', '/w'))
@@ -211,6 +211,25 @@ test('activeFor：活动概览——有锁会话 + running 会话合并，idle �
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('activeFor：归档会话不展示（2026-08-09 修复）——有锁/running 都被过滤', async () => {
+  const dir = tempDir()
+  const store = new WsCoordStore(dir)
+  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '已归档但有锁' }] })
+  const meta = new Map([
+    ['A', { cwd: '/w', status: 'idle', lastActiveAt: Date.now() }], // 已归档 + 有锁：不展示
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }], // 已归档 + running：不展示
+    ['C', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }], // 未归档 running：展示
+  ])
+  const archived = new Set(['A', 'B'])
+  const active = store.activeFor('/w', meta, Date.now(), archived)
+  assert.equal(active.length, 1)
+  assert.equal(active[0].sessionId, 'C')
+  // 不传 archived（旧调用方）：行为不变（A 有锁 + B/C running = 3 活跃）
+  const all = store.activeFor('/w', meta)
+  assert.equal(all.length, 3)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('buildWsCoordBlock：开关关/无视角/1 活跃 = null；≥2 活跃 = 注入一行（含时间）', async () => {
   const dir = tempDir()
   const store = new WsCoordStore(dir)
@@ -245,6 +264,29 @@ test('buildWsCoordBlock：开关关/无视角/1 活跃 = null；≥2 活跃 = �
   // 纪律行：必须提示"开工前声明 + 动手前查询"（AI 主动性的入口，2026-08-09 用户问询）
   assert.ok(block.includes('de_ws_declare'), '快照段必须提示开工前声明')
   assert.ok(block.includes('de_ws_status'), '快照段必须提示动手前查询')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('buildWsCoordBlock：归档会话不参与"并行中"判定（2026-08-09 修复）', async () => {
+  const dir = tempDir()
+  const store = new WsCoordStore(dir)
+  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '已归档在写' }] })
+  const meta = new Map([
+    ['A', { cwd: '/w', status: 'idle', lastActiveAt: Date.now() }], // 已归档 + 有锁
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }], // 已归档 + running
+  ])
+  const name = (sid) => sid
+  // 无归档过滤：A（有锁）+ B（running）= 2 活跃 → 注入一行
+  const before = buildWsCoordBlock({ wsCoordEnabled: true, wsCoordSnapshot: true }, 'S', '/w', store, meta, name)
+  assert.ok(before !== null)
+  assert.ok(before.includes('A'), '未过滤时归档会话 A 出现在活动段')
+  // 传归档集合：A/B 都被过滤 → 0 活跃 → null（克制：不注入）
+  const after = buildWsCoordBlock({ wsCoordEnabled: true, wsCoordSnapshot: true }, 'S', '/w', store, meta, name, new Set(['A', 'B']))
+  assert.equal(after, null, '全部活跃会话都被归档时快照不注入')
+  // 部分归档：A/B 归档后只剩 C 一个真实活跃 → null（单会话零开销）
+  meta.set('C', { cwd: '/w', status: 'running', lastActiveAt: Date.now() })
+  const partial = buildWsCoordBlock({ wsCoordEnabled: true, wsCoordSnapshot: true }, 'S', '/w', store, meta, name, new Set(['A', 'B']))
+  assert.equal(partial, null, '归档过滤后仅 1 个活跃 → 不注入')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -300,7 +342,7 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   }
   assert.equal(typeof ctx.state.listeners['agent/turn-stopping'], 'undefined', '不应监听 turn-stopping（observed 锁保留 TTL）')
   // 会话 A 声明占用 /w/a.js
-  installed.store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlMinutes: 60 })
+  installed.store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlSeconds: 60 })
   const pre = ctx.state.listeners['tools/pre-execute']
   const post = ctx.state.listeners['tools/post-execute']
   // B 写 a.js（软模式）：放行（next 返回 'NEXT'），记录警告，并通知占用方
@@ -346,7 +388,7 @@ test('installWsCoord：硬模式（enforceWrite=true）pre-execute 返回 deny',
   const ctx = fakeCtx()
   const config = { ...baseConfig(dir), wsCoordEnforceWrite: true }
   const installed = installWsCoord(ctx, config)
-  installed.store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlMinutes: 60 })
+  installed.store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }], ttlSeconds: 60 })
   const pre = ctx.state.listeners['tools/pre-execute']
   // B 写 a.js：deny + reason 含占用信息
   const result = await pre(writeExec('B', '/w/a.js', '/w', 'c1'), async () => 'NEXT')
