@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-08-09 — 工作区冲突协调（ws-coord，会话广播模块子功能）：同工作区多会话并行的资源占用协调
+
+### 需求（用户拍板）
+同工作区多会话并行时对同一文件写入 / git 状态 / 服务产生冲突。用户拍板：①语义上属于"通知的一部分"，**归入会话广播模块**（模块已多，先归类不新开）；②默认关（大开关 broadcastEnabled + 子开关 wsCoordEnabled 均默认关）；③一期不做 git 互斥（让 AI 自己注意）与客户端面板；④**软模式**——先信任 AI，冲突只警告不拦截（enforceWrite 硬拦截保留为开关位）；⑤活动快照带当前日期时间。
+
+### 调研
+- `docs/工作区冲突协调-调研-20260809.md`：源码级验证——`fs/write-intent` 被核心 fs-policy **单槽独占**（插件不可用）；`tools/pre-execute` 是**官方留给插件的扩展点**（deny/allow/ask，核心无占用者）→ 冲突检测通道；`fs/observed` 是 emit 事件、actor=ToolExecution（可拿 agent.session.id）、targetKey=realpath → **自动登记通道**（写过的文件自动进占用集，不靠 AI 自觉）；`tools/post-execute` additionalContexts 可注入警告上下文（官方测试同款写法）。
+
+### 实现
+- **宿主端** `lib/coi/ws-coord.js`（独立装配子单元，防 08-08「广播挂 COI 拆不开」事故）：`WsCoordStore`（<broadcastDataDir>/ws-coord/locks.json 原子写、TTL/过期清理/路径归一化/按 cwd 工作区隔离）；三工具 `de_ws_declare`（声明文件/服务 + conflicts 重叠检测）/ `de_ws_status`（**无参=工作区活动概览**——谁在跑、在干什么）+ 路径/会话交集查询）/ `de_ws_release`；事件监听：`fs/observed` 自动登记（autoRegister 子开关）、`tools/pre-execute` 写前冲突检测（软模式放行+记录 / enforceWrite 硬模式 deny）、`tools/post-execute` 警告注入（additionalContexts，模型下一轮可见）、`agent/status` 会话元信息（cwd/status）、`agent/turn-stopping` 释放本回合 observed 锁；冲突时给占用方发**定向通知**（notifyConflict 子开关，走广播 store send）；**活动感知快照段**【工作区活动】（wsCoordSnapshot 子开关：活跃会话 ≥2 时注入一行、**带当前时间**、别名显示、0~1 会话零开销）。
+- **装配**：`lib/index.js`——DEFAULTS（wsCoordEnabled 关 / EnforceWrite 关 / Snapshot 开 / AutoRegister 开 / NotifyConflict 开）、RUNTIME_KEYS + validateRuntimePatch 3 个运行时键、`wsCoordCtrl.sync()` 挂广播 sync 链（**依赖 broadcastEnabled 大开关**：广播关 = wsCoord 全不注册；广播卸载时先卸 wsCoord）；renderSnapshot 加活动快照段（wsCoordStoreRef 经参数传入，模块级函数不直接访问闭包）。
+- **客户端**：设置 Tab 配置区加「工作区协调（广播子功能）」总开关（广播关时禁用）+ 展开后两个子开关（活动快照段 / 硬拦截模式）；zh/en 文案；`me-field-sub` 次级开关样式。
+- **测试**：`tests/ws-coord.test.js` 12 个用例（存储 CRUD/TTL/冲突判定/路径归一化/活动概览/快照段/工具 schema 递归 walk/软硬模式事件链/子开关关闭跳过），全量 **288/288 全绿** + 构建成功。
+
+### 验证
+- npm test 288 全绿；npm run build 成功；工具 schema 过递归 walk（type 单一字符串、required 顶层数组、additionalProperties:false）。宿主端改动需重启 dsh web 生效。
+
+---
+
 ## 2026-08-09 — 会话书签独立子模块（bookmarkEnabled）：每轮星标 + 列表跳转 + 任意轮官方分支
 
 ### 需求（用户拍板）

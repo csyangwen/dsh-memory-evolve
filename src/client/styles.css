@@ -492,6 +492,20 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
+/* 次级开关行（子功能开关，如 ws-coord 的快照/硬拦截）：缩进 + 弱化，
+   视觉上与主开关（模块总开关）区分 */
+.me-field-sub {
+  padding-left: 18px;
+  border-left: 2px solid var(--dsw-alias-border-l2);
+  margin-left: 2px;
+}
+
+/* 被禁用的开关（如广播关时 ws-coord 总开关不可点）：弱化提示 */
+.me-switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Toggle switch (accent when on) */
 .me-switch {
   appearance: none;
