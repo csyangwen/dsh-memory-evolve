@@ -569,6 +569,63 @@ test('rename: 改会话名称（live 必需）+ 改/清别名（共享 AliasStor
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('find: 按名称/别名/ID 关键字查会话（无 GUI 渠道"说名字查 ID"）', async () => {
+  const dir = tempDir()
+  mkdirSync(dir, { recursive: true })
+  const agents = makeFakeAgents()
+  const ctx = makeCtx(agents)
+  const { AliasStore } = await import('../lib/aliases.js')
+  const aliasStore = new AliasStore(dir)
+  const store = new SessionOrchStore(dir)
+  const orch = new SessionOrch(ctx, { store, aliasStore, getBroadcastStore: () => undefined })
+  const tool = sessionToolDefinition(orch)
+  // ① live 会话：名称「审查者」（makeCtx sessionTitle fake）+ 别名「审查员小张」
+  const guiAgent = makeAgent('session-gui', '/g')
+  guiAgent.status = 'idle'
+  agents.live.set('session-gui', guiAgent)
+  aliasStore.set('session-gui', '审查员小张')
+  // ② spawn 记录（offline）：别名「美工」，无名称（offline 拿不到）
+  store.add({ sessionId: 'session-art', spawnedBy: 's-pm', prompt: '你是美工', cwd: '/p', roomId: null, model: null, createdAt: 1 })
+  aliasStore.set('session-art', '美工')
+  // 参数校验：query 必填
+  assert.equal((await tool.execute({ action: 'find' }, {})).ok, false)
+  assert.equal((await tool.execute({ action: 'find', query: '  ' }, {})).ok, false)
+  // 按名称查（live）：命中 session-gui
+  const r1 = await tool.execute({ action: 'find', query: '审查者' }, {})
+  assert.equal(r1.ok, true)
+  assert.equal(r1.count, 1)
+  assert.equal(r1.matches[0].sessionId, 'session-gui')
+  assert.equal(r1.matches[0].status, 'idle')
+  assert.equal(r1.matches[0].title, '审查者')
+  assert.equal(r1.matches[0].alias, '审查员小张')
+  // 按别名查（offline 也命中——文件存储不依赖 live）
+  const r2 = await tool.execute({ action: 'find', query: '美工' }, {})
+  assert.equal(r2.count, 1)
+  assert.equal(r2.matches[0].sessionId, 'session-art')
+  assert.equal(r2.matches[0].status, 'offline')
+  assert.equal(r2.matches[0].title, null, 'offline 名称不可读=null')
+  assert.equal(r2.matches[0].spawned, true)
+  // 按 ID 子串查
+  const r3 = await tool.execute({ action: 'find', query: 'session-gui' }, {})
+  assert.equal(r3.count, 1)
+  assert.equal(r3.matches[0].sessionId, 'session-gui')
+  // 别名子串（"小张"命中"审查员小张"）
+  const r3b = await tool.execute({ action: 'find', query: '小张' }, {})
+  assert.equal(r3b.count, 1)
+  // 无匹配：count=0 + message 引导
+  const r4 = await tool.execute({ action: 'find', query: '不存在的人' }, {})
+  assert.equal(r4.count, 0)
+  assert.deepEqual(r4.matches, [])
+  assert.match(r4.message, /未找到匹配/)
+  // render：匹配列表可读、无匹配有引导
+  const rendered = tool.output.render({}, r1)
+  assert.ok(String(rendered[0].text).includes('session-gui'))
+  assert.ok(String(rendered[0].text).includes('审查员小张'))
+  const renderedEmpty = tool.output.render({}, r4)
+  assert.match(String(renderedEmpty[0].text), /未找到匹配/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('me: 查当前会话自身信息（ID/名称/别名/分组/git/模型/创建者）', async () => {
   const dir = tempDir()
   mkdirSync(dir, { recursive: true })
