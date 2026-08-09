@@ -103,6 +103,12 @@ export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps)
             checked={features.wideBubble}
             onChange={(checked) => toggleFeature('wideBubble', checked)}
           />
+          <FeatureSwitchRow
+            label={t('uiSettings.feature.contextWarn')}
+            hint={t('uiSettings.feature.contextWarn.hint')}
+            checked={features.contextWarn}
+            onChange={(checked) => toggleFeature('contextWarn', checked)}
+          />
         </div>
       </div>
     </section>

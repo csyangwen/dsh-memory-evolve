@@ -20,6 +20,8 @@ export interface UiSettingsFeatures {
   wideChat: boolean
   /** 消息气泡加宽：用户消息框占中间内容框约 80% 宽（关=默认 min(525px,82%)）。 */
   wideBubble: boolean
+  /** 上下文占用提醒：输入框圆环 ≥30% 变黄、≥40% 变红（关=默认灰色）。 */
+  contextWarn: boolean
 }
 
 /** localStorage 键。 */
@@ -29,7 +31,7 @@ const FEATURES_KEY = 'dsh-memory-evolve:ui-settings:features'
 export const FEATURES_EVENT = 'dsh-memory-evolve:ui-settings-features'
 
 /** 默认值：全部功能默认关闭（用户拍板：由用户主动开启）。 */
-const DEFAULTS: UiSettingsFeatures = { sessionFilter: false, wideChat: false, wideBubble: false }
+const DEFAULTS: UiSettingsFeatures = { sessionFilter: false, wideChat: false, wideBubble: false, contextWarn: false }
 
 /** 读取功能开关（localStorage 异常/缺字段时回落默认）。 */
 export function readFeatures(): UiSettingsFeatures {
@@ -41,6 +43,7 @@ export function readFeatures(): UiSettingsFeatures {
         sessionFilter: typeof parsed.sessionFilter === 'boolean' ? parsed.sessionFilter : DEFAULTS.sessionFilter,
         wideChat: typeof parsed.wideChat === 'boolean' ? parsed.wideChat : DEFAULTS.wideChat,
         wideBubble: typeof parsed.wideBubble === 'boolean' ? parsed.wideBubble : DEFAULTS.wideBubble,
+        contextWarn: typeof parsed.contextWarn === 'boolean' ? parsed.contextWarn : DEFAULTS.contextWarn,
       }
     }
   } catch { /* 回落默认 */ }

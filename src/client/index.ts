@@ -34,6 +34,7 @@ import { BookmarksView } from './BookmarksView.tsx'
 import { createBookmarkInjector } from './bookmark-injector.tsx'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
+import { createContextMeterWarn } from './context-meter-warn.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
@@ -336,6 +337,8 @@ export const zh = {
   'uiSettings.feature.wideChat.hint': '把中间的对话历史/输入框区域从约一半宽度扩大到右侧约 95%（与上方 Tab 导航条对齐）',
   'uiSettings.feature.wideBubble': '消息气泡加宽',
   'uiSettings.feature.wideBubble.hint': '用户提交后的消息框从默认上限 525px 扩大到占中间内容框约 80%（配合「对话区加宽」效果更明显）',
+  'uiSettings.feature.contextWarn': '上下文占用提醒',
+  'uiSettings.feature.contextWarn.hint': '输入框右下侧的上下文使用量圆环：占用超过 30% 变黄、超过 40% 变红提醒，低于阈值恢复原色',
   // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
   'uiSettings.filter.on': '仅进行中',
   'uiSettings.filter.off': '全部',
@@ -980,6 +983,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettings.feature.wideChat.hint': 'Widen the conversation transcript/input area from roughly half to about 95% of the right pane (aligned with the tabs bar above)',
   'uiSettings.feature.wideBubble': 'Wide message bubble',
   'uiSettings.feature.wideBubble.hint': 'Widen the user message bubble from its 525px cap to about 80% of the content column (pairs well with "Wide conversation area")',
+  'uiSettings.feature.contextWarn': 'Context usage warning',
+  'uiSettings.feature.contextWarn.hint': 'The context-usage ring beside the input box turns yellow above 30% occupancy and red above 40%; back to its default color below the threshold',
   // Filter-bar button labels (consumed by session-filter.ts injected DOM).
   'uiSettings.filter.on': 'Running only',
   'uiSettings.filter.off': 'All',
@@ -1787,6 +1792,7 @@ export function apply(ctx: Context): void {
   let disposeSessionFilter: (() => void) | undefined
   let disposeWideChat: (() => void) | undefined
   let disposeWideBubble: (() => void) | undefined
+  let disposeContextMeterWarn: (() => void) | undefined
   void fetch('/memory-evolve/api/ui-settings/state')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { enabled?: boolean }) => {
@@ -1804,11 +1810,14 @@ export function apply(ctx: Context): void {
       disposeWideChat = wideChat.dispose
       const wideBubble = createWideBubble()
       disposeWideBubble = wideBubble.dispose
+      const contextMeterWarn = createContextMeterWarn()
+      disposeContextMeterWarn = contextMeterWarn.dispose
       // 按「综合」子 tab 的独立开关应用初始状态。
       const features = readFeatures()
       sessionFilter.setEnabled(features.sessionFilter)
       wideChat.setEnabled(features.wideChat)
       wideBubble.setEnabled(features.wideBubble)
+      contextMeterWarn.setEnabled(features.contextWarn)
       // 开关变更事件（UiSettingsTabView 切换后广播）→ 即时同步注入。
       const onFeaturesChanged = (event: Event): void => {
         const next = (event as CustomEvent<ReturnType<typeof readFeatures>>).detail
@@ -1816,6 +1825,7 @@ export function apply(ctx: Context): void {
         sessionFilter.setEnabled(next.sessionFilter)
         wideChat.setEnabled(next.wideChat)
         wideBubble.setEnabled(next.wideBubble)
+        contextMeterWarn.setEnabled(next.contextWarn)
       }
       window.addEventListener(FEATURES_EVENT, onFeaturesChanged)
       ctx.effect(() => () => window.removeEventListener(FEATURES_EVENT, onFeaturesChanged), 'memory-evolve: ui-settings features listener')
@@ -1835,6 +1845,7 @@ export function apply(ctx: Context): void {
     disposeSessionFilter?.()
     disposeWideChat?.()
     disposeWideBubble?.()
+    disposeContextMeterWarn?.()
   }, 'memory-evolve: ui-settings tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
