@@ -1900,6 +1900,59 @@ test('presence tracker: agent/status 维护在线状态 + 工具查询', async (
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('presence: 输出补会话名称/别名（有值才带字段，没有则不出现、不显示 null）', async () => {
+  const dir = tempDir()
+  const bdir = join(dir, 'broadcast')
+  mkdirSync(bdir, { recursive: true })
+  // 别名文件（memoryDir 下 aliases.json）：sB 有别名
+  writeFileSync(join(dir, 'aliases.json'), JSON.stringify({ sB: '小测' }))
+  let statusListener = null
+  const fakeCtxP = {
+    on: (name, fn) => { if (name === 'agent/status') statusListener = fn; return () => {} },
+    effect: (fn) => { fn(); return () => {} },
+  }
+  const { PresenceTracker } = await import('../lib/coi/presence.js')
+  const tracker = new PresenceTracker(fakeCtxP)
+  // live agents 服务：sB 有名称（title），sC 无 live agent
+  const svc = {
+    agents: { get: (sid) => (sid === 'sB' ? { session: { id: 'sB' } } : undefined) },
+    sessionTitle: { get: (session) => (session.id === 'sB' ? { title: '前端开发' } : undefined) },
+  }
+  const broadcast = new BroadcastStore(bdir)
+  const msgTool = messageToolDefinition(broadcast, tracker, dir, svc)
+  const execA = { agent: { session: { id: 'sA', header: { cwd: '/p' } } } }
+  const created = await msgTool.execute({ action: 'room-create', name: '协作组' }, execA)
+  const rid = created.rooms[0].id
+  await msgTool.execute({ action: 'room-join', roomId: rid }, { agent: { session: { id: 'sB' } } })
+  await msgTool.execute({ action: 'room-join', roomId: rid }, { agent: { session: { id: 'sC' } } })
+  statusListener({ agent: { session: { id: 'sB' } }, status: 'running' })
+  // 房间查询：sB 带 title+alias；sC 无名称/别名 → **不带字段**（不显示 null）
+  const res = await msgTool.execute({ action: 'presence', roomId: rid }, execA)
+  assert.equal(res.ok, true)
+  const b = res.presence.find((p) => p.sessionId === 'sB')
+  assert.equal(b.title, '前端开发', 'live 会话名称')
+  assert.equal(b.alias, '小测', '别名')
+  const c = res.presence.find((p) => p.sessionId === 'sC')
+  assert.equal('title' in c, false, '无名称：不带 title 字段')
+  assert.equal('alias' in c, false, '无别名：不带 alias 字段')
+  // 单查分支同样带字段
+  const single = await msgTool.execute({ action: 'presence', sessionId: 'sB' }, execA)
+  assert.equal(single.presence[0].title, '前端开发')
+  assert.equal(single.presence[0].alias, '小测')
+  // render：显示名称·别名 + 短 ID；无名称成员仍只显示 ID（无 null 字样）
+  const text = msgTool.output.render({}, res)[0].text
+  assert.ok(text.includes('前端开发·小测'), 'render 显示名称·别名')
+  assert.ok(!text.includes('null'), 'render 不出现 null')
+  // 不传 svc（名称服务不可用）：title 不带字段、不报错（兼容）
+  const msgToolNoSvc = messageToolDefinition(broadcast, tracker, dir)
+  const res2 = await msgToolNoSvc.execute({ action: 'presence', roomId: rid }, execA)
+  assert.equal(res2.ok, true)
+  const b2 = res2.presence.find((p) => p.sessionId === 'sB')
+  assert.equal('title' in b2, false, '无 svc：不带 title 字段（兼容）')
+  assert.equal(b2.alias, '小测', '别名与 svc 无关，照常显示')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('presence tracker: lastActiveAt 落盘持久化（模拟重启后保留，不退化 unknown）', async () => {
   const dir = tempDir()
   // 第一段生命周期：捕获 agent/status 监听器，触发事件后 dispose（flush 落盘）
