@@ -43,6 +43,7 @@ import broadcastStyles from './broadcast-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
 import uiSettingsStyles from './ui-settings-styles.css'
 import bookmarkStyles from './bookmark-styles.css'
+import mobileCss from './mobile.css'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
@@ -1354,6 +1355,36 @@ const BADGE_POLL_MS = 30_000
  * slot is declared by ui-conversation).
  * @param ctx - the client plugin context (`slots`, `locale` injected).
  */
+/**
+ * 移动端适配声明（dsh-android-edapp 适配协议路径 B —— 协议唯一真源字段）。
+ *
+ * ## 协议用途
+ * dsh-android-edapp（手机适配插件）二期定义了"适配协议"（ADAPTER PROTOCOL
+ * v1，文档：dsh-android-edapp/docs/ADAPTER-PROTOCOL.md）：第三方插件在自己
+ * 的 ./client 导出面上声明 `dshMobile` 字段，dsh-android-edapp 会在启动时
+ * 扫描 `ctx.modules.loadCache`、并在本插件素材化（页面加载/首次用到 UI）时
+ * 增量发现，自动把 css 原样包裹进 `@media (max-width: 767px)` 注入页面。
+ * 字段名 `dshMobile` 是协议唯一真源，**不要改名**；导出面异常/字段缺失会
+ * 被静默跳过，不影响插件本体。
+ *
+ * ## 为什么放在导出面而不是 apply() 里注入
+ * 协议约定由 dsh-android-edapp 统一负责发现与注入（含注入/清理生命周期、
+ * 与通用兜底层的加载顺序），插件自身不再手动往 <head> 里塞移动端样式。
+ * 2026-08-09 用户拍板：memory-evolve 的 9+1 个 Tab 手机适配（约 330 行，
+ * 原为 dsh-android-edapp 的 src/client/mobile-tabs.css）整体迁回本插件，
+ * 适配跟着插件走——升级改自己即可；dsh-android-edapp 只留外壳 + 通用兜底
+ * + 适配管理器。
+ *
+ * ## css 编写纪律（详见 src/client/mobile.css 文件头）
+ * 不写 @media（统一由 dsh-android-edapp 包裹）；选择器一律带
+ * `html[data-dsh-mobile]` 前缀；只覆盖布局/尺寸不改颜色；与通用兜底层
+ * （mobile-fallback.css）方向相反的规则必须加 !important 表明意图。
+ */
+export const dshMobile = {
+  /** 移动端 CSS 片段（字符串，构建时经 esbuild --loader:.css=text 原样内联）。 */
+  css: mobileCss,
+}
+
 export const inject = ['slots', 'locale', 'conversation']
 
 /**

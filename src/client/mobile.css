@@ -1,0 +1,475 @@
+/**
+ * dsh-memory-evolve — 移动端适配（dsh-android-edapp 适配协议路径 B）。
+ *
+ * ## 来源与背景
+ * 本文件从 dsh-android-edapp 的 src/client/mobile-tabs.css（一期 9+1 Tab 手机
+ * 适配，全部规则原位于 @media (max-width: 767px) 块内）整体迁移而来
+ * （2026-08-09 用户拍板：适配跟着插件走——memory-evolve 升级改自己即可，
+ * dsh-android-edapp 只留外壳 + 通用兜底 + 适配管理器）。
+ *
+ * ## 协议说明（ADAPTER PROTOCOL v1，见 dsh-android-edapp/docs/ADAPTER-PROTOCOL.md）
+ * 本文件通过 ./client 导出面的约定字段 `dshMobile = { css }`（src/client/
+ * index.ts）交给 dsh-android-edapp 自动发现并注入。注入时 css 会被原样包裹进
+ * `@media (max-width: 767px)`，因此必须遵守：
+ * - 【不写 @media】——嵌套合法但没必要，统一由 dsh-android-edapp 包裹；
+ * - 选择器一律保留 `html[data-dsh-mobile]` 前缀（该属性由 dsh-android-edapp
+ *   在 ≤767px 时自动挂上，媒体查询 + 属性开关双保险，桌面零影响）；
+ * - 只覆盖布局/尺寸（宽度、flex 方向、间距、溢出、触区大小），不改颜色/字体
+ *   （跟随 DSH 主题变量）；
+ * - 与通用兜底层（mobile-fallback.css）【方向相反】的规则必须加 `!important`
+ *   表明意图（协议语义：作者适配优先于兜底；兜底用 !important 做布局钳制，
+ *   如表格 min-width:0、面板 max-height 钳制、列表 max-height:none 放通）。
+ *   本文件中带 !important 的规则均为对抗兜底钳制，逐条注明理由；
+ *   方向一致的规则（面板收窄、触区放大、放通等）不加。
+ *
+ * ## 覆盖范围（按 Tab 分组，见下方分区注释）
+ * memory-evolve 各 Tab（记忆/技能/待办/COI调度/会话广播/便签/提示词/书签/
+ * 设置/模型）挂在 DSH 的 `conversation.view` 槽（中心列），手机上中心列
+ * 全宽，Tab 容器本身没问题，问题在 Tab **内部**布局（桌面假设）：
+ * flex 横排多列、white-space: nowrap、max-width: 45%、固定宽度面板
+ * （360px/560px 编辑器）、长列表/表格等。
+ * memory-evolve 全部使用**普通类名**（me-/mt-/coi-/bb-/sp-/pm-/bm- 前缀，
+ * esbuild 构建后不哈希）→ 选择器可直接选中覆盖。
+ *
+ * ## 实现策略（按 Tab 分组）
+ * 1. 横排改纵排：coi-split（左列表+右详情）、pm-body（三栏）、sb-body（左栏+编辑器）
+ * 2. nowrap 改换行：各类 head/actions/toolbar 行补 flex-wrap
+ * 3. 45%/60% 限宽徽标改全宽：me-badge / mt-entry-branch / mt-entry-tag
+ * 4. 固定宽度面板改自适应：pm-pane-*、sb-main、pm-overlay、sb-modal
+ * 5. 内部滚动列表放开：me-list / mt-entries / bb-content 等 max-height 解除，
+ *    内容随页面整体滚动（手机上避免嵌套滚动，体验更顺滑）
+ * 6. 长表格横向滚动：mt-models-table 给 min-width 强制滚动容器生效
+ */
+
+/* ================================================================
+ * 0. 通用（跨 Tab 共享的布局补丁）
+ * ================================================================ */
+
+/* me-panel：TodoView / MemoryQueueView / TabGuideView / UiSettingsView 的
+   公共根容器。手机上收窄左右留白、收紧纵向间距，把宝贵宽度让给内容。
+   （左右留白会被兜底层模式 7 保底到 ≥16px，方向一致，无需 !important。） */
+html[data-dsh-mobile] .me-panel {
+  padding: 4px 6px 20px;
+  gap: 14px;
+}
+
+/* mt-panel：记忆/技能/设置/模型等 Tab 的公共根容器，同样收窄留白。 */
+html[data-dsh-mobile] .mt-panel {
+  padding: 6px 8px 12px;
+  gap: 8px;
+}
+
+/* 会话记忆 Tab 内嵌面板（.mt-panel .me-panel 桌面 62vh 限高）：手机上
+   解除限高，避免「面板内滚动 + 外层滚动」两层嵌套滚动（嵌套滚动在
+   手机上滚动手感差、还容易误触）。
+   !important：对抗兜底层模式 1 —— 兜底对 [class*="panel"] 类元素钳制
+   max-height: calc(100dvh - 24px)（防弹层超高），此处要完全放通（none），
+   方向相反，必须 !important 表明"作者适配优先"。 */
+html[data-dsh-mobile] .mt-panel .me-panel {
+  max-height: none !important;
+}
+
+/* 内部滚动列表放开：me-list（建议队列）/ mt-entries（美观视图条目）/
+   me-archive-list（归档列表）桌面上限高内滚，手机上解除限高让内容
+   自然展开，统一由外层 mt-panel/me-panel 整体滚动。
+   （兜底层模式 6 对 [class*="list"/"entries"/"items"] 同样放通
+   max-height: none，方向一致，无需 !important。） */
+html[data-dsh-mobile] .me-list,
+html[data-dsh-mobile] .mt-entries,
+html[data-dsh-mobile] .me-archive-list {
+  max-height: none;
+}
+
+/* 限宽徽标改全宽：me-badge（建议目标徽标 max-width:45%）、
+   mt-entry-branch（分支徽标 45%）、mt-entry-tag（条目标签 60%）。
+   窄屏下 45%/60% 会把徽标文字截断成省略号，放开限宽让徽标完整显示，
+   必要时自然换行。 */
+html[data-dsh-mobile] .me-badge,
+html[data-dsh-mobile] .mt-entry-branch,
+html[data-dsh-mobile] .mt-entry-tag {
+  max-width: 100%;
+}
+
+/* 卡片头行补换行：me-item-head（建议条目头）/ mt-card-head（记忆卡片头）/
+   mt-entry-head（美观视图条目头）桌面是单行横排（标题+徽标+时间+操作），
+   手机上空间不够时允许折行，避免操作按钮被挤出屏幕。 */
+html[data-dsh-mobile] .me-item-head,
+html[data-dsh-mobile] .mt-card-head,
+html[data-dsh-mobile] .mt-entry-head {
+  flex-wrap: wrap;
+}
+
+/* 操作按钮组补换行：me-item-actions（条目操作）/ me-bulk（批量操作）/
+   me-actions（表单底部操作），手机上按钮多时折行而不是溢出。
+   （兜底层模式 2 对 [class*="actions"] 已强制 flex-wrap，方向一致。） */
+html[data-dsh-mobile] .me-item-actions,
+html[data-dsh-mobile] .me-bulk,
+html[data-dsh-mobile] .me-actions {
+  flex-wrap: wrap;
+}
+
+/* 配置表单行（me-field：label + 控件横排）：手机上允许折行；
+   数字/下拉控件（me-input/me-select，桌面固定 120px）改占满整行，
+   变成「label 一行 + 控件一行」的纵向排布，窄屏下可读性和触区都更好。
+   （me-switch 开关行不受影响，开关不需要全宽。） */
+html[data-dsh-mobile] .me-field {
+  flex-wrap: wrap;
+}
+html[data-dsh-mobile] .me-field > .me-input,
+html[data-dsh-mobile] .me-field > .me-select {
+  width: 100%;
+}
+
+/* 主按钮触区微增：me-btn 桌面 26px 高，手机上抬到 30px 便于拇指点按
+   （只改高度，不动配色与内边距语义）。 */
+html[data-dsh-mobile] .me-btn {
+  height: 30px;
+}
+html[data-dsh-mobile] .mt-btn {
+  padding: 4px 12px;
+}
+
+/* 子 Tab 页签收窄内边距：mt-file-tab 桌面 padding 0 12px，手机上
+   0 10px，让一行能多放几个页签（记忆 Tab 文件页签较多）。 */
+html[data-dsh-mobile] .mt-file-tab {
+  padding: 0 10px;
+}
+
+/* 区块卡片内边距微收：me-block 桌面 14px，手机上 10px 12px。 */
+html[data-dsh-mobile] .me-block {
+  padding: 10px 12px;
+}
+
+/* ================================================================
+ * 1. 记忆 Tab（mt-/me- 类，MemoryTabView + MemoryQueueView）
+ * ================================================================ */
+
+/* KEY 手工添加框底部行（说明文字 + 添加按钮）：手机上允许折行，
+   避免说明文字被按钮挤压。 */
+html[data-dsh-mobile] .mt-key-add-foot {
+  flex-wrap: wrap;
+}
+
+/* 内嵌说明文字行：保持换行能力，不额外处理（mt-toolbar 已自带
+   flex-wrap，搜索框 min-width 160px 手机上自动占行）。 */
+
+/* ================================================================
+ * 2. 待办 Tab（me-todo-*，TodoView）
+ * ================================================================ */
+
+/* 新增待办行（输入框 + 分类下拉 + 添加按钮）：手机上输入框占满整行，
+   下拉与按钮折到第二行——窄屏下桌面式单行排布会挤爆。 */
+html[data-dsh-mobile] .me-todo-add {
+  flex-wrap: wrap;
+}
+html[data-dsh-mobile] .me-todo-add .me-todo-input {
+  flex-basis: 100%;
+}
+
+/* 筛选区（轨 checkbox 组）：桌面 gap 16px 单行，手机上允许折行并
+   收紧间距，筛选项多时换行排列。 */
+html[data-dsh-mobile] .me-todo-filters {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+/* 列表/看板视图切换（分段控件）：桌面上 margin-left:auto 贴右，
+   手机上占满整行、两个按钮均分宽度——触区更大、更好点按。 */
+html[data-dsh-mobile] .me-todo-view-switch {
+  margin-left: 0;
+  flex-basis: 100%;
+}
+html[data-dsh-mobile] .me-todo-view-btn {
+  flex: 1;
+}
+
+/* 四象限看板：memory-evolve 自带 ≤720px 单列断点，767px 内自然命中，
+   无需覆盖（2×2 宫格在手机 375px 下已自动堆叠为单列）。 */
+
+/* ================================================================
+ * 3. 技能 Tab（me-/sb- 类，SkillsTabView + skills-browser）
+ * ================================================================ */
+
+/* 技能浏览器根容器：会话内嵌时桌面 62vh 限高，手机上解除（同 me-panel
+   的理由，避免嵌套滚动）。 */
+html[data-dsh-mobile] .mt-panel .sb-root {
+  max-height: none;
+}
+
+/* 主体两栏改纵排：sb-body 桌面横排（左栏 sb-side + 右栏 sb-main
+   编辑器），手机上上下堆叠——编辑器 42%/min-width:320px 在 375px
+   屏上放不下两栏。
+   （兜底层模式 2 对 [class*="body"] 已强制 column，方向一致。） */
+html[data-dsh-mobile] .sb-body {
+  flex-direction: column;
+}
+
+/* 左栏（搜索 + 技能列表 + 目录树）：手机上限高 45vh 内部滚动，
+   避免把编辑器顶出屏幕。 */
+html[data-dsh-mobile] .sb-side {
+  flex: none;
+  max-height: 45vh;
+}
+
+/* 右栏编辑器：桌面 width:42% min-width:320px，手机上改全宽自适应，
+   左侧竖线改顶部横线（视觉分隔跟随堆叠方向）。min-height 40vh
+   保证编辑器在纵排后仍有足够编辑区域。 */
+html[data-dsh-mobile] .sb-main {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex: none;
+  min-height: 40vh;
+  border-left: none;
+  border-top: 1px solid var(--dsw-alias-border-l);
+}
+
+/* 左栏上下分区（技能列表 55% / 目录树 45%）：纵排后 flex 比例无意义，
+   改为各自内容自适应 + 最小高度，避免某一分区被压没。 */
+html[data-dsh-mobile] .sb-section--skills,
+html[data-dsh-mobile] .sb-section--files {
+  flex: none;
+}
+html[data-dsh-mobile] .sb-section--skills {
+  min-height: 30vh;
+}
+html[data-dsh-mobile] .sb-section--files {
+  min-height: 26vh;
+}
+
+/* 目录树行高：桌面 24px 太矮，手机上抬到 30px 便于点按。 */
+html[data-dsh-mobile] .sb-tree-row {
+  height: 30px;
+}
+
+/* 自定义目录添加行（输入框 + 添加按钮）：手机上允许折行。 */
+html[data-dsh-mobile] .sb-dirs-addrow {
+  flex-wrap: wrap;
+}
+
+/* 弹窗（放弃修改确认 360px / 目录管理 560px）：手机上改近全宽，
+   两侧留 16px 边距（原 max-width calc(100vw-48px) 覆盖为 32px，
+   更贴边、内容区更大）。
+   （兜底层模式 1 会钳制 [class*="modal"] 的 max-width 为
+   calc(100vw - 24px)——此处 width 显式 calc(100vw - 32px) 更窄、
+   方向一致，实际宽度由 width 主导，无需 !important。） */
+html[data-dsh-mobile] .sb-modal,
+html[data-dsh-mobile] .sb-modal--dirs {
+  width: calc(100vw - 32px);
+  max-width: calc(100vw - 32px);
+}
+
+/* ================================================================
+ * 4. COI 调度 Tab（coi- 类，CoIView）
+ * ================================================================ */
+
+/* 子 Tab 条：桌面单行不换行，手机上允许折行（调度/统计/发起/适配器
+   等页签多时换行排列）。 */
+html[data-dsh-mobile] .coi-tabs {
+  flex-wrap: wrap;
+}
+
+/* 任务视图左右分栏改纵排：coi-split 桌面（左任务列表 46% + 右详情），
+   手机上上下堆叠——列表限高 40vh 内部滚动，详情区给足 30vh。 */
+html[data-dsh-mobile] .coi-split {
+  flex-direction: column;
+}
+/* 任务列表限高 40vh 内部滚动（纵排后列表不能无限拉长，否则详情区
+   被顶出屏幕）。
+   !important：对抗兜底层模式 6 —— 兜底对 [class*="list"] 强制
+   max-height: none 放通（假设所有列表都该随页面滚动），此处列表要
+   保留 40vh 限高内滚，方向相反，必须 !important。 */
+html[data-dsh-mobile] .coi-task-list {
+  flex: none;
+  width: 100%;
+  max-height: 40vh !important;
+}
+html[data-dsh-mobile] .coi-detail {
+  flex: none;
+  min-height: 30vh;
+}
+
+/* 工具栏/操作组补换行：coi-toolbar（工具条）、coi-detail-actions
+   （详情操作）、coi-form-actions（表单操作）、coi-card-head（卡片头）、
+   coi-meta-row（元信息行），手机上多控件时折行防溢出。
+   （兜底层模式 2 对 [class*="toolbar"/"actions"] 已强制 flex-wrap。） */
+html[data-dsh-mobile] .coi-toolbar,
+html[data-dsh-mobile] .coi-detail-actions,
+html[data-dsh-mobile] .coi-form-actions,
+html[data-dsh-mobile] .coi-card-head,
+html[data-dsh-mobile] .coi-meta-row {
+  flex-wrap: wrap;
+}
+
+/* 注入轨勾选行（三个 checkbox 横向排）：手机上收紧间距并允许折行。 */
+html[data-dsh-mobile] .coi-inject-track-line {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 统计卡片：桌面 min-width 140px 一行放 2~3 个，手机上缩到 120px
+   保证一行至少两个、不溢出。 */
+html[data-dsh-mobile] .coi-stat-card {
+  min-width: 120px;
+  flex-basis: 120px;
+}
+
+/* 内容区内边距微收。 */
+html[data-dsh-mobile] .coi-pane {
+  padding: 10px;
+}
+
+/* ================================================================
+ * 5. 会话广播 Tab（bb- 类，BroadcastView）
+ * ================================================================ */
+
+/* bb- 系列整体响应式基础好（bb-row/bb-meta/bb-toolbar/bb-session-line
+   均自带 flex-wrap），只需收窄留白 + 放开消息全文限高。 */
+html[data-dsh-mobile] .bb-pane {
+  padding: 4px 6px 16px;
+}
+
+/* 房间消息区块内边距微收。 */
+html[data-dsh-mobile] .bb-room-msgs {
+  padding: 10px;
+}
+
+/* 消息全文（bb-content 桌面 max-height 320px 内滚）：手机上放开限高
+   让全文自然展开随页面滚动（嵌套滚动体验差）。 */
+html[data-dsh-mobile] .bb-content {
+  max-height: none;
+}
+
+/* ================================================================
+ * 6. 便签 Tab（sp- 类，ScratchView）
+ * ================================================================ */
+
+/* sp- 系列主体本来就是纵向布局（标题行 + 全宽编辑器 + 工具条），
+   只需两处横排行补换行 + 收窄留白。 */
+html[data-dsh-mobile] .sp-root {
+  padding: 10px;
+}
+
+/* 头部行（路径 + 保存时间）：桌面 baseline 单行，手机上允许折行，
+   长路径不再挤压保存时间。 */
+html[data-dsh-mobile] .sp-head {
+  flex-wrap: wrap;
+}
+
+/* 工具条（按钮 + 状态）：手机上允许折行，按钮多时换行排列。
+   （兜底层模式 2 对 [class*="toolbar"] 已强制 flex-wrap + row-gap 8px，
+   方向一致。） */
+html[data-dsh-mobile] .sp-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ================================================================
+ * 7. 提示词 Tab（pm- 类，PromptView）
+ * ================================================================ */
+
+/* 根容器：桌面 overflow:hidden 三栏内部各自滚动，手机上改整体可滚。 */
+html[data-dsh-mobile] .pm-root {
+  padding: 6px;
+  overflow-y: auto;
+}
+
+/* 顶栏（搜索 + 筛选下拉 + 按钮）：手机上搜索框占满整行，
+   下拉与按钮折到第二行。 */
+html[data-dsh-mobile] .pm-toolbar {
+  flex-wrap: wrap;
+}
+html[data-dsh-mobile] .pm-search {
+  flex-basis: 100%;
+}
+
+/* 三栏主体改纵排：pm-body 桌面（分类树 130px + 列表 + 详情 42%），
+   手机上上下堆叠三段——分类树限高 26vh、列表限高 40vh（内部滚动），
+   详情表单给足 40vh。
+   （兜底层模式 2 对 [class*="body"] 已强制 column，方向一致。） */
+html[data-dsh-mobile] .pm-body {
+  flex-direction: column;
+}
+/* 分类树限高 26vh 内部滚动。
+   !important：对抗兜底层模式 1 —— 兜底对 [class*="pane"] 钳制
+   max-height: calc(100dvh - 24px)（把含 pane 的元素当弹层防超高），
+   此处要保留 26vh 限高，方向相反，必须 !important。 */
+html[data-dsh-mobile] .pm-pane-cats {
+  width: 100%;
+  flex: none;
+  max-height: 26vh !important;
+}
+/* 列表限高 40vh 内部滚动。
+   !important：双重对抗兜底 —— ① 模式 1 对 [class*="pane"] 钳制
+   max-height: calc(100dvh - 24px)；② 模式 6 对 [class*="list"] 强制
+   max-height: none 放通。两处方向都相反，必须 !important。 */
+html[data-dsh-mobile] .pm-pane-list {
+  flex: none;
+  max-height: 40vh !important;
+}
+html[data-dsh-mobile] .pm-pane-detail {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  min-height: 40vh;
+}
+
+/* 浮层（注入中 / 来源列表，桌面 320px/420px 固定宽）：手机上改近全宽
+   贴边浮层（左右各留 8px），内容更易读。
+   （兜底层模式 1 对 [class*="overlay"] 钳制 max-width:
+   calc(100vw - 24px)，与"近全宽贴边"方向一致，实际宽度受其保底，
+   无需 !important。） */
+html[data-dsh-mobile] .pm-overlay,
+html[data-dsh-mobile] .pm-overlay-wide {
+  left: 8px;
+  right: 8px;
+  width: auto;
+  max-width: none;
+}
+
+/* 注入按钮组：允许折行。 */
+html[data-dsh-mobile] .pm-inject-group {
+  flex-wrap: wrap;
+}
+
+/* ================================================================
+ * 8. 书签 Tab（bm- 类，BookmarksView）
+ * ================================================================ */
+
+/* bm- 系列主体纵向布局已适配，只需收窄留白 + 条目头补换行。
+   （左右留白会被兜底层模式 7 保底到 ≥16px，方向一致。） */
+html[data-dsh-mobile] .bm-panel {
+  padding: 8px 10px;
+}
+
+/* 条目头（名称 + 时间）：桌面 baseline 单行，手机上允许折行，
+   长名称不再挤压右侧时间。 */
+html[data-dsh-mobile] .bm-item-head {
+  flex-wrap: wrap;
+}
+
+/* ================================================================
+ * 9. 设置 / 模型 Tab（me- / mt-models- 类）
+ * ================================================================ */
+
+/* 设置 Tab（SettingsTabView）与 UI 设置（UiSettingsView）复用 me-panel /
+   me-form / me-field / me-block，已由第 0 节通用规则覆盖，无需重复。 */
+
+/* 模型表格容器：桌面 flex:1 限高内滚（纵向），手机上改 flex:none
+   高度随内容（纵向随页面滚动），横向滚动保留（表格列多时左右滑）。 */
+html[data-dsh-mobile] .mt-models-scroll {
+  flex: none;
+  overflow-x: auto;
+}
+
+/* 模型表格：给一个最小宽度（约 640px），保证列不被压扁、横向滚动
+   容器真正生效（桌面 width:100% 会自动压缩列宽导致阅读困难）。
+   !important：对抗兜底层模式 3 —— 兜底对 [class*="table"] 强制
+   min-width: 0（让表格收缩回视口宽、内部滚动），此处要保 640px
+   表格宽度，方向相反，必须 !important（协议文档端到端验证第 12 项
+   即此场景）。 */
+html[data-dsh-mobile] .mt-models-table {
+  min-width: 640px !important;
+}
+
+/* 模型行内思考等级标签区：flex-wrap 已自带，无需处理。 */
