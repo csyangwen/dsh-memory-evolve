@@ -292,9 +292,10 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   })
   // 工具注册了 3 个
   assert.equal(ctx.state.tools.length, 3)
-  // 事件监听：agent/status、fs/observed、pre/post-execute；**刻意不监听
-  // turn-stopping**（回合结束释放会让"先后写入"检测不到，2026-08-09 教训）
-  for (const ev of ['agent/status', 'fs/observed', 'tools/pre-execute', 'tools/post-execute']) {
+  // 事件监听：agent/status、fs/observed、pre/post-execute、agent/disposed；
+  // **刻意不监听 turn-stopping**（回合结束释放会让"先后写入"检测不到，
+  // 2026-08-09 教训）
+  for (const ev of ['agent/status', 'fs/observed', 'tools/pre-execute', 'tools/post-execute', 'agent/disposed']) {
     assert.equal(typeof ctx.state.listeners[ev], 'function', `缺少监听 ${ev}`)
   }
   assert.equal(typeof ctx.state.listeners['agent/turn-stopping'], 'undefined', '不应监听 turn-stopping（observed 锁保留 TTL）')
@@ -327,6 +328,13 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   // **先后写入场景（防回归）**：B "回合结束"后（无 turn-stopping 释放），
   // 模拟 C 再写 b.js 仍能检测到 B 的 observed 锁 → 冲突命中
   assert.ok(installed.store.conflictFor('C', '/w/b.js', '/w'), '回合结束后 observed 锁必须保留（TTL 内）')
+  // **会话删除场景（2026-08-09 用户实测）**：agent/disposed → B 的全部
+  // 锁立即清理 + 会话记录移除（已删除会话的锁不再占着、活动段不再显示）
+  ctx.state.listeners['agent/status']({ agent: { session: { id: 'B', header: { cwd: '/w' } } }, status: 'running' })
+  assert.equal(installed.sessionMeta.get('B')?.status, 'running', '先有会话记录')
+  ctx.state.listeners['agent/disposed']({ agent: { session: { id: 'B' } } })
+  assert.equal(installed.store.list({ cwd: '/w', sessionId: 'B' }).length, 0, '删除会话必须清理其全部锁')
+  assert.equal(installed.sessionMeta.has('B'), false, '删除会话必须移除会话记录')
   // dispose：工具注销 + 监听清理
   installed.dispose()
   assert.equal(ctx.state.tools.length, 0)
