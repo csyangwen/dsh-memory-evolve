@@ -101,9 +101,104 @@ function displayName(sid: string, aliases: Record<string, string>): string {
   return short
 }
 
+/**
+ * 工作区协调（ws-coord）设置面板——广播模块的**子功能设置**。
+ * 用户拍板（2026-08-09）：子功能的开关放在广播面板自己的「设置」子 Tab 里，
+ * 「Memory Evolve 设置」Tab 只控制大模块开关（broadcastEnabled）。
+ * 数据通道：GET/POST /memory-evolve/api/config（与 MemoryQueueView 同款）。
+ * 开关：wsCoordEnabled 总开关 + 展开后的两个子开关（快照段 / 硬拦截）。
+ */
+function WsCoordSettings({ t }: { t: Translate }): JSX.Element {
+  const [config, setConfig] = useState<Record<string, unknown> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // 加载当前运行时配置（含 wsCoord* 键）
+  useEffect(() => {
+    let cancelled = false
+    fetch('/memory-evolve/api/config')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((body: { config?: Record<string, unknown> }) => {
+        if (!cancelled && body.config) setConfig(body.config)
+      })
+      .catch((err: unknown) => { if (!cancelled) setError(errText(err)) })
+    return () => { cancelled = true }
+  }, [])
+
+  /** 切换一个开关：POST patch → 服务端校验并落盘 → 回写本地 config。 */
+  const patch = (key: string, value: boolean): void => {
+    setBusy(true)
+    setError(null)
+    fetch('/memory-evolve/api/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ patch: { [key]: value } }),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((body: { config?: Record<string, unknown> }) => {
+        if (body.config) setConfig(body.config)
+      })
+      .catch((err: unknown) => setError(errText(err)))
+      .finally(() => setBusy(false))
+  }
+
+  if (config === null) return <div className="bb-empty">{t('broadcast.loading')}</div>
+  const on = (k: string): boolean => config[k] === true
+  return (
+    <div className="bb-settings">
+      <div className="bb-settings-title">{t('broadcast.settings.wsCoord.title')}</div>
+      <p className="bb-settings-desc">{t('broadcast.settings.wsCoord.desc')}</p>
+      <label className="me-field">
+        <span className="me-field-label">
+          {t('broadcast.settings.wsCoord.enabled')}
+          <em className="me-field-hint">{t('broadcast.settings.wsCoord.enabled.hint')}</em>
+        </span>
+        <input
+          type="checkbox"
+          className="me-switch"
+          checked={on('wsCoordEnabled')}
+          disabled={busy}
+          onChange={(event) => patch('wsCoordEnabled', event.target.checked)}
+        />
+      </label>
+      {on('wsCoordEnabled') && (
+        <>
+          <label className="me-field me-field-sub">
+            <span className="me-field-label">
+              {t('broadcast.settings.wsCoord.snapshot')}
+              <em className="me-field-hint">{t('broadcast.settings.wsCoord.snapshot.hint')}</em>
+            </span>
+            <input
+              type="checkbox"
+              className="me-switch"
+              checked={on('wsCoordSnapshot')}
+              disabled={busy}
+              onChange={(event) => patch('wsCoordSnapshot', event.target.checked)}
+            />
+          </label>
+          <label className="me-field me-field-sub">
+            <span className="me-field-label">
+              {t('broadcast.settings.wsCoord.enforce')}
+              <em className="me-field-hint">{t('broadcast.settings.wsCoord.enforce.hint')}</em>
+            </span>
+            <input
+              type="checkbox"
+              className="me-switch"
+              checked={on('wsCoordEnforceWrite')}
+              disabled={busy}
+              onChange={(event) => patch('wsCoordEnforceWrite', event.target.checked)}
+            />
+          </label>
+        </>
+      )}
+      {error !== null && <div className="bb-error">{error}</div>}
+    </div>
+  )
+}
+
 export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const { t, sessionId } = props
-  const [view, setView] = useState<'guide' | 'messages' | 'rooms'>('messages')
+  const [view, setView] = useState<'guide' | 'messages' | 'rooms' | 'settings'>('messages')
   const [messages, setMessages] = useState<Msg[] | null>(null)
   const [rooms, setRooms] = useState<Room[] | null>(null)
   const [roomMap, setRoomMap] = useState<Map<string, Room>>(new Map())
@@ -430,6 +525,15 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
         >
           {t('broadcast.tab.rooms')}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'settings'}
+          className={view === 'settings' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setView('settings')}
+        >
+          {t('broadcast.tab.settings')}
+        </button>
       </div>
 
       {/* ② 会话 ID 区块在子 Tab 下方（不再与 Tab 并排） */}
@@ -453,6 +557,10 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
       {error !== null && <div className="bb-error">{error}</div>}
 
       {view === 'guide' && renderGuide()}
+
+      {/* 设置子 Tab：工作区协调（ws-coord）子功能开关（用户拍板——
+          Memory Evolve 设置只控制大模块开关，子功能设置放广播面板内） */}
+      {view === 'settings' && <WsCoordSettings t={t} />}
 
       {view === 'messages' && (
         <div className="bb-list">

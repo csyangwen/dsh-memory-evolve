@@ -474,3 +474,26 @@
   background: color-mix(in srgb, var(--dsw-static-red-900, #c53030) 8%, transparent);
   border: 1px solid var(--dsw-alias-state-error-secondary, color-mix(in srgb, var(--dsw-static-red-900, #c53030) 35%, transparent));
 }
+
+/* 设置子 Tab（工作区协调 ws-coord 子功能开关）：面板标题 + 说明 + 开关行
+   （开关行复用全局 me-field/me-switch 类，与「Memory Evolve 设置」视觉一致；
+    me-field-sub 缩进表示子开关依赖总开关） */
+.bb-settings {
+  padding: 4px 2px;
+}
+
+.bb-settings-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  margin-bottom: 4px;
+}
+
+.bb-settings-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-dimmed);
+  margin: 0 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}

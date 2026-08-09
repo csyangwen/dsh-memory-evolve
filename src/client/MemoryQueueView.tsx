@@ -90,12 +90,6 @@ interface RuntimeConfig {
   uiSettingsEnabled: boolean
   /** 会话书签（独立子模块，默认关）。 */
   bookmarkEnabled: boolean
-  /** 工作区冲突协调（ws-coord，广播模块子功能，默认关）。 */
-  wsCoordEnabled: boolean
-  /** 活动感知快照段（默认开）。 */
-  wsCoordSnapshot: boolean
-  /** 硬拦截模式（默认关=软模式只警告不拦截）。 */
-  wsCoordEnforceWrite: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -232,9 +226,6 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       modelsEnabled: draft.modelsEnabled,
       uiSettingsEnabled: draft.uiSettingsEnabled,
       bookmarkEnabled: draft.bookmarkEnabled,
-      wsCoordEnabled: draft.wsCoordEnabled,
-      wsCoordSnapshot: draft.wsCoordSnapshot,
-      wsCoordEnforceWrite: draft.wsCoordEnforceWrite,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -680,51 +671,6 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
                   />
                 </label>
-                {/* 工作区冲突协调（ws-coord）：广播模块的子功能组（用户拍板
-                    2026-08-09 归入广播）。总开关 wsCoordEnabled + 两个运行时
-                    小开关（enforceWrite 软/硬模式、snapshot 活动快照）；
-                    autoRegister/notifyConflict 走静态 config 默认开 */}
-                <label className="me-field">
-                  <span className="me-field-label">
-                    {t('panel.config.wsCoordEnabled')}
-                    <em className="me-field-hint">{t('panel.config.wsCoordEnabled.hint')}</em>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="me-switch"
-                    checked={draft.wsCoordEnabled}
-                    disabled={!draft.broadcastEnabled}
-                    onChange={(event) => patchDraft({ wsCoordEnabled: event.target.checked })}
-                  />
-                </label>
-                {draft.wsCoordEnabled && (
-                  <>
-                    <label className="me-field me-field-sub">
-                      <span className="me-field-label">
-                        {t('panel.config.wsCoordSnapshot')}
-                        <em className="me-field-hint">{t('panel.config.wsCoordSnapshot.hint')}</em>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="me-switch"
-                        checked={draft.wsCoordSnapshot}
-                        onChange={(event) => patchDraft({ wsCoordSnapshot: event.target.checked })}
-                      />
-                    </label>
-                    <label className="me-field me-field-sub">
-                      <span className="me-field-label">
-                        {t('panel.config.wsCoordEnforceWrite')}
-                        <em className="me-field-hint">{t('panel.config.wsCoordEnforceWrite.hint')}</em>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="me-switch"
-                        checked={draft.wsCoordEnforceWrite}
-                        onChange={(event) => patchDraft({ wsCoordEnforceWrite: event.target.checked })}
-                      />
-                    </label>
-                  </>
-                )}
                 <label className="me-field">
                   <span className="me-field-label">
                     {t('panel.config.sessionEnabled')}
