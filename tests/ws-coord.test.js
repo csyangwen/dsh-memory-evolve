@@ -358,3 +358,28 @@ test('installWsCoord：配置小开关关闭时跳过对应监听', async () => 
   installed.dispose()
   rmSync(dir, { recursive: true, force: true })
 })
+
+test('renderSnapshot 集成：wsCoord 活动段注入不抛错（防 2026-08-09 ReferenceError 回归）', async () => {
+  // 回归保护：renderSnapshot 是模块级函数，wsCoord 实例必须经参数传入——
+  // 曾在函数体内误写 apply 闭包的 wsCoordStoreRef 导致 ReferenceError
+  // （"wsCoordStoreRef is not defined"，打开广播后任何会话快照渲染即崩）。
+  const { resolveConfig, renderSnapshot } = await import('../lib/index.js')
+  const { MemoryStore } = await import('../lib/store.js')
+  const dir = tempDir()
+  const cfg = resolveConfig({ wsCoordEnabled: true, wsCoordSnapshot: true, memoryDir: dir })
+  const store = new WsCoordStore(join(dir, 'broadcast', 'ws-coord'))
+  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }] })
+  const meta = new Map([
+    ['A', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+  ])
+  const agent = { session: { id: 'S', header: { cwd: '/w' } } }
+  // 必须不抛错，且活动段带日期时间
+  const out = renderSnapshot(cfg, new MemoryStore(dir), agent, {}, store, meta)
+  assert.ok(out.includes('【工作区活动】'), '应注入活动段')
+  assert.ok(/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(out), '活动段必须带当前日期时间')
+  // wsCoordEnabled=false 时零开销（不注入、不抛）
+  const out2 = renderSnapshot({ ...cfg, wsCoordEnabled: false }, new MemoryStore(dir), agent, {}, store, meta)
+  assert.ok(!out2.includes('【工作区活动】'))
+  rmSync(dir, { recursive: true, force: true })
+})
