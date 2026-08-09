@@ -87,9 +87,35 @@ function makeCtx(agents, persistence, llm) {
       : undefined,
     workspace: {
       list: () => [{ id: 'ws-1', path: '/project/blog', title: '五', sessionIds: ['session-me'] }],
-      resolveByPath: async (path) => (path === '/project/blog'
-        ? { id: 'ws-1', path, attachSession: async (sid) => { attached.push(sid) } }
-        : undefined),
+      // 模拟 attach 竞态失败次数（剩余；>0 时 attachSession 抛错并递减）
+      attachFailures: 0,
+      // create 调用记录（create 兜底断言用）
+      created: [],
+      resolveByPath: async (path) => {
+        if (path !== '/project/blog') return undefined
+        return {
+          id: 'ws-1',
+          path,
+          title: '五',
+          attachSession: async (sid) => {
+            if (ctx.workspace.attachFailures > 0) {
+              ctx.workspace.attachFailures -= 1
+              throw new Error('simulated attach race failure')
+            }
+            attached.push(sid)
+          },
+        }
+      },
+      // create 兜底：workspace 记录不存在时（显式 cwd 新目录）先建再 attach
+      create: async (path) => {
+        ctx.workspace.created.push(path)
+        return {
+          id: 'ws-2',
+          path,
+          title: '新建组',
+          attachSession: async (sid) => { attached.push(sid) },
+        }
+      },
     },
     sessionTitle: {
       rename: (session, title) => { renamed.push({ sid: session.id, title }); return { title } },
@@ -173,6 +199,12 @@ test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', 
   // 工作区挂接：cwd 对应已注册 workspace → attachSession 被调用
   // （左侧"项目"分组；曾漏 attach 导致 cwd 正确但会话在「未分组」）
   assert.deepEqual(ctx.attached, [res.sessionId], '新会话挂到 cwd 对应工作区')
+  // ⚠️ attach 结果如实返回（2026-08-12 修复：失败不再静默吞掉）
+  assert.equal(res.attach.ok, true, 'attach 成功')
+  assert.equal(res.attach.workspaceId, 'ws-1')
+  assert.equal(res.attach.workspaceTitle, '五')
+  assert.equal(res.attach.attempts, 1, '首试成功无重试')
+  assert.match(res.message, /已挂接工作区「五」/, 'message 提示挂接结果')
   // 显式 cwd/model 优先于继承；**换不同模型时思考等级不继承**
   // （目标模型可能不支持思考等级）
   const res2 = await tool.execute({ action: 'spawn', prompt: '任务2', cwd: '/other', model: 'my-model' }, { agent: requesterAgent })
@@ -257,6 +289,61 @@ test('spawn 显式 model：按模型名自动解析 provider（与 GUI 模型选
   assert.equal(list.sessions.length, 3)
   assert.equal(list.sessions[0].provider, 'deepseek-official', '最新记录（no-such-model 退回继承）')
   assert.equal(list.sessions[2].provider, 'qwen-token-plan-cn', '最早记录（qwen3.7-plus 解析成功）')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('spawn attach：失败自动重试成功 / 一直失败如实报告不阻断 / 新目录 create 兜底', async () => {
+  const dir = tempDir()
+  mkdirSync(dir, { recursive: true })
+  const agents = makeFakeAgents()
+  const ctx = makeCtx(agents)
+  // attachDelays 传 [0,…] 免测试等待（真实默认 [0,300,1200,4000]）
+  const orch = new SessionOrch(ctx, { store: new SessionOrchStore(dir), getBroadcastStore: () => undefined, attachDelays: [0, 0, 0, 0] })
+  const tool = sessionToolDefinition(orch)
+  const requester = { session: { id: 's-pm', header: { cwd: '/project/blog' } }, options: {} }
+  // ① 首次 attach 失败（模拟 readSessionHeader 竞态）→ 自动重试成功
+  ctx.workspace.attachFailures = 1
+  const res = await tool.execute({ action: 'spawn', prompt: '任务' }, { agent: requester })
+  assert.equal(res.ok, true)
+  assert.equal(res.attach.ok, true, '重试后成功')
+  assert.equal(res.attach.attempts, 2, '首试失败 + 重试 1 次')
+  assert.equal(res.attach.error, undefined, '成功无 error')
+  assert.equal(ctx.attached.includes(res.sessionId), true)
+  assert.match(res.message, /已挂接工作区「五」/)
+  // ② 一直失败：spawn 仍成功（attach 不阻断创建），attach.ok=false + message 警告
+  ctx.workspace.attachFailures = 99
+  const res2 = await tool.execute({ action: 'spawn', prompt: '任务2' }, { agent: requester })
+  assert.equal(res2.ok, true, 'attach 失败不阻断 spawn')
+  assert.equal(res2.attach.ok, false)
+  assert.equal(res2.attach.attempts, 4, '全部重试次数用尽')
+  assert.match(res2.attach.error, /simulated/)
+  assert.match(res2.message, /挂接工作区失败/, 'message 如实警告')
+  // ③ 显式 cwd 的新目录（workspace 记录不存在）→ create 兜底后 attach 成功
+  const res3 = await tool.execute({ action: 'spawn', prompt: '任务3', cwd: '/brand/new-dir' }, { agent: requester })
+  assert.equal(res3.attach.ok, true, 'create 兜底后挂接成功')
+  assert.deepEqual(ctx.workspace.created, ['/brand/new-dir'], 'create 被调用（与 GUI 创建会话同款）')
+  assert.equal(res3.attach.workspaceId, 'ws-2')
+  assert.equal(ctx.attached.includes(res3.sessionId), true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('installSession 自愈：spawn 记录里不在任何 workspace 的会话补挂接', async () => {
+  const dir = tempDir()
+  mkdirSync(dir, { recursive: true })
+  const agents = makeFakeAgents()
+  const ctx = makeCtx(agents)
+  const installed = installSession(ctx, { memoryDir: dir, sessionDataDir: dir, healDelayMs: 10 }, { getBroadcastStore: () => undefined })
+  assert.equal(ctx.registered.length, 1)
+  // 构造历史记录：session-lost 有 cwd 但不在任何 workspace（attach 曾失败被
+  // 吞掉的遗留）；session-me 已在分组（ws-1 的 sessionIds 含它）不用动
+  installed.store.add({ sessionId: 'session-lost', spawnedBy: 's-pm', prompt: '老任务', cwd: '/project/blog', roomId: null, model: null, createdAt: 1 })
+  installed.store.add({ sessionId: 'session-me', spawnedBy: 's-pm', prompt: '已在组', cwd: '/project/blog', roomId: null, model: null, createdAt: 2 })
+  // 手动触发（installSession 内置延迟自动执行，测试用 heal 方法确定性断言）
+  const healed = await installed.heal()
+  assert.equal(healed.healed, 1, 'session-lost 被补挂接')
+  assert.equal(healed.failed, 0)
+  assert.ok(ctx.attached.includes('session-lost'), '补挂接写入分组')
+  assert.equal(ctx.attached.includes('session-me'), false, '已在分组的会话不重复挂接')
   rmSync(dir, { recursive: true, force: true })
 })
 
