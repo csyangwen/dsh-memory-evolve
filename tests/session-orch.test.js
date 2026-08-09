@@ -91,7 +91,14 @@ function makeCtx(agents, persistence, llm) {
       attachFailures: 0,
       // create 调用记录（create 兜底断言用）
       created: [],
+      // 模拟 cwd 目录不存在（工作区被删除/磁盘未挂载）：确定性失败
+      missingPaths: [],
       resolveByPath: async (path) => {
+        if (ctx.workspace.missingPaths.includes(path)) {
+          const e = new Error(`ENOENT: no such file or directory, realpath '${path}'`)
+          e.code = 'ENOENT'
+          throw e
+        }
         if (path !== '/project/blog') return undefined
         return {
           id: 'ws-1',
@@ -327,23 +334,26 @@ test('spawn attach：失败自动重试成功 / 一直失败如实报告不阻�
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('installSession 自愈：spawn 记录里不在任何 workspace 的会话补挂接', async () => {
+test('spawn attach：cwd 目录不存在（工作区被删/磁盘未挂载）→ 确定性跳过，不重试不刷屏', async () => {
   const dir = tempDir()
   mkdirSync(dir, { recursive: true })
   const agents = makeFakeAgents()
   const ctx = makeCtx(agents)
-  const installed = installSession(ctx, { memoryDir: dir, sessionDataDir: dir, healDelayMs: 10 }, { getBroadcastStore: () => undefined })
-  assert.equal(ctx.registered.length, 1)
-  // 构造历史记录：session-lost 有 cwd 但不在任何 workspace（attach 曾失败被
-  // 吞掉的遗留）；session-me 已在分组（ws-1 的 sessionIds 含它）不用动
-  installed.store.add({ sessionId: 'session-lost', spawnedBy: 's-pm', prompt: '老任务', cwd: '/project/blog', roomId: null, model: null, createdAt: 1 })
-  installed.store.add({ sessionId: 'session-me', spawnedBy: 's-pm', prompt: '已在组', cwd: '/project/blog', roomId: null, model: null, createdAt: 2 })
-  // 手动触发（installSession 内置延迟自动执行，测试用 heal 方法确定性断言）
-  const healed = await installed.heal()
-  assert.equal(healed.healed, 1, 'session-lost 被补挂接')
-  assert.equal(healed.failed, 0)
-  assert.ok(ctx.attached.includes('session-lost'), '补挂接写入分组')
-  assert.equal(ctx.attached.includes('session-me'), false, '已在分组的会话不重复挂接')
+  const orch = new SessionOrch(ctx, { store: new SessionOrchStore(dir), getBroadcastStore: () => undefined, attachDelays: [0, 0, 0, 0] })
+  const tool = sessionToolDefinition(orch)
+  const requester = { session: { id: 's-pm', header: { cwd: '/project/blog' } }, options: {} }
+  // cwd 目录不存在（如 /Volumes/data/260808/7 工作区被删除）：确定性失败
+  // ⚠️ 2026-08-12 用户反馈：之前每个会话重试 4 次 + warn 刷屏——目录不存在
+  // 等多久都不会恢复，直接 skipped 返回，不重试
+  ctx.workspace.missingPaths.push('/Volumes/gone-project')
+  const res = await tool.execute({ action: 'spawn', prompt: '任务', cwd: '/Volumes/gone-project' }, { agent: requester })
+  assert.equal(res.ok, true, 'spawn 本身不受影响')
+  assert.equal(res.attach.ok, false)
+  assert.equal(res.attach.skipped, true, '目录不存在=确定性跳过标记')
+  assert.equal(res.attach.attempts, 1, '不重试（无意义的等待）')
+  assert.match(res.attach.error, /不存在/, '错误说明原因')
+  assert.match(res.message, /未挂接分组/, 'message 如实提示（不带⚠️刷屏）')
+  assert.equal(ctx.attached.length, 0, '未写入任何分组')
   rmSync(dir, { recursive: true, force: true })
 })
 
