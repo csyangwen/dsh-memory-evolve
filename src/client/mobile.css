@@ -30,6 +30,8 @@
  * （360px/560px 编辑器）、长列表/表格等。
  * memory-evolve 全部使用**普通类名**（me-/mt-/coi-/bb-/sp-/pm-/bm- 前缀，
  * esbuild 构建后不哈希）→ 选择器可直接选中覆盖。
+ * 第 10 节另覆盖 DSH **核心对话区**（ConversationRoot/ChatView，不是本
+ * 插件 Tab）：对话区与用户消息气泡在手机上满宽、与屏幕等宽无两侧边距。
  *
  * ## 实现策略（按 Tab 分组）
  * 1. 横排改纵排：coi-split（左列表+右详情）、pm-body（三栏）、sb-body（左栏+编辑器）
@@ -473,3 +475,227 @@ html[data-dsh-mobile] .mt-models-table {
 }
 
 /* 模型行内思考等级标签区：flex-wrap 已自带，无需处理。 */
+
+/* ================================================================
+ * 10. DSH 对话区（中心列，ConversationRoot/ChatView）——消息与屏幕等宽
+ * ================================================================ */
+
+/* 对话区占满屏宽：DSH 对话区宽度由 CSS 变量 --dsh-chat-content-width
+   控制（ConversationRoot.module.css 默认 748px 桌面窄栏），手机上
+   覆盖为 100%——消息列、统计行、审批面板全部跟随；输入框派生变量
+   （= content + 32px）被其自身 width: min(..., 100%) 兜底，不会溢出。
+   !important：对抗 DSH UI 设置模块 wideChat 功能（html[data-dsh-ui-
+   wide-chat="on"] [data-phase] { --dsh-chat-content-width: 95% }——
+   PC 桌面规则在窄屏同样命中，且特异性与本规则相同、源顺序不确定谁
+   赢），手机适配协议优先于桌面功能开关，方向相反必须 !important。 */
+html[data-dsh-mobile] [data-phase] {
+  --dsh-chat-content-width: 100% !important;
+}
+
+/* 用户消息气泡满宽：默认 max-width: min(525px, 82%)（MessageItem.
+   module.css .bubble），手机上放开为 100%，消除两侧留白；短消息仍按
+   内容自适应（max-width 只设上限，不强制撑满）。锚点：用户消息行
+   userRow 有恒定 data-time-hover-root 属性（MessageItem.tsx），
+   bubble 恒为其**第一个 div 子元素**（steering 标记是 span、
+   MessageIconActions 是第二个 div）→ div:first-of-type 唯一命中。
+   !important：同上对抗 ui-settings wideBubble 的 80% 规则
+   （html[data-dsh-ui-wide-bubble="on"] [data-time-hover-root] >
+   div:first-of-type），PC 规则窄屏同样命中，方向相反必须 !important。 */
+html[data-dsh-mobile] [data-time-hover-root] > div:first-of-type {
+  max-width: 100% !important;
+}
+
+/* 助手消息无需单独规则：AssistantMarkdown 本来就是 full-width
+   （无 max-width 限制），宽度只随消息列（--dsh-chat-content-width）
+   走，列 100% 即满宽、无两侧边距。 */
+
+/* 消息滚动容器左右 padding 归零（用户实测反馈：对话区已满宽但消息
+   仍有左右缩进、且右侧比左侧多一块）：
+   DSH ChatView.module.css .scroll 有固定 padding: 16px calc(var(--dsh-
+   composer-side-clearance) + 16px) = 左右各 32px（设计上是"输入框比
+   消息列宽 32px"的共享宽度轴）。类名是 CSS modules 哈希，无法直接选，
+   但消息列 .column 有稳定属性 data-chat-flow=""（ChatView.tsx），
+   .scroll 恒为其**直接父元素** → `div:has(> [data-chat-flow])` 唯一命中。
+   保留纵向 16px（消息间呼吸感），横向归零让消息真正贴满屏宽。
+   （:has() 需 Chrome 105+，移动端 webview 无问题。） */
+html[data-dsh-mobile] [data-conversation-scroll] div:has(> [data-chat-flow]) {
+  padding: 16px 0;
+}
+
+/* 外层滚动体右侧滚动条槽位取消预留（用户实测：右侧间隙比左侧大
+   一点点——正是这个 gutter）：
+   DSH ConversationRoot.module.css .scrollBody 有 scrollbar-gutter: stable
+   ——**无条件**为滚动条预留槽位（连 overlay 滚动条的 webview 也预留，
+   视觉上右侧永远多一块空白）。手机上关掉预留，滚动条出现时按系统
+   默认行为自然占位/悬浮，不出现时的空白随之消失。
+   （scrollbar-gutter 属性无前缀支持：Chrome 94+ / Firefox 97+。） */
+html[data-dsh-mobile] [data-conversation-scroll] {
+  scrollbar-gutter: auto;
+}
+
+/* 输入栏工具栏「上拉弹窗」收纳（用户拍板 2026-08-09，模型一并收纳）：
+   ---------------------------------------------------------------------------
+   结构（InputBar.tsx，不依赖 CSS modules 哈希类名）：
+     card[data-composer-card]
+       > [data-input-scroll]          ← textarea 滚动区
+       > div                          ← .row（scroll 的下一个兄弟）
+         > div:first-child            ← .tools（加号 + 权限）
+         > div:last-of-type           ← .trailing（模型 + 圆环 + 发送）
+           > div:has(> button[aria-haspopup="menu"])  ← ModelSelect 根
+             （ContextMeter 是 span、发送是 button，选择器不会误伤）
+         > button.dsh-mobile-more-btn ← enhance 注入，order:-1 排最左
+
+   背景：手机上 .row = flex space-between，.trailing（模型名较长）flex:none
+   占满，.tools 被挤没；模型也占横向空间。方案：手机默认隐藏 .tools + 模型，
+   只常驻「⋯」+ 圆环 + 发送；点「⋯」切换 html[data-dsh-mobile-sheet] →
+   二者以 fixed 底栏出现在输入栏上方（**不移动/不复制 DOM**，React 事件保留）。
+
+   底栏视觉：.tools 提供完整面板 chrome（背景/圆角/阴影）；模型用同底同高
+   的透明 fixed 层叠在右侧（pointer-events 只开自身），看起来像同一条底栏。
+   bottom 用 --dsh-composer-height（ConversationRoot 实时高度，152px 兜底）。 */
+
+/* ---- 默认隐藏：.tools + 模型选择 ---- */
+html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div > div:first-child {
+  display: none;
+}
+/* 模型：.trailing 内「直接子 button 带 aria-haspopup=menu 的 div」= ModelSelect */
+html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
+  display: none;
+}
+
+/* ---- sheet 打开：.tools 变 fixed 底栏（面板 chrome 载体）---- */
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:first-child {
+  display: flex;
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--dsh-composer-height, 152px) + 8px);
+  z-index: 50;
+  flex-wrap: wrap;
+  align-items: center;
+  /* 右侧留给模型 chip，避免与叠在上面的模型区抢位 */
+  gap: 12px;
+  padding: 10px 12px;
+  padding-right: min(48%, 200px);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-base, #1e1e1e);
+  border: 1px solid var(--dsw-alias-border-l, rgba(128, 128, 128, 0.25));
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.22);
+}
+
+/* ---- sheet 打开：模型叠在同一底栏右侧（无独立 chrome，借 .tools 的面板）---- */
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
+  display: flex;
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--dsh-composer-height, 152px) + 8px);
+  z-index: 51; /* 高于 .tools 面板，确保可点 */
+  align-items: center;
+  justify-content: flex-end;
+  /* 高度对齐 .tools 底栏内容区（padding 10*2 + 控件 28 ≈ 48） */
+  min-height: 48px;
+  padding: 10px 12px;
+  /* 透明：chrome 由下方 .tools 面板提供；pointer-events 只开自身子树 */
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  pointer-events: none; /* 左侧空白点穿到 .tools */
+}
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) > * {
+  pointer-events: auto; /* 模型触发按钮 + [role=menu] 均可点（直接子） */
+}
+
+/* ---- ModelSelect 一级/二级菜单手机可见性（2026-08-09 用户实测）----
+   ---------------------------------------------------------------------------
+   结构（ModelSelect.tsx，不依赖 CSS modules 哈希类名）：
+     根 div（上条规则已 fixed 成底栏右侧）
+       > button[aria-haspopup="menu"]     ← trigger
+       > div[role="menu"]                 ← 唯一菜单节点（一级/二级共用）
+           pane=root   ：「模型」「思考强度」两行 cell
+           pane=model  ：模型分组列表
+           pane=effort ：思考等级列表
+   （没有独立的二级 DOM——setPane 只切换同一 menu 内的内容。）
+
+   根因：
+   1. sheet 打开时本文件把 ModelSelect 根设为 position:fixed → 成为其
+      absolute 子元素的包含块。原生 ModelSelect.module.css：
+        .menu { position:absolute; right:0; bottom:calc(100% + 8px);
+                max-height:min(360px, 100vh - 96px); overflow:hidden }
+      菜单底边锚在根上方、向上生长。
+   2. 一级仅 ~2×40px 行，整块落在视口内 → 可见可点。
+   3. 二级列表变高后，dsh-android-edapp 兜底 mobile-fallback 模式 1 对
+      [role="menu"] 强制 max-height: calc(100dvh - 24px) !important
+      （几乎整屏）→ 菜单向上顶出视口；内容 flex 顶对齐，可见的底边区域
+      往往是空白 → 用户反馈「二级面板看不见」。一级短故未暴露。
+   4. 另：根 fixed 后若祖先 overflow 裁剪，长菜单更容易被裁（overflow:visible 兜住）。
+
+   修复（纯 CSS，不移动/复制 DOM，React 事件保留）：
+   - 菜单改为 position:fixed，底边落在「⋯ 底栏」上方（与根同套
+     --dsh-composer-height 坐标系，视觉一致）
+   - max-height 克制到「底栏上沿 → 视口顶」可用空间（!important 压过兜底）
+   - 菜单自身 overflow-y:auto，列表再长也可滚
+   - z-index 抬到 900；展开时根同步抬高，整层压过底栏 .tools(50)
+   - 颜色/边框沿用原生 token（--dsw-specific-menu 等），此处不改。 */
+
+/* 根：禁止裁剪向上弹出的菜单；菜单展开时抬高整层 stacking */
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
+  overflow: visible;
+}
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"][aria-expanded="true"]) {
+  z-index: 900;
+}
+
+/* 菜单：fixed 进视口安全区 + 限高可滚（一级/二级同一节点，一并修好） */
+html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) > [role="menu"] {
+  position: fixed !important;
+  /* 左右贴屏 12px，与 ⋯ 底栏边距一致；覆盖原生 width:min(240px,…) */
+  left: 12px !important;
+  right: 12px !important;
+  width: auto !important;
+  max-width: calc(100vw - 24px) !important;
+  /* 底边 = 输入栏高 + 底栏(~48+8) + 与底栏间距 8 → 整块落在底栏上方 */
+  bottom: calc(var(--dsh-composer-height, 152px) + 64px) !important;
+  top: auto !important;
+  /* 高度不超过「菜单底边 → 视口顶」；必须 !important 对抗兜底 100dvh-24 */
+  max-height: min(360px, calc(100dvh - var(--dsh-composer-height, 152px) - 80px)) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  z-index: 900 !important;
+  /* 触控滚动惯性（iOS/WebView） */
+  -webkit-overflow-scrolling: touch;
+  /* 表面 token 与原生一致（显式写出，避免被其它层叠规则冲淡时无 fallback） */
+  background: var(--dsw-specific-menu);
+  border: 1px solid var(--dsw-alias-border-inverted);
+  box-shadow: var(--dsw-shadow-lv3);
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+/* 「⋯」入口按钮（mobile-input-sheet.ts enhance 注入，append 在工具栏
+   行尾 + order:-1 视觉排最左）：样式对齐 DSH 原生加号按钮（28px 圆形、
+   selector 填充）。必须挂 html[data-dsh-mobile]——与协议其它规则一致，
+   且被 adapter 再包一层 @media ≤767px，双保险桌面零副作用。 */
+html[data-dsh-mobile] .dsh-mobile-more-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  order: -1;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-specific-selector);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.12s ease;
+}
+html[data-dsh-mobile] .dsh-mobile-more-btn:active {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+/* sheet 打开时入口按钮高亮，提示"更多已展开" */
+html[data-dsh-mobile][data-dsh-mobile-sheet] .dsh-mobile-more-btn {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-state-business-primary);
+}

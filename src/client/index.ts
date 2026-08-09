@@ -45,6 +45,7 @@ import skillBrowserStyles from './skills-browser/styles.css'
 import uiSettingsStyles from './ui-settings-styles.css'
 import bookmarkStyles from './bookmark-styles.css'
 import mobileCss from './mobile.css'
+import { createInputSheetEnhance } from './mobile-input-sheet'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
@@ -1392,6 +1393,11 @@ const BADGE_POLL_MS = 30_000
 export const dshMobile = {
   /** 移动端 CSS 片段（字符串，构建时经 esbuild --loader:.css=text 原样内联）。 */
   css: mobileCss,
+  /** 移动端 DOM 增强：输入栏上拉弹窗（注入「⋯」入口按钮 + 切换
+   *  data-dsh-mobile-sheet 属性，mobile.css 据此把 .tools + 模型选择
+   *  显示为 fixed 底栏；常驻保留发送/圆环/⋯）。协议约定：移动模式
+   *  激活时调用一次，返回 dispose。 */
+  enhance: createInputSheetEnhance,
 }
 
 export const inject = ['slots', 'locale', 'conversation']

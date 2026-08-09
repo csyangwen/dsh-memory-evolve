@@ -11,6 +11,9 @@
  * 根 div 的稳定锚点）上覆盖该变量为 `95%`（相对右侧区域宽），无需逐元素
  * 改样式；选择器带 html 属性前缀且 specificity 更高，稳胜原声明。
  *
+ * 手机端适配不走本模块（见 src/client/mobile.css 第 10 节——经
+ * dshMobile 协议导出给 dsh-android-edapp，窄屏下覆盖为 100% 满宽）。
+ *
  * 由「综合」子 tab 的功能开关驱动（ui-settings-features.ts）：
  * setEnabled(false)=摘掉 html[data-dsh-ui-wide-chat] 属性恢复 748px；
  * true=挂属性加宽。
@@ -57,6 +60,9 @@ export const WIDE_BUBBLE_ATTR = 'data-dsh-ui-wide-bubble'
  * 用户消息行 userRow 有恒定 data-time-hover-root 锚点，bubble 恒为其
  * 第一个 div 子元素（steering 是 span、actions 是第二个 div），唯一命中），
  * JS 只负责挂/摘 html 属性。
+ *
+ * 手机端适配不走本模块（见 src/client/mobile.css 第 10 节——经
+ * dshMobile 协议导出给 dsh-android-edapp，窄屏下气泡覆盖为 100% 满宽）。
  *
  * @returns { setEnabled, dispose }：setEnabled 由功能开关事件驱动；
  *   dispose 模块卸载时清理。
