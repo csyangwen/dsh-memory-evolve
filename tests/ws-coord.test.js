@@ -234,7 +234,14 @@ test('buildWsCoordBlock：开关关/无视角/1 活跃 = null；≥2 活跃 = �
   assert.ok(block !== null)
   assert.ok(block.includes('【工作区活动】'))
   assert.ok(block.includes('会话甲（重构）'))
-  assert.ok(/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(block), '快照段必须带当前日期时间')
+  // 时间=状态驱动（HH:MM 分钟精度），**不是**渲染时刻的秒级时间戳——
+  // 2026-08-09 实测：秒级时间戳导致每次渲染文本必变 → 快照整体 diff 每次
+  // 变化 → 回合进行中每步重复注入（10 秒一条刷屏）。同状态连续两次渲染
+  // 必须输出完全相同文本（只注入一次的防回归核心断言）。
+  assert.ok(!/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(block), '不得含渲染时刻的秒级时间戳（会导致重复注入）')
+  assert.ok(/【工作区活动】\d{2}:\d{2} 起/.test(block), '时间必须是状态驱动的 HH:MM 起始时刻')
+  const block2 = buildWsCoordBlock({ wsCoordEnabled: true, wsCoordSnapshot: true }, 'S', '/w', store, meta, name)
+  assert.equal(block, block2, '同状态连续渲染文本必须完全相同（否则整体 diff 重复注入）')
   // 纪律行：必须提示"开工前声明 + 动手前查询"（AI 主动性的入口，2026-08-09 用户问询）
   assert.ok(block.includes('de_ws_declare'), '快照段必须提示开工前声明')
   assert.ok(block.includes('de_ws_status'), '快照段必须提示动手前查询')
@@ -379,10 +386,10 @@ test('renderSnapshot 集成：wsCoord 活动段注入不抛错（防 2026-08-09 
     ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
   ])
   const agent = { session: { id: 'S', header: { cwd: '/w' } } }
-  // 必须不抛错，且活动段带日期时间
+  // 必须不抛错，且活动段注入（时间=状态驱动的 HH:MM，非渲染时刻秒级时间戳）
   const out = renderSnapshot(cfg, new MemoryStore(dir), agent, {}, store, meta)
   assert.ok(out.includes('【工作区活动】'), '应注入活动段')
-  assert.ok(/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(out), '活动段必须带当前日期时间')
+  assert.ok(!/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(out), '不得含渲染时刻秒级时间戳（重复注入根因）')
   // wsCoordEnabled=false 时零开销（不注入、不抛）
   const out2 = renderSnapshot({ ...cfg, wsCoordEnabled: false }, new MemoryStore(dir), agent, {}, store, meta)
   assert.ok(!out2.includes('【工作区活动】'))
