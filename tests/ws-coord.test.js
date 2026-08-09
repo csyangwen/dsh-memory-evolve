@@ -235,7 +235,9 @@ test('buildWsCoordBlock：开关关/无视角/1 活跃 = null；≥2 活跃 = �
   assert.ok(block.includes('【工作区活动】'))
   assert.ok(block.includes('会话甲（重构）'))
   assert.ok(/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(block), '快照段必须带当前日期时间')
-  assert.ok(block.includes('de_ws_status'))
+  // 纪律行：必须提示"开工前声明 + 动手前查询"（AI 主动性的入口，2026-08-09 用户问询）
+  assert.ok(block.includes('de_ws_declare'), '快照段必须提示开工前声明')
+  assert.ok(block.includes('de_ws_status'), '快照段必须提示动手前查询')
   rmSync(dir, { recursive: true, force: true })
 })
 
