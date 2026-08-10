@@ -824,6 +824,41 @@ test('memory context: key branch filtering uses declared task branch', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('memory context: excludeDshOnly skips [dsh-only] entries (COI injection)', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir })
+  const store = new MemoryStore(dir, config)
+  const cwd = join(dir, 'proj')
+  const agent = { session: { header: { cwd } } }
+  // 每条轨各放一条普通条目 + 一条带 [dsh-only] 标记的条目（含与分支标记共存）
+  store.add('memory', '全局事实：公司技术栈', agent)
+  store.add('memory', '[dsh-only] 全局规则：DSH 每轮必须写记忆', agent)
+  store.add('user', '用户偏好：中文交流', agent)
+  store.add('user', '[dsh-only] 用户纪律：技能创建必须克制', agent)
+  store.add('key', '项目约定：pnpm workspaces', agent)
+  store.add('key', '[branch:main] [dsh-only] 项目规则：DSH 插件不 push', agent)
+  // 缺省（DSH 自身注入路径）：标记条目照常注入
+  const ctxDefault = buildMemoryContext(store, { cwd, branch: 'main' })
+  assert.ok(ctxDefault.includes('全局事实：公司技术栈'))
+  assert.ok(ctxDefault.includes('DSH 每轮必须写记忆'), 'DSH 自身注入不跳过标记条目')
+  assert.ok(ctxDefault.includes('技能创建必须克制'))
+  assert.ok(ctxDefault.includes('DSH 插件不 push'))
+  // excludeDshOnly=true（COI 注入路径）：标记条目整条跳过、普通条目保留
+  const ctxCoi = buildMemoryContext(store, { cwd, branch: 'main', excludeDshOnly: true })
+  assert.ok(ctxCoi.includes('全局事实：公司技术栈'))
+  assert.ok(!ctxCoi.includes('DSH 每轮必须写记忆'), 'memory 轨标记条目跳过')
+  assert.ok(!ctxCoi.includes('技能创建必须克制'), 'user 轨标记条目跳过')
+  assert.ok(!ctxCoi.includes('DSH 插件不 push'), 'key 轨标记条目跳过（含分支标记共存条目）')
+  assert.ok(ctxCoi.includes('项目约定：pnpm workspaces'), 'key 轨普通条目保留')
+  assert.ok(ctxCoi.includes('用户偏好：中文交流'), 'user 轨普通条目保留')
+  // 轨过滤与 excludeDshOnly 叠加：只取 key 轨时普通条目在、标记条目不在
+  const ctxCoiKey = buildMemoryContext(store, { cwd, branch: 'main', tracks: ['key'], excludeDshOnly: true })
+  assert.ok(ctxCoiKey.includes('项目约定：pnpm workspaces'))
+  assert.ok(!ctxCoiKey.includes('DSH 插件不 push'))
+  assert.ok(!ctxCoiKey.includes('全局事实'), '未选 memory 轨不注入')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('snapshot: COI task status block (active notify) injected when coiEnabled', () => {
   const dir = tempDir()
   const coiDir = join(dir, 'coi')

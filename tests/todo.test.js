@@ -20,6 +20,13 @@ function dayBefore(stamp) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** 后一天（本地时区）的 YYYY-MM-DD。 */
+function dayAfter(stamp) {
+  const d = new Date(`${stamp}T12:00:00`)
+  d.setDate(d.getDate() + 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 /** 一条直接构造的 raw 条目。 */
 function rawEntry(time, id, text, patch = {}) {
   return {
@@ -245,14 +252,17 @@ test('todo store: past daily items — list past=true includes history, expired 
     const today = todayStamp()
     const d1 = dayBefore(today)
     const d2 = dayBefore(d1)
+    const afterTomorrow = dayAfter(dayAfter(today))
+    const longAgo = dayBefore(dayBefore(d2))
     store.addTodo('daily', '今天的待办', {}, undefined)
     // d2：未完成、无 due（遗留）
-    store.write('daily', undefined, [rawEntry(`2026-08-05 09:00`, 'aaaa0001', '更早的遗留')], d2)
-    // d1：已完成 / 未完成但 due 在未来 / 未完成且 due 已过
+    store.write('daily', undefined, [rawEntry(`${d2} 09:00`, 'aaaa0001', '更早的遗留')], d2)
+    // d1：已完成 / 未完成但 due 在未来 / 未完成且 due 已过（日期全部相对今天计算，
+    // 避免硬编码日期跨天后 flaky）
     store.write('daily', undefined, [
-      rawEntry('2026-08-06 10:00', 'aaaa0002', '昨天已完成', { status: 'done', doneAt: '2026-08-06 18:00' }),
-      rawEntry('2026-08-06 11:00', 'aaaa0003', '昨天写的、截止后天', { due: '2026-08-10' }),
-      rawEntry('2026-08-06 12:00', 'aaaa0004', '昨天已过期的', { due: '2026-08-01' }),
+      rawEntry(`${d1} 10:00`, 'aaaa0002', '昨天已完成', { status: 'done', doneAt: `${d1} 18:00` }),
+      rawEntry(`${d1} 11:00`, 'aaaa0003', '昨天写的、截止后天', { due: afterTomorrow }),
+      rawEntry(`${d1} 12:00`, 'aaaa0004', '昨天已过期的', { due: longAgo }),
     ], d1)
 
     // 默认（无 past）：只有今天的

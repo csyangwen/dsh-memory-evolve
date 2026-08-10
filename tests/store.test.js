@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { todayStamp,
   ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries,
-  parseEntryBranches, projectHash, serializeEntries, splitEntryHead,
+  parseEntryBranches, parseEntryDshOnly, projectHash, serializeEntries, splitEntryHead,
 } from '../lib/store.js'
 
 /** Whether `git` is available in this environment (skip git tests otherwise). */
@@ -505,6 +505,63 @@ test('key branch scope: parseEntryBranches and setEntryBranches', () => {
   assert.ok(outcome.message.includes('不存在'))
   // non-key targets are rejected
   assert.equal(store.setEntryBranches('memory', '[2026-08-06] x', ['main']).ok, false)
+  clean(dir)
+})
+
+test('dsh-only mark: parseEntryDshOnly and setEntryDshOnly', () => {
+  const dir = tempDir()
+  const store = new MemoryStore(dir)
+  const agent = { session: { header: { cwd: '/work/p' } } }
+  // 解析：任意位置出现 [dsh-only] 即视为已标记
+  assert.equal(parseEntryDshOnly('[2026-08-06] 普通条目'), false)
+  assert.equal(parseEntryDshOnly('[2026-08-06] [dsh-only] 仅 DSH 条目'), true)
+  assert.equal(parseEntryDshOnly('[2026-08-06] [branch:main] [dsh-only] 带分支的仅 DSH'), true)
+  assert.equal(parseEntryDshOnly('[dsh-only] 无日期戳'), true)
+  // add 带 [dsh-only] 前缀：标记保留在时间戳之后
+  store.add('key', '[dsh-only] 只给 DSH 看的项目规则', agent)
+  const tagged = store.entriesOf('key', agent)[0]
+  assert.match(tagged, /^\[\d{4}-\d{2}-\d{2}\] \[dsh-only\] 只给 DSH 看的项目规则$/)
+  assert.equal(parseEntryDshOnly(tagged), true)
+  // setEntryDshOnly: 打标记（普通条目 → [dsh-only] 插在时间戳后、正文前）
+  store.add('key', '普通项目约定', agent)
+  const plain = store.entriesOf('key', agent).find((e) => e.includes('普通项目约定'))
+  let outcome = store.setEntryDshOnly('key', plain, true, agent)
+  assert.equal(outcome.ok, true)
+  const marked = store.entriesOf('key', agent).find((e) => e.includes('普通项目约定'))
+  assert.match(marked, /^\[\d{4}-\d{2}-\d{2}\] \[dsh-only\] 普通项目约定$/)
+  assert.equal(parseEntryDshOnly(marked), true)
+  // 与 [branch:…] 共存：branch 在前、[dsh-only] 在后（插入位置=所有元数据之后）
+  store.add('key', '[branch:main] main 分支的 DSH 约定', agent)
+  const branchy = store.entriesOf('key', agent).find((e) => e.includes('main 分支的 DSH 约定'))
+  outcome = store.setEntryDshOnly('key', branchy, true, agent)
+  assert.equal(outcome.ok, true)
+  const both = store.entriesOf('key', agent).find((e) => e.includes('main 分支的 DSH 约定'))
+  assert.match(both, /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] \[dsh-only\] main 分支的 DSH 约定$/)
+  // setEntryDshOnly: 取消标记（[dsh-only] 移除，其余前缀原样保留）
+  outcome = store.setEntryDshOnly('key', both, false, agent)
+  assert.equal(outcome.ok, true)
+  const unmarked = store.entriesOf('key', agent).find((e) => e.includes('main 分支的 DSH 约定'))
+  assert.match(unmarked, /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] main 分支的 DSH 约定$/)
+  assert.equal(parseEntryDshOnly(unmarked), false)
+  // memory / user 轨同样可用（agent 缺省）
+  store.add('memory', '全局规则条目', agent)
+  const memEntry = store.entriesOf('memory', agent)[0]
+  outcome = store.setEntryDshOnly('memory', memEntry, true, agent)
+  assert.equal(outcome.ok, true)
+  assert.equal(parseEntryDshOnly(store.entriesOf('memory', agent)[0]), true)
+  // 精确匹配：子串不是整条 → 拒绝
+  outcome = store.setEntryDshOnly('key', '普通项目约定', true, agent)
+  assert.equal(outcome.ok, false)
+  assert.ok(outcome.message.includes('不存在'))
+  // 非三轨拒绝（daily/project 不支持该标记）
+  assert.equal(store.setEntryDshOnly('daily', '[10:00] x', true, agent).ok, false)
+  // 编辑正文后标记保留（splitEntryHead 把 [dsh-only] 归入 head）
+  const mark2 = store.entriesOf('key', agent).find((e) => e.includes('只给 DSH 看'))
+  outcome = store.updateEntryContent('key', mark2, '只给 DSH 看的项目规则（修订）', agent)
+  assert.equal(outcome.ok, true)
+  const edited = store.entriesOf('key', agent).find((e) => e.includes('修订'))
+  assert.match(edited, /^\[\d{4}-\d{2}-\d{2}\] \[dsh-only\] 只给 DSH 看的项目规则（修订）$/)
+  assert.equal(parseEntryDshOnly(edited), true)
   clean(dir)
 })
 

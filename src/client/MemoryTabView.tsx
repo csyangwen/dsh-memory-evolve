@@ -56,6 +56,8 @@ interface MemoryEntry {
   branch: string | null
   /** key 轨的分支范围：null=全部，否则为分支名列表（来自 [branch:...] 标记）。 */
   branches: string[] | null
+  /** 「仅 DSH」标记（[dsh-only]）：该条目只注入 DSH 自身，注入外部执行器（COI）时跳过。 */
+  dshOnly: boolean
   /** 剥离前缀后的正文。 */
   text: string
   /** 剥离前/解析前的完整条目原文（含时间戳），删除时按它精确匹配。 */
@@ -67,6 +69,9 @@ const ENTRY_DELIMITER = '\n§\n'
 
 /** key 条目分支标记：`[2026-08-06] [branch:main,dev] 内容`。 */
 const BRANCH_TAG_RE = /(?:^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s*)?\[branch:([^\]]*)\]\s*/
+
+/** 「仅 DSH」标记：`[2026-08-06] [dsh-only] 内容`（任意位置出现即视为已标记）。 */
+const DSH_ONLY_RE = /\[dsh-only\]\s*/
 
 /** 各轨时间戳前缀：project 带日期时间，daily 只有时分，其余为日期。 */
 const TIME_PREFIX = {
@@ -98,6 +103,7 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
     let tag: string | null = null
     let branch: string | null = null
     let branches: string[] | null = null
+    let dshOnly = false
     const timeMatch = prefix.exec(text)
     if (timeMatch !== null) {
       time = timeMatch[1]
@@ -124,8 +130,14 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
           text = text.replace(BRANCH_TAG_RE, '')
         }
       }
+      // 「仅 DSH」标记 [dsh-only]（branch/项目标签之后、正文之前；剥离显示，
+      // 与 lib/store.js splitEntryHead 的解析顺序保持一致）
+      if (DSH_ONLY_RE.test(text)) {
+        dshOnly = true
+        text = text.replace(DSH_ONLY_RE, '')
+      }
     }
-    entries.push({ time, tag, branch, text, branches, raw: rawText })
+    entries.push({ time, tag, branch, text, branches, dshOnly, raw: rawText })
   }
   return entries
 }
@@ -245,6 +257,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   /** 手动添加项目关键记忆的草稿与保存状态。 */
   const [keyDraft, setKeyDraft] = useState('')
   const [keySaving, setKeySaving] = useState(false)
+  /** 手动添加时的「仅 DSH」勾选：勾上 = 条目带 [dsh-only] 标记（只注入 DSH 自身，外部执行器跳过）。 */
+  const [keyDshOnly, setKeyDshOnly] = useState(false)
   /** 手动添加时的分支范围选择：[] = 全部（与具体分支互斥，全部权重最大）。 */
   const [keyScope, setKeyScope] = useState<string[]>([])
   /** 正在编辑分支范围的条目 raw（null = 未在编辑）。 */
@@ -337,9 +351,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     setKeySaving(true)
     void api<{ ok: boolean }>('/api/memory/key', {
       method: 'POST',
-      body: JSON.stringify({ sessionId: String(sessionId), content, branches: keyScope }),
+      body: JSON.stringify({ sessionId: String(sessionId), content, branches: keyScope, dshOnly: keyDshOnly }),
     }).then(() => {
       setKeyDraft('')
+      setKeyDshOnly(false)
       load()
       flash(t('memoryTab.keyAdded'))
     }).catch((error: Error) => {
@@ -376,6 +391,27 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: error.message })
     }).finally(() => setScopeSaving(false))
+  }
+
+  /** 切换一条目的「仅 DSH」标记（[dsh-only]）：标记 = 只注入 DSH 自身，
+   *  注入外部执行器（COI 任务的 injectTracks）时整条跳过。整条原文精确匹配。 */
+  const toggleDshOnly = (entry: MemoryEntry): void => {
+    if (activeRow === null || deleting) return
+    setDeleting(true)
+    void api<{ ok: boolean }>('/api/memory/dsh-only', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: String(sessionId),
+        target: activeRow.key,
+        match: entry.raw,
+        on: !entry.dshOnly,
+      }),
+    }).then(() => {
+      load()
+      flash(entry.dshOnly ? t('memoryTab.dshOnlyRemoved') : t('memoryTab.dshOnlySet'))
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: error.message })
+    }).finally(() => setDeleting(false))
   }
 
   /**
@@ -649,6 +685,14 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                   )}
                   <div className="mt-key-add-foot">
                     <span className="mt-key-help">{t('memoryTab.keyAddHelp')}</span>
+                    <label className="mt-key-dsh-opt" title={t('memoryTab.dshOnlyHint')}>
+                      <input
+                        type="checkbox"
+                        checked={keyDshOnly}
+                        onChange={(event) => setKeyDshOnly(event.target.checked)}
+                      />
+                      {t('memoryTab.dshOnlyAdd')}
+                    </label>
                     <button
                       type="button"
                       className="mt-btn mt-btn-primary"
@@ -679,6 +723,11 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                         )}
                         {entry.tag !== null && (
                           <span className="mt-entry-tag" title={t('memoryTab.projectTag')}>{entry.tag}</span>
+                        )}
+                        {entry.dshOnly && (
+                          <span className="mt-entry-dsh-only" title={t('memoryTab.dshOnlyHint')}>
+                            🔒 {t('memoryTab.dshOnly')}
+                          </span>
                         )}
                         {activeRow.key === 'key' && branches.length > 0 && (
                           <button
@@ -722,6 +771,17 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                               onClick={() => startEdit(entry)}
                             >
                               {t('memoryTab.edit')}
+                            </button>
+                          )}
+                          {(activeRow.key === 'memory' || activeRow.key === 'user' || activeRow.key === 'key') && (
+                            <button
+                              type="button"
+                              className={`mt-btn mt-entry-op${entry.dshOnly ? ' mt-entry-dsh-on' : ''}`}
+                              title={t('memoryTab.dshOnlyToggleHint')}
+                              disabled={deleting}
+                              onClick={() => toggleDshOnly(entry)}
+                            >
+                              {entry.dshOnly ? t('memoryTab.dshOnlyOff') : t('memoryTab.dshOnlyOn')}
                             </button>
                           )}
                           <button

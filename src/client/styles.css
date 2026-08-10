@@ -823,6 +823,38 @@
   border-style: dashed;
 }
 
+/* 「仅 DSH」标记徽章：该条目只注入 DSH 自身，注入外部执行器（COI）时跳过。 */
+.mt-entry-dsh-only {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-state-warning-border, var(--dsw-alias-border-l3));
+  border-radius: 9px;
+  background: transparent;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--dsw-alias-state-warning-fg, var(--dsw-alias-state-business-primary));
+}
+
+/* 「仅 DSH」toggle 按钮的已标记激活态（高亮区分已打标）。 */
+.mt-entry-dsh-on {
+  border-color: var(--dsw-alias-state-warning-border, var(--dsw-alias-border-l3)) !important;
+  color: var(--dsw-alias-state-warning-fg, var(--dsw-alias-state-business-primary)) !important;
+  font-weight: 600;
+}
+
+/* key 手动添加框的「仅 DSH」勾选。 */
+.mt-key-dsh-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
 /* Inline scope editor panel under a KEY entry. */
 .mt-scope {
   display: flex;
