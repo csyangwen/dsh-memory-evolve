@@ -22,6 +22,8 @@ export interface UiSettingsFeatures {
   wideBubble: boolean
   /** 上下文占用提醒：输入框圆环 ≥30% 变黄、≥40% 变红（关=默认灰色）。 */
   contextWarn: boolean
+  /** Mermaid 图表渲染：消息里的 ```mermaid 代码块渲染为 SVG 图表（关=保持代码块）。 */
+  mermaidRender: boolean
 }
 
 /** localStorage 键。 */
@@ -31,7 +33,7 @@ const FEATURES_KEY = 'dsh-memory-evolve:ui-settings:features'
 export const FEATURES_EVENT = 'dsh-memory-evolve:ui-settings-features'
 
 /** 默认值：全部功能默认关闭（用户拍板：由用户主动开启）。 */
-const DEFAULTS: UiSettingsFeatures = { sessionFilter: false, wideChat: false, wideBubble: false, contextWarn: false }
+const DEFAULTS: UiSettingsFeatures = { sessionFilter: false, wideChat: false, wideBubble: false, contextWarn: false, mermaidRender: false }
 
 /** 读取功能开关（localStorage 异常/缺字段时回落默认）。 */
 export function readFeatures(): UiSettingsFeatures {
@@ -44,6 +46,7 @@ export function readFeatures(): UiSettingsFeatures {
         wideChat: typeof parsed.wideChat === 'boolean' ? parsed.wideChat : DEFAULTS.wideChat,
         wideBubble: typeof parsed.wideBubble === 'boolean' ? parsed.wideBubble : DEFAULTS.wideBubble,
         contextWarn: typeof parsed.contextWarn === 'boolean' ? parsed.contextWarn : DEFAULTS.contextWarn,
+        mermaidRender: typeof parsed.mermaidRender === 'boolean' ? parsed.mermaidRender : DEFAULTS.mermaidRender,
       }
     }
   } catch { /* 回落默认 */ }

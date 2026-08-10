@@ -109,6 +109,12 @@ export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps)
             checked={features.contextWarn}
             onChange={(checked) => toggleFeature('contextWarn', checked)}
           />
+          <FeatureSwitchRow
+            label={t('uiSettings.feature.mermaidRender')}
+            hint={t('uiSettings.feature.mermaidRender.hint')}
+            checked={features.mermaidRender}
+            onChange={(checked) => toggleFeature('mermaidRender', checked)}
+          />
         </div>
       </div>
     </section>

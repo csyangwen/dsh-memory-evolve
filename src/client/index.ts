@@ -35,6 +35,7 @@ import { createBookmarkInjector } from './bookmark-injector.tsx'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { createContextMeterWarn } from './context-meter-warn.ts'
+import { createMermaidRenderer } from './mermaid-render.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
@@ -43,6 +44,7 @@ import promptStyles from './prompt-styles.css'
 import broadcastStyles from './broadcast-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
 import uiSettingsStyles from './ui-settings-styles.css'
+import mermaidStyles from './mermaid-render.css'
 import bookmarkStyles from './bookmark-styles.css'
 import mobileCss from './mobile.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
@@ -340,6 +342,8 @@ export const zh = {
   'uiSettings.feature.wideBubble.hint': '用户提交后的消息框从默认上限 525px 扩大到占中间内容框约 80%（配合「对话区加宽」效果更明显）',
   'uiSettings.feature.contextWarn': '上下文占用提醒',
   'uiSettings.feature.contextWarn.hint': '输入框右下侧的上下文使用量圆环：占用超过 30% 变黄、超过 40% 变红提醒，低于阈值恢复原色',
+  'uiSettings.feature.mermaidRender': 'Mermaid 图表渲染',
+  'uiSettings.feature.mermaidRender.hint': '把消息里的 mermaid 代码块渲染成图表（DSH 界面本身不渲染 mermaid）；首次见到图时才加载渲染引擎，PC 与手机端同时生效，渲染失败自动退回代码块',
   // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
   'uiSettings.filter.on': '仅进行中',
   'uiSettings.filter.off': '全部',
@@ -539,6 +543,9 @@ export const zh = {
   'memoryTab.empty': '（文件不存在或为空）',
   'memoryTab.noCwd': '（当前会话无工作目录，无法定位项目记忆）',
   'memoryTab.truncated': '（内容过长，已截断显示）',
+  'memoryTab.pagePrev': '上一页',
+  'memoryTab.pageNext': '下一页',
+  'memoryTab.pageInfo': '第 {page}/{total} 页 · 共 {count} 条',
   'memoryTab.viewPretty': '美观视图',
   'memoryTab.viewRaw': '纯文本视图',
   'memoryTab.searchPlaceholder': '搜索内容、时间或标签…',
@@ -986,6 +993,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettings.feature.wideBubble.hint': 'Widen the user message bubble from its 525px cap to about 80% of the content column (pairs well with "Wide conversation area")',
   'uiSettings.feature.contextWarn': 'Context usage warning',
   'uiSettings.feature.contextWarn.hint': 'The context-usage ring beside the input box turns yellow above 30% occupancy and red above 40%; back to its default color below the threshold',
+  'uiSettings.feature.mermaidRender': 'Mermaid diagram rendering',
+  'uiSettings.feature.mermaidRender.hint': 'Render mermaid code blocks in messages as diagrams (DSH itself does not render mermaid); the engine loads lazily on first diagram, works on PC and mobile alike, and falls back to the code block on failure',
   // Filter-bar button labels (consumed by session-filter.ts injected DOM).
   'uiSettings.filter.on': 'Running only',
   'uiSettings.filter.off': 'All',
@@ -1185,6 +1194,9 @@ export const en: Record<MemoryEvolveKey, string> = {
   'memoryTab.empty': '(missing or empty)',
   'memoryTab.noCwd': '(no working directory for this session — project memory unavailable)',
   'memoryTab.truncated': '(content truncated for display)',
+  'memoryTab.pagePrev': 'Previous',
+  'memoryTab.pageNext': 'Next',
+  'memoryTab.pageInfo': 'Page {page}/{total} · {count} entries',
   'memoryTab.viewPretty': 'Pretty view',
   'memoryTab.viewRaw': 'Raw text',
   'memoryTab.searchPlaceholder': 'Search content, time or tag…',
@@ -1500,6 +1512,21 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: ui-settings stylesheet')
 
+  // Mermaid 图表渲染样式（me-mermaid- 前缀，独立注入）。样式本身无副作用
+  // （.me-mermaid-wrap 只在渲染器替换代码块后出现），常驻注入与 ui-settings
+  // 同款；真正的开关控制在下方：探测 /api/ui-settings/state 成功后按
+  // mermaidRender 功能开关启停观察器。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-me-mermaid-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.meMermaidCss = '1'
+    tag.textContent = mermaidStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: mermaid stylesheet')
+
   // 会话书签样式（bm- 前缀，独立注入）。样式常驻无副作用；真正开关控制
   // 在下方：探测 /api/bookmarks/state 成功才注册 turnTail 星标与「书签」Tab。
   ctx.effect(() => {
@@ -1799,6 +1826,7 @@ export function apply(ctx: Context): void {
   let disposeWideChat: (() => void) | undefined
   let disposeWideBubble: (() => void) | undefined
   let disposeContextMeterWarn: (() => void) | undefined
+  let disposeMermaidRender: (() => void) | undefined
   void fetch('/memory-evolve/api/ui-settings/state')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { enabled?: boolean }) => {
@@ -1818,12 +1846,15 @@ export function apply(ctx: Context): void {
       disposeWideBubble = wideBubble.dispose
       const contextMeterWarn = createContextMeterWarn()
       disposeContextMeterWarn = contextMeterWarn.dispose
+      const mermaidRenderer = createMermaidRenderer()
+      disposeMermaidRender = mermaidRenderer.dispose
       // 按「综合」子 tab 的独立开关应用初始状态。
       const features = readFeatures()
       sessionFilter.setEnabled(features.sessionFilter)
       wideChat.setEnabled(features.wideChat)
       wideBubble.setEnabled(features.wideBubble)
       contextMeterWarn.setEnabled(features.contextWarn)
+      mermaidRenderer.setEnabled(features.mermaidRender)
       // 开关变更事件（UiSettingsTabView 切换后广播）→ 即时同步注入。
       const onFeaturesChanged = (event: Event): void => {
         const next = (event as CustomEvent<ReturnType<typeof readFeatures>>).detail
@@ -1832,6 +1863,7 @@ export function apply(ctx: Context): void {
         wideChat.setEnabled(next.wideChat)
         wideBubble.setEnabled(next.wideBubble)
         contextMeterWarn.setEnabled(next.contextWarn)
+        mermaidRenderer.setEnabled(next.mermaidRender)
       }
       window.addEventListener(FEATURES_EVENT, onFeaturesChanged)
       ctx.effect(() => () => window.removeEventListener(FEATURES_EVENT, onFeaturesChanged), 'memory-evolve: ui-settings features listener')
@@ -1852,6 +1884,7 @@ export function apply(ctx: Context): void {
     disposeWideChat?.()
     disposeWideBubble?.()
     disposeContextMeterWarn?.()
+    disposeMermaidRender?.()
   }, 'memory-evolve: ui-settings tab')
 
   // 提示词 Tab（conversation.view 第四个 entry）：提示词管理器。跟随 host
