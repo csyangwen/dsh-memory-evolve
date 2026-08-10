@@ -494,7 +494,8 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   assert.ok(snapshot.includes('每轮收尾'))
   assert.ok(snapshot.includes('先输出完整回复文本，再在文本之后附带工具调用'))
   assert.ok(snapshot.includes('严禁先调工具'))
-  assert.ok(snapshot.includes('各写 1 条'))
+  assert.ok(snapshot.includes('一次调用'))
+  assert.ok(snapshot.includes('entries 数组'))
   assert.ok(snapshot.includes('内容不要自带时间/日期前缀'))
   // key duty: importance-gated, never a per-turn mandate — and it goes
   // through user confirmation now (提交建议)
@@ -516,16 +517,16 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
   // default: both tracks carry the write duty
   const both = renderSnapshot(config, store, agent)
-  assert.ok(both.includes('向 target=daily 与 target=project'))
+  assert.ok(both.includes('含 target=daily 与 target=project 各一项'))
   // project off: only daily keeps the write duty; reads stay for both
   const noProject = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false }), store, agent)
-  assert.ok(!noProject.includes('向 target=project'))
-  assert.ok(noProject.includes('向 target=daily'))
+  assert.ok(!noProject.includes('含 target=project 各一项'))
+  assert.ok(noProject.includes('含 target=daily 各一项'))
   assert.ok(noProject.includes('target=project'), 'read hint for project stays')
   // daily off: only project keeps the write duty
   const noDaily = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnDailyWrites: false }), store, agent)
-  assert.ok(noDaily.includes('向 target=project'))
-  assert.ok(!noDaily.includes('向 target=daily'))
+  assert.ok(noDaily.includes('含 target=project 各一项'))
+  assert.ok(!noDaily.includes('含 target=daily 各一项'))
   // both off: the key duty (default on) keeps the checklist alive
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
   assert.ok(none.includes('每轮收尾'))
@@ -538,7 +539,7 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   assert.ok(!allOff.includes('每轮收尾'))
   // key off: only daily/project keep their write duties
   const noKey = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnKeyWrites: false }), store, agent)
-  assert.ok(noKey.includes('向 target=daily 与 target=project'))
+  assert.ok(noKey.includes('含 target=daily 与 target=project 各一项'))
   assert.ok(!noKey.includes('target=key 提交 1 条建议'))
   clean(dir)
 })
