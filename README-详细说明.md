@@ -249,6 +249,28 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 
 ## 安装
 
+### ⚠️ 从 dsh-skills-manager / dsh-skill-browser 迁移（旧插件用户必读）
+
+技能管理功能已合并进本插件（记忆 Tab「技能管理」子 Tab，API 前缀仍为
+`/skills-manager`）。**升级前请先卸载旧插件，再启用本插件**，顺序不能反：
+
+1. **移除注册**：从 profile 的 `cordis.patch.yml`（或 08-06 之前的
+   `~/.dsh/config.yaml` / `~/.dsh/cordis.patch.yml`）删除 skills-manager /
+   skill-browser 的 insert 行；
+2. **删除软链别名**：若存在 `~/node_modules/@dsh-local/skills-manager` 或
+   `~/node_modules/@dsh-local/dsh-skill-browser`，一并删除；
+3. **插件目录可留可删**：`~/.dsh/plugins/dsh-skills-manager/` 与
+   `~/.dsh/plugins/dsh-skill-browser/` 目录删除与否都不影响迁移——本插件
+   首次启动时会自动从两个旧插件的 `state.json` 导入禁用列表与自定义目录
+   （只导入一次，先旧名后新名，取第一个有数据的来源），因此旧目录建议
+   保留到确认迁移成功后再清理。
+
+**为什么必须卸载旧插件**：旧插件客户端仍调用 DSH 已移除的
+`ui-slots.deferRegistration`，在 08-06+ 的新 DSH 上会直接报
+`Failed to load plugins … deferRegistration is not a function`，导致
+**Web 整页不可用**——即使本插件安装正确，也会被残留的旧插件挡住。
+另外二者不可同时启用（两套禁用 shadow 会对同一技能重复注册）。
+
 ### 标准安装（DSH 08-06+ profiles 架构，推荐）
 
 插件以包形式安装进 profile（`web` / `tui` / `headless` 等），由 profile 的

@@ -166,6 +166,59 @@ test('skills-manager: no migration when legacy state is absent', async () => {
   }
 })
 
+// issue #5：legacy 来源支持多候选（dsh-skill-browser / dsh-skills-manager 两种
+// 旧插件目录命名都可能存在，用户按旧 README 装的是后者）；按顺序遍历，
+// 取第一个含禁用列表的来源导入并持久化。
+test('skills-manager: disabled list migrates from the first populated legacy candidate (issue #5)', async () => {
+  const dir = tempDir()
+  try {
+    // 候选 1（dsh-skill-browser 命名）不存在；候选 2（dsh-skills-manager 命名）有数据
+    const legacy1 = join(dir, 'legacy-skill-browser.json')
+    const legacy2 = join(dir, 'legacy-skills-manager.json')
+    writeFileSync(legacy2, JSON.stringify({ disabled: ['alpha'], customDirs: ['/custom/dir'] }))
+    const stateFile = join(dir, 'skills-state.json')
+    const sm = await bootSkillsManager({ legacyStateFile: [legacy1, legacy2], stateFile })
+    try {
+      const list = await sm.request('GET', '/skills-manager/api/skills')
+      assert.equal(list.status, 200)
+      assert.equal(list.data.skills.find((s) => s.name === 'alpha').disabled, true)
+      // 迁移结果持久化到本仓 state 文件（含自定义目录）
+      const state = JSON.parse(readFileSync(stateFile, 'utf8'))
+      assert.deepEqual(state.disabled, ['alpha'])
+      assert.deepEqual(state.customDirs, ['/custom/dir'])
+    } finally {
+      await sm.close()
+      sm.cleanup()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// issue #5：多候选按顺序取第一个非空——候选 1 有数据时不再读取候选 2
+test('skills-manager: first populated legacy candidate wins (issue #5)', async () => {
+  const dir = tempDir()
+  try {
+    const legacy1 = join(dir, 'legacy-a.json')
+    const legacy2 = join(dir, 'legacy-b.json')
+    writeFileSync(legacy1, JSON.stringify({ disabled: ['alpha'], customDirs: [] }))
+    writeFileSync(legacy2, JSON.stringify({ disabled: ['beta'], customDirs: [] }))
+    const stateFile = join(dir, 'skills-state.json')
+    const sm = await bootSkillsManager({ legacyStateFile: [legacy1, legacy2], stateFile })
+    try {
+      const list = await sm.request('GET', '/skills-manager/api/skills')
+      assert.equal(list.status, 200)
+      assert.equal(list.data.skills.find((s) => s.name === 'alpha').disabled, true)
+      assert.equal(list.data.skills.find((s) => s.name === 'beta').disabled, false)
+    } finally {
+      await sm.close()
+      sm.cleanup()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('skills-manager: skills list marks protected and non-invocable skills', async () => {
   const sm = await bootSkillsManager()
   try {
