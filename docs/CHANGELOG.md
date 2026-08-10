@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-10 — memory 工具支持 entries 多轨批量写与 feedback 情绪反馈记录
+
+### 实现
+
+- **entries 批量写**：`memory add` 支持一次调用同时写 daily + project 两轨（每轮收尾合并为一次工具往返，仅限这两轨，防止绕过 key 确认队列等门禁）；
+- **feedback 情绪反馈**：本回合用户输入有明显情绪（正面/负面）时，日志条目可带 `feedback` 参数（`sentiment`/`category`/`quote`/`note`/`manual`），程序自动拼接固定格式的【反馈】行落盘（原话截断 ≤20 字、特殊字符清洗；手动记录带【反馈·手动】前缀）——积累后可让 AI 分析用户对各任务分类的满意度；
+- **list 大文件保护**：project/daily 无参数查询默认只返回最近 50 条并附 `total`/`earliest`/`latest` 元数据，记忆 Tab 同步改为分页展示（消除 64KB 截断导致的条目半截显示）。
+
+---
+
 ## 2026-08-10 — 旧插件迁移引导加强（issue #5）：dsh-skills-manager 残留导致整页崩溃的文档与迁移修复
 
 ### 背景（issue #5）
