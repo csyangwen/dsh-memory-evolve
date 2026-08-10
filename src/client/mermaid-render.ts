@@ -210,6 +210,8 @@ function schedule(block: HTMLElement): void {
 export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; dispose(): void } {
   let observer: MutationObserver | undefined
   let disposed = false
+  /** 延迟重扫定时器（消息异步挂载/增量渲染的兜底窗口）。 */
+  let rescanTimer: number | undefined
 
   /** 观察器回调：新增节点（消息渲染/历史回放/React 重挂载）→ 调度处理。 */
   const onMutations = (mutations: MutationRecord[]): void => {
@@ -220,19 +222,45 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
           const block = node.classList.contains('md-code-block') ? node : node.closest<HTMLElement>('.md-code-block')
           if (block !== null) schedule(block)
         }
-      } else if (mutation.target instanceof HTMLElement) {
-        // characterData（流式文本更新）/ attributes（banner 语言标签出现、
-        // 类名变化）→ 顺带调度目标所在块，覆盖「流式中途停顿超 STABLE_MS
-        // 后恢复」等 childList 感知不到的情况。
-        const block = mutation.target.closest<HTMLElement>('.md-code-block')
-        if (block !== null) schedule(block)
+      } else {
+        // characterData / attributes：mutation.target 可能是 **Text 节点**
+        // （流式文本更新、回放增量填充）或元素——Text 没有 closest，
+        // 必须经 parentElement 上溯（2026-08-10 实测坑：只判 HTMLElement
+        // 会让本分支永不触发，刷新后历史消息若以增量方式挂载就漏渲染）。
+        const element = mutation.target instanceof HTMLElement
+          ? mutation.target
+          : mutation.target.parentElement
+        const block = element?.closest<HTMLElement>('.md-code-block')
+        // block 可能为 undefined（element 不存在）或 null（未命中）→ 统一判空。
+        if (block instanceof HTMLElement) schedule(block)
       }
     }
   }
 
   /**
-   * 开关同步：true=启动观察 + 全量扫描现有消息（历史回放）；
-   * false=停止观察（已渲染图保留，不还原，刷新后恢复代码块）。
+   * 延迟全量重扫：刷新后历史消息的挂载时序不确定（可能晚于 setEnabled 时
+   * 的 scan，且增量渲染走 characterData 更新、不保证 childList 新增节点），
+   * 在开启后的三个时间点各补扫一次兜底。schedule 内部有源码比对短路 +
+   * 已渲染标记，重复扫描成本极低；渲染失败（引擎加载失败等）的块也会因
+   * 「rendered 但 wrap 不在」在重扫时被重置重试。
+   */
+  const scheduleRescans = (): void => {
+    window.clearTimeout(rescanTimer)
+    const delays = [500, 2000, 5000]
+    const run = (index: number): void => {
+      if (index >= delays.length) return
+      rescanTimer = window.setTimeout(() => {
+        if (disposed || observer === undefined) return
+        for (const block of document.querySelectorAll<HTMLElement>('.md-code-block')) schedule(block)
+        run(index + 1)
+      }, delays[index])
+    }
+    run(0)
+  }
+
+  /**
+   * 开关同步：true=启动观察 + 全量扫描现有消息（历史回放）+ 延迟补扫；
+   * false=停止观察（已渲染图保留，不还原，刷新后随开关状态恢复）。
    */
   const setEnabled = (enabled: boolean): void => {
     if (disposed) return
@@ -243,9 +271,11 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
       observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] })
       // 全量扫描当前已渲染的消息（打开开关时立即生效于历史消息）。
       for (const block of document.querySelectorAll<HTMLElement>('.md-code-block')) schedule(block)
+      scheduleRescans()
     } else if (!enabled && observer !== undefined) {
       observer.disconnect()
       observer = undefined
+      window.clearTimeout(rescanTimer)
     }
   }
 
@@ -255,6 +285,7 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
       disposed = true
       observer?.disconnect()
       observer = undefined
+      window.clearTimeout(rescanTimer)
     },
   }
 }
