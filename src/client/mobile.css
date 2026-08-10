@@ -492,6 +492,16 @@ html[data-dsh-mobile] [data-phase] {
   --dsh-chat-content-width: 100% !important;
 }
 
+/* 对话区左边距 10px（用户反馈 2026-08-09）：对话区在手机上满宽贴左，
+   加 margin-left 让整个区域（含背景/消息/输入框）右移 10px、左侧留出
+   空隙；width 同步减 10px 保持右边缘对齐，不产生横向溢出
+   （.scrollBody 另有 overflow-x: hidden 兜底）。不加 !important：
+   这是新增布局约束，与兜底层/其他规则无方向冲突。 */
+html[data-dsh-mobile] [data-phase] {
+  margin-left: 10px;
+  width: calc(100% - 10px);
+}
+
 /* 用户消息气泡满宽：默认 max-width: min(525px, 82%)（MessageItem.
    module.css .bubble），手机上放开为 100%，消除两侧留白；短消息仍按
    内容自适应（max-width 只设上限，不强制撑满）。锚点：用户消息行
@@ -606,39 +616,57 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   pointer-events: auto; /* 模型触发按钮 + [role=menu] 均可点（直接子） */
 }
 
-/* ---- ModelSelect 一级/二级菜单手机可见性（2026-08-09 用户实测）----
+/* ---- ModelSelect 一级/二级菜单手机可见性（v4 · 真机修复 2026-08-10）----
    ---------------------------------------------------------------------------
    结构（ModelSelect.tsx，不依赖 CSS modules 哈希类名）：
-     根 div（上条规则已 fixed 成底栏右侧）
+     根 div（上条规则已 fixed 成底栏右侧 chip）
        > button[aria-haspopup="menu"]     ← trigger
        > div[role="menu"]                 ← 唯一菜单节点（一级/二级共用）
-           pane=root   ：「模型」「思考强度」两行 cell
+           pane=root   ：「模型」「思考强度」两行 cell（~2×40px）
            pane=model  ：模型分组列表
            pane=effort ：思考等级列表
    （没有独立的二级 DOM——setPane 只切换同一 menu 内的内容。）
 
-   根因：
-   1. sheet 打开时本文件把 ModelSelect 根设为 position:fixed → 成为其
-      absolute 子元素的包含块。原生 ModelSelect.module.css：
-        .menu { position:absolute; right:0; bottom:calc(100% + 8px);
-                max-height:min(360px, 100vh - 96px); overflow:hidden }
-      菜单底边锚在根上方、向上生长。
-   2. 一级仅 ~2×40px 行，整块落在视口内 → 可见可点。
-   3. 二级列表变高后，dsh-android-edapp 兜底 mobile-fallback 模式 1 对
-      [role="menu"] 强制 max-height: calc(100dvh - 24px) !important
-      （几乎整屏）→ 菜单向上顶出视口；内容 flex 顶对齐，可见的底边区域
-      往往是空白 → 用户反馈「二级面板看不见」。一级短故未暴露。
-   4. 另：根 fixed 后若祖先 overflow 裁剪，长菜单更容易被裁（overflow:visible 兜住）。
+   ## 历史失败（务必勿回退）
+   - v1（fixed + --dsh-composer-height 锚定 bottom/max-height）：
+     空会话 seat≈150–250px 看起来正常；真机正常会话 seat 300–600px
+     （dock 卡/统计行/多行草稿全算进 --dsh-composer-height）→
+     bottom = seat+64 把菜单顶到视口上方，max-height = 100dvh-seat-80
+     被压到 ≤60px（一级两行 cell 要 ~88px）→ 用户感知「菜单没出来」。
+     根因：菜单几何绑死了「座位整体高度」，与「底栏 chip 真实位置」不等价。
+   - v2（依赖 .row 的 container-type 当 fixed 包含块 + absolute 100%）：
+     真机 webview 上 container-type 的 fixed 包含块行为不可靠，
+     「⋯」按钮/底栏整体无反应。已整体回滚，禁止复用。
 
-   修复（纯 CSS，不移动/复制 DOM，React 事件保留）：
-   - 菜单改为 position:fixed，底边落在「⋯ 底栏」上方（与根同套
-     --dsh-composer-height 坐标系，视觉一致）
-   - max-height 克制到「底栏上沿 → 视口顶」可用空间（!important 压过兜底）
-   - 菜单自身 overflow-y:auto，列表再长也可滚
-   - z-index 抬到 900；展开时根同步抬高，整层压过底栏 .tools(50)
-   - 颜色/边框沿用原生 token（--dsw-specific-menu 等），此处不改。 */
+   ## v3 真机根因
+   1. v3 组合“position:fixed 的 ModelSelect 根 + position:absolute 的菜单”，
+      把菜单位置交给 WebView 在嵌套定位上下文中推导。headless Chrome 的布局
+      结果稳定，但真机还叠加 visualViewport、动态工具栏/键盘和祖先
+      containment，absolute 菜单虽已挂载，却可能合成到可视区之外。
+   2. enhance 原先只写 max-height，没有明确写菜单的视口坐标；且多 composer
+      并存时按“最靠上可见根”测量，可能拿到用户没有展开的实例。
+   3. 点击一级行后 React 同步 setPane 并卸载旧按钮；document bubble click
+      才用 contains/closest 判断时，真机上的 event.target 已可能脱离 DOM，
+      于是菜单内点击被误判为外部点击，整个 sheet 随即关闭。事件修复详见
+      mobile-input-sheet.ts 的 onDocClickCapture。
 
-/* 根：禁止裁剪向上弹出的菜单；菜单展开时抬高整层 stacking */
+   ## v4 方案（与 --dsh-composer-height、嵌套 absolute 坐标完全解耦）
+   1. 菜单统一 position:fixed。enhance 在 click capture（React 更新前）锁定
+      实际 trigger，并把 visualViewport 的 offset/width、chip 顶边和 layout
+      viewport 高度换算为 --dsh-mobile-menu-left/width/top/bottom/max-h。
+      浏览器只消费明确坐标，不再跨 fixed/absolute 包含块自行推导。
+   2. 菜单打开后的重测只认 aria-expanded=true 的实例；pane 切换、DOM 变化、
+      旋转、地址栏与键盘变化都会重新计算。
+   3. 正常模式通过 bottom 贴 chip 上方 8px；上方不足一级两行时，仅把 top
+      切到 visualViewport 顶部安全区、bottom 切为 auto。两种模式始终共用
+      同一个 fixed 菜单规则，避免真机层叠顺序再分叉。
+   4. !important 对抗 dsh-android-edapp 兜底模式 1 对 [role=menu]
+      的 max-width/max-height: calc(100dvh - 24px) !important，以及原生
+      ModelSelect.module.css 的 absolute/right/bottom/width/max-height。
+   5. 不移动/复制 DOM；不依赖 container-type；底栏 .tools 仍用 v1 的
+      fixed + --dsh-composer-height（该路径已验证「⋯」可点，不动）。 */
+
+/* 根：菜单展开时抬高整层 stacking；overflow:visible 同时保护无 JS 首帧。 */
 html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
   overflow: visible;
 }
@@ -646,22 +674,32 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   z-index: 900;
 }
 
-/* 菜单：fixed 进视口安全区 + 限高可滚（一级/二级同一节点，一并修好） */
+/* 菜单：JS 明确写入视觉视口几何；一级/二级复用同一 fixed 可滚节点。 */
 html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) > [role="menu"] {
+  /*
+   * position/left/right/top/bottom/width 的 !important：压过原生
+   * ModelSelect.module.css `.menu` 的 absolute/right/bottom/width，确保真机
+   * 不会混用一半原生坐标、一半 enhance 坐标。
+   */
   position: fixed !important;
-  /* 左右贴屏 12px，与 ⋯ 底栏边距一致；覆盖原生 width:min(240px,…) */
-  left: 12px !important;
-  right: 12px !important;
-  width: auto !important;
-  max-width: calc(100vw - 24px) !important;
-  /* 底边 = 输入栏高 + 底栏(~48+8) + 与底栏间距 8 → 整块落在底栏上方 */
-  bottom: calc(var(--dsh-composer-height, 152px) + 64px) !important;
-  top: auto !important;
-  /* 高度不超过「菜单底边 → 视口顶」；必须 !important 对抗兜底 100dvh-24 */
-  max-height: min(360px, calc(100dvh - var(--dsh-composer-height, 152px) - 80px)) !important;
+  left: var(--dsh-mobile-menu-left, 12px) !important;
+  right: auto !important;
+  top: var(--dsh-mobile-menu-top, 12px) !important;
+  bottom: var(--dsh-mobile-menu-bottom, auto) !important;
+  width: var(--dsh-mobile-menu-width, calc(100vw - 24px)) !important;
+  max-width: none !important;
+  /*
+   * max-height 的 !important：专门压过 dsh-android-edapp 模式 1 对
+   * [role=menu] 的 `calc(100dvh - 24px) !important`。若让那个几乎整屏的
+   * 限高赢过来，向上生长的菜单会再次把内容顶出可见区。
+   *
+   * 未写变量的极短首帧安全落在视口顶 12px；click capture 会在 React 挂载
+   * 菜单前预写正确 trigger 坐标，MutationObserver 与 viewport 事件随后校正。
+   */
+  max-height: var(--dsh-mobile-menu-max-h, min(360px, 50dvh)) !important;
   overflow-x: hidden !important;
   overflow-y: auto !important;
-  z-index: 900 !important;
+  z-index: 920 !important; /* 高于展开根 900 与 .tools 底栏 50，保证菜单可点 */
   /* 触控滚动惯性（iOS/WebView） */
   -webkit-overflow-scrolling: touch;
   /* 表面 token 与原生一致（显式写出，避免被其它层叠规则冲淡时无 fallback） */
@@ -671,6 +709,9 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   border-radius: 12px;
   box-sizing: border-box;
 }
+
+/* data-dsh-mobile-menu-flip 只作为可诊断状态标记；几何仍由同一组 top/bottom
+   变量驱动，不再为极端模式复制第二套 CSS 规则。 */
 
 /* 「⋯」入口按钮（mobile-input-sheet.ts enhance 注入，append 在工具栏
    行尾 + order:-1 视觉排最左）：样式对齐 DSH 原生加号按钮（28px 圆形、
