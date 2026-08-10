@@ -497,3 +497,62 @@
   padding-bottom: 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
+
+/* ---- 图片附件（P3 2026-08-11）：缩略图横排 + 点击展开原图 ---- */
+.bb-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bb-att-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* 64px 缩略图按钮（无边框无背景，hover 提亮） */
+.bb-att-thumb {
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.bb-att-thumb:hover {
+  border-color: var(--dsw-alias-label-primary, #888);
+}
+
+.bb-att-thumb-img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  display: block;
+}
+
+/* 原图预览：卡片内展开，点击任意处收起 */
+.bb-att-preview {
+  margin-top: 6px;
+  cursor: zoom-out;
+  max-width: 100%;
+}
+
+.bb-att-preview-img {
+  max-width: 100%;
+  max-height: 420px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  display: block;
+}
+
+.bb-att-preview-name {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-dimmed, #999);
+}

@@ -33,6 +33,8 @@ interface Msg {
   hasBody: boolean
   createdAt: number
   readBy: string[]
+  /** 图片附件元数据（P3 2026-08-11；UI 通过下载端点取字节渲染缩略图）。 */
+  attachments?: Array<{ name: string; size: number; mime: string }>
 }
 
 /** 一个房间（API 返回的视图，含已解散与在线聚合）。 */
@@ -219,6 +221,8 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
   // 展开状态
   const [expanded, setExpanded] = useState<string | null>(null)   // 消息视图展开全文的消息 id
   const [fullText, setFullText] = useState<Record<string, string>>({})
+  /** 正在看原图的附件（"消息id:序号"；null=未展开）。点击缩略图切换。 */
+  const [openImage, setOpenImage] = useState<string | null>(null)
   const [openRoom, setOpenRoom] = useState<string | null>(null)   // 展开的房间 id
   const [roomMsgExpanded, setRoomMsgExpanded] = useState<string | null>(null)
   const [presence, setPresence] = useState<Record<string, Presence[]>>({})
@@ -426,6 +430,36 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
         </div>
         {isOpen && (
           <pre className="bb-content">{fullText[m.id] ?? m.content}</pre>
+        )}
+        {/* 图片附件缩略图（P3 2026-08-11）：横向排列 64px 缩略图，点击在
+            卡片下方展开原图（再点收起）；字节来自附件下载端点
+            /messages/<id>/attachment/<序号>（不暴露文件系统路径）。 */}
+        {Array.isArray(m.attachments) && m.attachments.length > 0 && (
+          <div className="bb-attachments">
+            {m.attachments.map((a, i) => {
+              const key = `${m.id}:${i}`
+              const src = `${API}/messages/${encodeURIComponent(m.id)}/attachment/${i}`
+              const open = openImage === key
+              return (
+                <div key={key} className="bb-att-item">
+                  <button
+                    type="button"
+                    className="bb-att-thumb"
+                    title={`${a.name}（${(a.size / 1024).toFixed(0)} KB）`}
+                    onClick={() => setOpenImage(open ? null : key)}
+                  >
+                    <img src={src} alt={a.name} loading="lazy" className="bb-att-thumb-img" />
+                  </button>
+                  {open && (
+                    <div className="bb-att-preview" onClick={() => setOpenImage(null)}>
+                      <img src={src} alt={a.name} className="bb-att-preview-img" />
+                      <span className="bb-att-preview-name">{a.name}</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     )
