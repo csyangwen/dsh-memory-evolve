@@ -69,6 +69,8 @@ interface BlockState {
   rendering: boolean
   /** 连续失败次数（临时性失败如引擎加载可重试，语法错误 2 次后放弃）。 */
   failCount: number
+  /** 引擎加载连续失败次数（只用于控制 console 只打一次，不参与放弃判定——引擎失败永远可重试）。 */
+  engineFails: number
 }
 
 /** 全局 mermaid 引擎加载 Promise（只加载一次）。 */
@@ -83,31 +85,44 @@ const states = new WeakMap<HTMLElement, BlockState>()
 /**
  * 读取全局 mermaid（懒加载：首次调用才注入 <script>）。
  *
+ * 失败可恢复（Grok 审阅意见 P0-②）：加载失败时把缓存的 Promise 重置为
+ * undefined，下次调用重新注入 <script> 重试——否则一次失败（端点闪断/
+ * 网络抖动）会让 Promise 永久粘死在 rejected，模块废到刷新。
+ *
  * @returns 初始化好的 mermaid 引擎单例 Promise；加载失败 reject（调用方
- *   捕获后静默降级回代码块）。
+ *   捕获后按引擎失败路径处理，不置永久放弃）。
  */
 function loadMermaid(): Promise<MermaidEngine> {
   enginePromise ??= new Promise((resolve, reject) => {
+    // 防御：若之前失败注入的 script 残留，先移除再重新注入（避免重复 script）。
+    document.querySelector(`script[${SCRIPT_MARK}]`)?.remove()
     const script = document.createElement('script')
     script.src = ENGINE_SRC
     script.setAttribute(SCRIPT_MARK, '')
+    const fail = (reason: string): void => {
+      enginePromise = undefined // 允许下次调用重新加载（失败可恢复）。
+      reject(new Error(reason))
+    }
     script.onload = () => {
       const mermaid = (window as unknown as { mermaid?: MermaidEngine }).mermaid
       if (mermaid === undefined) {
-        reject(new Error('mermaid global missing after script load'))
+        fail('mermaid global missing after script load')
         return
       }
       // startOnLoad: false——不自动扫描页面，全由本模块调度；
+      // securityLevel: 'strict'——显式声明安全契约（Grok 审阅意见 P0-③，
+      //   不依赖上游默认值：剥离 click 等交互，模型源码不进可执行面）；
       // theme: 按页面背景亮度选 base/dark（浅色→base，深色→dark）；
       // background: transparent——SVG 背景融入消息气泡，不出现白/黑方块。
       mermaid.initialize({
         startOnLoad: false,
+        securityLevel: 'strict',
         theme: detectTheme(),
         themeVariables: { background: 'transparent' },
       })
       resolve(mermaid)
     }
-    script.onerror = () => reject(new Error(`mermaid engine load failed: ${ENGINE_SRC}`))
+    script.onerror = () => fail(`mermaid engine load failed: ${ENGINE_SRC}`)
     document.head.appendChild(script)
   })
   return enginePromise
@@ -156,8 +171,20 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
   // 重叠，重复渲染同一 id 的 mermaid 图会互相干扰）。
   if (state.rendering) return
   state.rendering = true
+  // 引擎加载单独 try/catch（Grok 审阅意见 P0-④ 失败分级）：
+  //   引擎失败 = 环境问题（端点闪断/网络抖动）→ 不计数、不置永久放弃，
+  //   走下方统一重试分支，直到加载成功（loadMermaid 自身失败可恢复）。
+  let engine: MermaidEngine
   try {
-    const engine = await loadMermaid()
+    engine = await loadMermaid()
+  } catch (error) {
+    state.engineFails += 1
+    if (state.engineFails === 1) {
+      console.warn('[dsh-memory-evolve] mermaid engine load failed, will retry:', error)
+    }
+    return
+  }
+  try {
     const pre = block.querySelector('pre')
     // 等待引擎期间块被 React 换掉（重渲染/移除）→ 放弃本轮，走下方重试。
     if (pre === null || !pre.isConnected) return
@@ -171,10 +198,11 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
     pre.replaceWith(wrap)
     state.rendered = true
     state.failCount = 0
+    state.engineFails = 0
     block.setAttribute(RENDERED_MARK, '')
   } catch (error) {
-    // 失败分两类：引擎临时加载失败（可重试）与语法错误（重试无意义）。
-    // 连续 2 次失败才标记永久失败（保留代码块 + console），此前延迟重试。
+    // render 失败 = 图定义问题（典型语法错误）→ 重试无意义，计数 2 次后
+    // 标记永久失败（保留代码块 + console），此前延迟重试（防一次性抖动）。
     state.failCount += 1
     if (state.failCount >= 2) {
       state.rendered = true
@@ -184,10 +212,11 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
   } finally {
     state.rendering = false
   }
-  // 被 React 打断或临时失败：不会再有后续 mutation 保证重试（Tab 切换
-  // remount 后 React 已稳定）——延迟一小段（等 React 稳定）强制重新调度；
-  // schedule(force=true) 跳过源码短路、重置稳定判定计时器。React 若持续
-  // 重渲染则重试到稳定为止。
+  // 被 React 打断、引擎失败或临时渲染失败：不会再有后续 mutation 保证重试
+  // （Tab 切换 remount 后 React 已稳定）——延迟一小段（等 React 稳定）强制
+  // 重新调度；schedule(force=true) 跳过源码短路、重置稳定判定计时器。React
+  // 若持续重渲染则重试到稳定为止；引擎失败也在此无限重试（本地端点恢复即
+  // 成功）。
   if (!state.rendered && block.isConnected && block.querySelector('pre') !== null) {
     window.setTimeout(() => { schedule(block, true) }, RETRY_DELAY_MS)
   }
@@ -207,7 +236,7 @@ function schedule(block: HTMLElement, force = false): void {
   if (!isMermaidBlock(block)) return
   let state = states.get(block)
   if (state === undefined) {
-    state = { source: '', rendered: false, rendering: false, failCount: 0 }
+    state = { source: '', rendered: false, rendering: false, failCount: 0, engineFails: 0 }
     states.set(block, state)
   }
   // 捕获为 const：setTimeout 闭包会引用 state，TS 对 let 的收窄在闭包
@@ -258,8 +287,19 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
         for (const node of mutation.addedNodes) {
           addedCount += 1
           if (!(node instanceof HTMLElement)) continue
-          const block = node.classList.contains('md-code-block') ? node : node.closest<HTMLElement>('.md-code-block')
-          if (block !== null) schedule(block)
+          // 向上找：节点本身是块，或挂在某代码块内（新增的子元素）。
+          const self = node.classList.contains('md-code-block')
+            ? node
+            : node.closest<HTMLElement>('.md-code-block')
+          if (self instanceof HTMLElement) schedule(self)
+          // 向下扫（Grok 审阅意见 P0-①）：React 一次插入整个消息列表容器
+          // （remount/历史回放）时，容器内的 .md-code-block 不会出现在
+          // addedNodes 里——只做向上 closest 会整体漏检，全靠补扫兜底。
+          // 对容器向下 querySelectorAll 一次即覆盖全部块（块内无嵌套块，
+          // 若 self 已命中则无需再向下扫）。
+          if (self === null) {
+            for (const inner of node.querySelectorAll<HTMLElement>('.md-code-block')) schedule(inner)
+          }
         }
       } else {
         // characterData / attributes：mutation.target 可能是 **Text 节点**
