@@ -552,30 +552,7 @@ html[data-dsh-mobile] [data-conversation-scroll] {
 
    底栏视觉：.tools 提供完整面板 chrome（背景/圆角/阴影）；模型用同底同高
    的透明 fixed 层叠在右侧（pointer-events 只开自身），看起来像同一条底栏。
-
-   定位锚点（2026-08-09 二次修复，关键！）：
-   bottom 用 calc(100% + 8px)，**不再用 --dsh-composer-height**：
-   - 100% 指【包含块】高度。这里的 fixed 包含块不是视口——InputBar.module.css
-     的 .row 声明了 container-type: inline-size（供 PermissionSelect 的
-     @container 折叠查询），CSS 规范中 container-type 隐含的 layout containment
-     会让该元素成为其后代 fixed/absolute 定位元素的包含块（MDN position:fixed
-     的例外条款）。因此 fixed 后代的 100% = .row 的高度、bottom 相对 .row 解析，
-     底边落在「输入行顶上方 8px」，永远贴着输入卡。
-   - 旧方案 bottom: calc(var(--dsh-composer-height) + 8px) 的致命缺陷：该变量
-     是整个 composerSeat 的实时高度（ConversationRoot.tsx 用 ResizeObserver
-     量 seat.offsetHeight），**包含 dock 卡片（todo/goal/queue）、错误/通知条、
-     统计行、多行草稿**。座位一高，底栏底边就被推到座位顶上方——有 dock 时
-     底栏漂到半屏、与输入卡脱节；座位高于滚动视口时底栏直接被裁出屏外。
-     且同一变量驱动的菜单（旧修复）会被连坐压垮（见下方菜单段注释）。
-   - 键盘安全：dsh-android-edapp 的 shell-enhance.ts 把手机键盘弹出时的
-     html 高度同步为 visualViewport.height，整条 height:100% 链收缩，
-     .row 随输入框浮到键盘上方；锚在 .row 上的底栏/菜单自然跟随。
-     （若 fixed 包含块是视口，bottom:Npx 锚的是布局视口底，键盘弹出时
-     会被盖住——.row 包含块在这里反而救了键盘场景。）
-   - 依赖声明：本方案依赖 .row 的 container-type: inline-size 这一 DSH 现有
-     源码事实（InputBar.module.css）。若未来 DSH 移除该声明，fixed 后代退回
-     视口包含块，bottom: calc(100%+8px) 会把底栏顶出屏幕——届时需改为
-     视口锚定方案。已在此显式记录，便于后人排查。 */
+   bottom 用 --dsh-composer-height（ConversationRoot 实时高度，152px 兜底）。 */
 
 /* ---- 默认隐藏：.tools + 模型选择 ---- */
 html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div > div:first-child {
@@ -592,8 +569,7 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   position: fixed;
   left: 12px;
   right: 12px;
-  /* 底边 = 输入行(.row 包含块)顶上方 8px，与座位高度解耦（见上方锚点注释） */
-  bottom: calc(100% + 8px);
+  bottom: calc(var(--dsh-composer-height, 152px) + 8px);
   z-index: 50;
   flex-wrap: wrap;
   align-items: center;
@@ -613,8 +589,7 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   position: fixed;
   left: 12px;
   right: 12px;
-  /* 与 .tools 底栏同一锚点（.row 顶上方 8px），两条底边严格对齐 */
-  bottom: calc(100% + 8px);
+  bottom: calc(var(--dsh-composer-height, 152px) + 8px);
   z-index: 51; /* 高于 .tools 面板，确保可点 */
   align-items: center;
   justify-content: flex-end;
@@ -631,7 +606,7 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   pointer-events: auto; /* 模型触发按钮 + [role=menu] 均可点（直接子） */
 }
 
-/* ---- ModelSelect 一级/二级菜单手机可见性（2026-08-09 二次修复）----
+/* ---- ModelSelect 一级/二级菜单手机可见性（2026-08-09 用户实测）----
    ---------------------------------------------------------------------------
    结构（ModelSelect.tsx，不依赖 CSS modules 哈希类名）：
      根 div（上条规则已 fixed 成底栏右侧）
@@ -642,40 +617,26 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
            pane=effort ：思考等级列表
    （没有独立的二级 DOM——setPane 只切换同一 menu 内的内容。）
 
-   根因复盘（为什么上一版 fixed + composer-height 锚定在真机上连一级都看不见）：
-   1. 上一版把菜单 position:fixed + bottom: calc(--dsh-composer-height + 64px)
-      + max-height: min(360px, 100dvh - --dsh-composer-height - 80px)。
-      --dsh-composer-height 是整个 composerSeat 高度（dock 卡片/错误条/统计行/
-      多行草稿全算进去），真机正常会话里轻松 300~600px：
-      - 位置被推高：菜单底边锚在「座位底上方 seatHeight+64」，有 dock 时菜单
-        漂到座位顶之上、远离触发按钮；极端情况（座位高于滚动视口）直接被
-        .scrollBody（overflow:auto/hidden 双轴裁剪）整体裁掉 → 不可见。
-      - 高度被压垮：max-height = 100dvh - seatHeight - 80，seatHeight 一大
-        （如 600px、视口 740px）就只剩 60px 不到——一级两行 cell（88px+）
-        被压进 60px 的盒子里滚动 → 用户看到的约等于「菜单没出来」。
-      headless 模拟（390x844 空会话、无 dock、无统计行，seatHeight≈150~250）
-      恰好落在安全区，所以上一版在模拟器里"验证通过"、真机却复现——
-      测试环境没覆盖真实会话状态，不是代码没生效。
-   2. 本版的定位策略：**与座位高度完全解耦**。
-      菜单保持原生 position:absolute（相对根底栏——根已 fixed 即定位祖先），
-      bottom: calc(100% + 8px) = 根底栏顶上方 8px，永远贴着触发条；
-      不管 dock/统计行/草稿把座位撑多高、键盘是否弹过，菜单与触发条的
-      相对位置恒定。max-height 改用 min(360px, 60dvh)：键盘收起态（点 ⋯
-      与点模型按钮的交互路径必然先 blur 输入框 → 键盘收起）60dvh 必然
-      小于「根底栏顶 → 滚动区顶」的可用空间，顶边不会被裁。
-      （键盘仍开着的极端边角：100dvh 不随键盘收缩，max-height 可能偏大、
-      顶边被 .scrollBody 裁一截——但该状态下用户根本点不到被键盘盖住的
-      输入区，实际不可达，可接受。）
-   3. 兜底对抗只剩一件事：mobile-fallback 模式 1 对 [role="menu"] 强制
-      max-height: calc(100dvh - 24px) !important（防弹层超高，方向与本
-      规则相反）→ max-height/max-width 必须 !important 且靠更高特异性
-      稳赢（本选择器 ≈ 0,9,1 vs 兜底 0,2,1）。其余属性原生 .menu 已有
-      （背景/边框/圆角/阴影 token），不再重复声明。
-   4. 裁剪链：菜单 absolute 相对根底栏，根 overflow:visible（下方规则），
-      中间各祖先（.trailing/.row/.card）均无 overflow 裁剪；唯一裁剪边界是
-      .scrollBody（滚动容器），菜单位于其盒内，不受影响。
-      （.row 的 container-type: inline-size 只影响 fixed 包含块，不含
-      paint containment，不裁剪 absolute 后代。） */
+   根因：
+   1. sheet 打开时本文件把 ModelSelect 根设为 position:fixed → 成为其
+      absolute 子元素的包含块。原生 ModelSelect.module.css：
+        .menu { position:absolute; right:0; bottom:calc(100% + 8px);
+                max-height:min(360px, 100vh - 96px); overflow:hidden }
+      菜单底边锚在根上方、向上生长。
+   2. 一级仅 ~2×40px 行，整块落在视口内 → 可见可点。
+   3. 二级列表变高后，dsh-android-edapp 兜底 mobile-fallback 模式 1 对
+      [role="menu"] 强制 max-height: calc(100dvh - 24px) !important
+      （几乎整屏）→ 菜单向上顶出视口；内容 flex 顶对齐，可见的底边区域
+      往往是空白 → 用户反馈「二级面板看不见」。一级短故未暴露。
+   4. 另：根 fixed 后若祖先 overflow 裁剪，长菜单更容易被裁（overflow:visible 兜住）。
+
+   修复（纯 CSS，不移动/复制 DOM，React 事件保留）：
+   - 菜单改为 position:fixed，底边落在「⋯ 底栏」上方（与根同套
+     --dsh-composer-height 坐标系，视觉一致）
+   - max-height 克制到「底栏上沿 → 视口顶」可用空间（!important 压过兜底）
+   - 菜单自身 overflow-y:auto，列表再长也可滚
+   - z-index 抬到 900；展开时根同步抬高，整层压过底栏 .tools(50)
+   - 颜色/边框沿用原生 token（--dsw-specific-menu 等），此处不改。 */
 
 /* 根：禁止裁剪向上弹出的菜单；菜单展开时抬高整层 stacking */
 html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
@@ -685,29 +646,30 @@ html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-
   z-index: 900;
 }
 
-/* 菜单：absolute 贴根底栏上沿（一级/二级同一节点，一并修好）。
-   定位/尺寸靠特异性压原生 .menu（0,1,0）；max-height/max-width 加
-   !important 对抗兜底层模式 1（方向相反，见上方注释 3）。 */
+/* 菜单：fixed 进视口安全区 + 限高可滚（一级/二级同一节点，一并修好） */
 html[data-dsh-mobile][data-dsh-mobile-sheet] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) > [role="menu"] {
-  position: absolute;
-  /* 左右撑满根底栏（根已 left/right:12px → 菜单宽 = 屏宽-24，与底栏对齐）；
-     覆盖原生 right:0 + width:min(240px, …) */
-  left: 0;
-  right: 0;
-  width: auto;
-  /* 底边 = 根底栏顶上方 8px（100% = 根底栏高度）：与座位高度/键盘/视口
-     单位完全解耦，永远贴着触发条向上生长 */
-  bottom: calc(100% + 8px);
-  top: auto;
-  max-width: calc(100vw - 24px) !important; /* 与兜底同值，!important 保险 */
-  /* 高度上限：360px 与 60% 动态视口取小——必然落在「底栏顶 → 滚动区顶」
-     可用空间内；!important 对抗兜底的 calc(100dvh - 24px)（方向相反） */
-  max-height: min(360px, 60dvh) !important;
-  overflow-x: hidden;
-  overflow-y: auto; /* 列表再长也在菜单盒内滚动，不撑高盒子 */
-  z-index: 900; /* 压过底栏（根 51 / .tools 50）与座位内全部内容 */
+  position: fixed !important;
+  /* 左右贴屏 12px，与 ⋯ 底栏边距一致；覆盖原生 width:min(240px,…) */
+  left: 12px !important;
+  right: 12px !important;
+  width: auto !important;
+  max-width: calc(100vw - 24px) !important;
+  /* 底边 = 输入栏高 + 底栏(~48+8) + 与底栏间距 8 → 整块落在底栏上方 */
+  bottom: calc(var(--dsh-composer-height, 152px) + 64px) !important;
+  top: auto !important;
+  /* 高度不超过「菜单底边 → 视口顶」；必须 !important 对抗兜底 100dvh-24 */
+  max-height: min(360px, calc(100dvh - var(--dsh-composer-height, 152px) - 80px)) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  z-index: 900 !important;
   /* 触控滚动惯性（iOS/WebView） */
   -webkit-overflow-scrolling: touch;
+  /* 表面 token 与原生一致（显式写出，避免被其它层叠规则冲淡时无 fallback） */
+  background: var(--dsw-specific-menu);
+  border: 1px solid var(--dsw-alias-border-inverted);
+  box-shadow: var(--dsw-shadow-lv3);
+  border-radius: 12px;
+  box-sizing: border-box;
 }
 
 /* 「⋯」入口按钮（mobile-input-sheet.ts enhance 注入，append 在工具栏

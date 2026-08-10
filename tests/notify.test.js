@@ -17,7 +17,7 @@ import {
   sendChannelNotify,
   notifyToolDefinition,
 } from '../lib/notify.js'
-import { buildNotify } from '../lib/coi/index.js'
+import { buildNotify, buildChannelContent } from '../lib/coi/index.js'
 import { resolveConfig, validateRuntimePatch, RUNTIME_KEYS } from '../lib/index.js'
 
 const REGISTRY_KEY = '__dshChannelNotify'
@@ -220,8 +220,24 @@ test('buildNotify: channels-only config sends channel notification with template
   await notify({ taskId: 't-1', coi: 'grok', status: 'completed', summary: '搞定了一个大活\n第二行' })
   assert.equal(sent.length, 1)
   assert.equal(sent[0].channels, 'feishu')
-  // 模板断言：固定前缀 + 受控占位符；summary 压缩换行并截断
-  assert.match(sent[0].content, /^\[COI\] 任务 t-1（grok）completed：搞定了一个大活 第二行$/)
+  // 邮件式模板断言（用户拍板 2026-08-09）：开头保留 [COI] 标记行；
+  // 主题/简介/发送人/时间齐全；summary 压缩换行、简介 60 字、内容放最后
+  const c = sent[0].content
+  assert.match(c, /^\[COI\] 任务 t-1（grok）completed\n/)
+  assert.match(c, /📮 主题：任务完成：t-1（grok）/)
+  assert.match(c, /📝 简介：搞定了一个大活 第二行/)
+  assert.match(c, /👤 发送人：DSH AI 助手/)
+  assert.match(c, /🕐 时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+  assert.match(c, /📄 内容\n搞定了一个大活 第二行$/)
+})
+
+test('buildChannelContent: email-style template slices intro to 60 and body to 120', () => {
+  const long = '甲'.repeat(80) + '|' + '乙'.repeat(80)
+  const c = buildChannelContent('t-5', 'codex', 'completed', long)
+  // 简介=前 60 字；内容=前 120 字放最后；发送人/时间字段存在
+  assert.ok(c.includes(`📝 简介：${'甲'.repeat(60)}`))
+  assert.ok(c.includes(`📄 内容\n${'甲'.repeat(80)}|${'乙'.repeat(39)}`))
+  assert.ok(c.includes('👤 发送人：DSH AI 助手（dsh-memory-evolve）'))
 })
 
 test('buildNotify: command + channels coexist', async () => {
