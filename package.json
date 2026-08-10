@@ -15,10 +15,12 @@
     "build": "node scripts/build.mjs"
   },
   "license": "MIT",
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-runtime"
-    ],
-    "platform": "web"
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
   }
 }

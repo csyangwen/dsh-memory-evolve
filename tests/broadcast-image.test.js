@@ -14,7 +14,7 @@
 
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -198,12 +198,11 @@ test('broadcast send: 带附件 → 消息存元数据、广播 JSON 只存引�
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('broadcast read: 返回附件元数据含文件路径；remove 一并清理附件文件', async () => {
+test('broadcast read: 返回附件元数据含文件路径；remove 后附件延迟保留、prune 清理孤儿', async () => {
   const dir = tempDir()
   const store = new BroadcastStore(dir)
   const resolved = await resolveAttachments(dir, 'msg-s2', [{ base64: PNG_B64, fileName: '截图.png' }])
-  // 双接收者：read 一个不会触发"全员已读自动删除"（单接收者 read 即删除，
-  // 附件会被自动清理，无法验证 remove 路径）
+  // 双接收者：read 一个不会触发"全员已读自动删除"（单接收者 read 即删除）
   const { item } = store.send({ sender: 'session-a', recipients: ['session-b', 'session-c'], content: 'hi', attachments: resolved.attachments })
   // read：附件元数据 + 文件路径（AI 可读/转发）
   const read = store.read(item.id, 'session-b')
@@ -211,13 +210,23 @@ test('broadcast read: 返回附件元数据含文件路径；remove 一并清理
   assert.equal(read.item.attachments.length, 1)
   assert.equal(read.item.attachments[0].file, resolved.attachments[0].file)
   assert.ok(existsSync(resolved.attachments[0].file))
-  // remove：附件文件一并清理（无孤儿文件）
+  // remove：消息删除后附件**延迟保留**（2026-08-11 语义：AI 在 read 拿到的
+  // 路径需要转发/读图窗口，ATTACH_RETAIN_MS 内不删）——文件仍存在
   store.remove(item.id, 'session-a')
+  assert.ok(existsSync(resolved.attachments[0].file))
+  // prune：模拟超保留期 → 孤儿附件被清理（不引用 + mtime 过期）
+  // ⚠️ utimesSync 的时间参数是 epoch 秒（或 Date 对象）——传毫秒会被
+  // 当作秒解释成公元 55806 年，mtime 反成未来值导致清理条件不满足
+  const old = Date.now() - (24 * 3600 * 1000 + 60_000)
+  utimesSync(resolved.attachments[0].file, old / 1000, old / 1000)
+  const st = statSync(resolved.attachments[0].file)
+  assert.ok(st.mtimeMs < Date.now() - 24 * 3600 * 1000, 'mtime 已被改旧')
+  store.prune()
   assert.equal(existsSync(resolved.attachments[0].file), false)
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('broadcast read: 显式接收者全读自动删除 → 附件文件一并清理', async () => {
+test('broadcast read: 显式接收者全读自动删除 → 附件延迟保留（不随消息立即删）', async () => {
   const dir = tempDir()
   const store = new BroadcastStore(dir)
   const resolved = await resolveAttachments(dir, 'msg-s3', [{ base64: PNG_B64, fileName: 'a.png' }])
@@ -225,9 +234,9 @@ test('broadcast read: 显式接收者全读自动删除 → 附件文件一并�
   store.read(item.id, 'session-b')
   assert.ok(existsSync(resolved.attachments[0].file)) // 未全读不删
   store.read(item.id, 'session-c')
-  // 全员已读 → 消息自动删除 → 附件文件清理
-  assert.equal(existsSync(resolved.attachments[0].file), false)
+  // 全员已读 → 消息自动删除；附件延迟保留（转发窗口内不删）
   assert.equal(store.items.find((m) => m.id === item.id), undefined)
+  assert.ok(existsSync(resolved.attachments[0].file))
   rmSync(dir, { recursive: true, force: true })
 })
 

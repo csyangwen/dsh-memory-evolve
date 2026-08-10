@@ -240,6 +240,82 @@ test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', 
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('spawn agentPreset：合法预设透传 agents.create meta + 留档 + list 可见', async () => {
+  const dir = tempDir()
+  // 假 preset roster：临时目录里造 code/ 与 minimal/ 两个预设目录
+  // （真实部署时 shipped=~/.dsh/source/current/apps/cli/config/agent-presets，
+  // user=~/.dsh/.agent-presets；测试用 presetRoots 注入隔离，不碰真实目录）
+  const presetDir = join(dir, 'presets')
+  mkdirSync(join(presetDir, 'code'), { recursive: true })
+  mkdirSync(join(presetDir, 'minimal'), { recursive: true })
+  const agents = makeFakeAgents()
+  const ctx = makeCtx(agents)
+  const orch = new SessionOrch(ctx, {
+    store: new SessionOrchStore(dir),
+    getBroadcastStore: () => undefined,
+    presetRoots: [{ path: presetDir, shipped: false }],
+  })
+  const tool = sessionToolDefinition(orch)
+  const requesterAgent = {
+    session: { id: 'session-pm', header: { cwd: '/project/blog' }, requestHeader: () => ({ config: { provider: 'deepseek', model: 'deepseek-chat' } }) },
+    options: { provider: 'deepseek', model: 'deepseek-chat' },
+  }
+  const res = await tool.execute({ action: 'spawn', prompt: '任务', agentPreset: 'code' }, { agent: requesterAgent })
+  assert.equal(res.ok, true)
+  // ① 透传：agentPreset 进 create 的 **meta**（⚠️ 不是 agentOptions——
+  // DSH CreateAgentOptions.meta.agentPreset，见 packages/core/agent/src/index.ts:99）
+  const created = agents.state.created[0]
+  assert.equal(created.meta.agentPreset, 'code', 'agentPreset 透传 agents.create meta')
+  assert.equal(created.meta.cwd, '/project/blog', 'cwd 与 agentPreset 同在 meta，互不影响')
+  // ② 返回如实带预设
+  assert.equal(res.agentPreset, 'code')
+  assert.match(res.message, /Agent 预设 code/, 'message 提示创建时用的预设')
+  // ③ 记录留档（sessions.json：创建时配置属会话事实，list 追溯用）
+  const saved = JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8'))
+  assert.equal(saved[0].agentPreset, 'code')
+  // ④ list() 输出 sessions 带 agentPreset（schema 已同步声明）
+  const listRes = await tool.execute({ action: 'list' }, { agent: requesterAgent })
+  const rec = listRes.sessions.find((s) => s.sessionId === res.sessionId)
+  assert.equal(rec.agentPreset, 'code')
+  // ⑤ 不传 agentPreset：行为不变（meta 无该字段、返回 null、记录 null）
+  const res2 = await tool.execute({ action: 'spawn', prompt: '任务2' }, { agent: requesterAgent })
+  assert.equal(res2.ok, true)
+  assert.equal(res2.agentPreset, null)
+  assert.equal(agents.state.created[1].meta.agentPreset, undefined, '不传=meta 无 agentPreset（走 DSH 默认预设）')
+  const saved2 = JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8'))
+  assert.equal(saved2[1].agentPreset, null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('spawn agentPreset：格式不合法 / 不存在 → 明确报错并列出可用预设，不创建会话', async () => {
+  const dir = tempDir()
+  const presetDir = join(dir, 'presets')
+  mkdirSync(join(presetDir, 'code'), { recursive: true })
+  mkdirSync(join(presetDir, 'minimal'), { recursive: true })
+  const agents = makeFakeAgents()
+  const ctx = makeCtx(agents)
+  const orch = new SessionOrch(ctx, {
+    store: new SessionOrchStore(dir),
+    getBroadcastStore: () => undefined,
+    presetRoots: [{ path: presetDir, shipped: false }],
+  })
+  const tool = sessionToolDefinition(orch)
+  const requester = { agent: { session: { id: 'session-pm' } } }
+  // ① 格式不合法（含大写/下划线——DSH PRESET_ID 只允许小写字母数字连字符）
+  const bad = await tool.execute({ action: 'spawn', prompt: '任务', agentPreset: 'Bad_Preset!' }, requester)
+  assert.equal(bad.ok, false)
+  assert.match(bad.message, /格式不合法/)
+  assert.match(bad.message, /\[a-z0-9\]\[a-z0-9-\]\*/)
+  // ② 格式合法但不存在：报错并列出可用预设（AI 可直接照抄重试）
+  const missing = await tool.execute({ action: 'spawn', prompt: '任务', agentPreset: 'nope' }, requester)
+  assert.equal(missing.ok, false)
+  assert.match(missing.message, /"nope" 不存在/)
+  assert.match(missing.message, /可用预设：code, minimal/)
+  // ③ 两种失败都不创建会话（agents.create 未被调用，无残留）
+  assert.equal(agents.state.created.length, 0, '校验失败不创建会话')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('spawn 显式 model：按模型名自动解析 provider（与 GUI 模型选择框同源）；显式 provider 优先；解析不到提示风险', async () => {
   const dir = tempDir()
   const agents = makeFakeAgents()

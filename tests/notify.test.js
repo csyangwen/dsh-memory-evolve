@@ -22,6 +22,10 @@ import {
   sendChannelDirect,
   notifyToolDefinition,
   channelSendToolDefinition,
+  scanSessionImageRefs,
+  resolveSessionImage,
+  querySessionImages,
+  sessionImagesToolDefinition,
 } from '../lib/notify.js'
 import { buildNotify, buildChannelContent } from '../lib/coi/index.js'
 import { resolveConfig, validateRuntimePatch, RUNTIME_KEYS } from '../lib/index.js'
@@ -430,4 +434,204 @@ test('channel direct: channels=all iterates only registered channels', async () 
   const r = await sendChannelDirect({ channels: 'all', content: 'x' })
   assert.deepEqual(r.results.map((x) => x.channel), ['feishu'])
   assert.equal(r.results[0].ok, true)
+})
+
+// ---------------------------------------------------------------------------
+// 2026-08-11 P1：「输入框图片→渠道」桥——本会话图片引用（sessionImage / attachmentId）
+// ---------------------------------------------------------------------------
+
+/** 构造一个 260810 风格的本会话事件列表（含 ImageBlock 的四个载体）。 */
+function makeEvents() {
+  return [
+    // ① user/message 直接 content 带 image block
+    { type: 'user/message', seq: 0, time: 1000, data: { content: [
+      { type: 'text', text: '看图' },
+      { type: 'image', attachment: { attachmentId: 'sha256:aaa', mediaType: 'image/png', bytes: 100, width: 10, height: 10, name: 'a.png' } },
+    ] } },
+    // ② assistant/message 的 message.content
+    { type: 'assistant/message', seq: 1, time: 2000, data: { message: { content: [
+      { type: 'image', attachment: { attachmentId: 'sha256:bbb', mediaType: 'image/jpeg', bytes: 200, width: 20, height: 20 } },
+    ] } } },
+    // ③ inserted 数组载体
+    { type: 'user/message', seq: 2, time: 3000, data: { inserted: [
+      { content: [{ type: 'image', attachment: { attachmentId: 'sha256:ccc', mediaType: 'image/webp', bytes: 300, width: 30, height: 30 } }] },
+    ] } },
+    // ④ assistant/chunk block-end（与 ② 同图去重场景）
+    { type: 'assistant/chunk', seq: 3, time: 2000, data: { chunk: { type: 'block-end', block: { type: 'image', attachment: { attachmentId: 'sha256:bbb', mediaType: 'image/jpeg', bytes: 200, width: 20, height: 20 } } } } },
+    // ⑤ tool-result 嵌套 image
+    { type: 'assistant/message', seq: 4, time: 4000, data: { message: { content: [
+      { type: 'tool-result', content: [{ type: 'image', attachment: { attachmentId: 'sha256:ddd', mediaType: 'image/gif', bytes: 400, width: 40, height: 40 } }] },
+    ] } } },
+  ]
+}
+
+test('scanSessionImageRefs: collects image blocks from all four carriers, dedup-free raw order', () => {
+  const refs = scanSessionImageRefs(makeEvents())
+  assert.equal(refs.length, 5) // aaa/bbb(message)/ccc/bbb(chunk)/ddd——chunk 与 message 同图不算去重（扫描层不去重）
+  assert.deepEqual(refs.map((r) => String(r.ref.attachmentId)), ['sha256:aaa', 'sha256:bbb', 'sha256:ccc', 'sha256:bbb', 'sha256:ddd'])
+  assert.equal(refs[0].role, 'user')
+  assert.equal(refs[1].role, 'assistant')
+  assert.equal(refs[4].role, 'assistant')
+  assert.equal(refs[0].time, 1000)
+})
+
+test('scanSessionImageRefs: non-array / empty input → empty list', () => {
+  assert.deepEqual(scanSessionImageRefs(undefined), [])
+  assert.deepEqual(scanSessionImageRefs([]), [])
+  assert.deepEqual(scanSessionImageRefs([{ type: 'user/message', data: { content: [{ type: 'text', text: 'x' }] } }]), [])
+})
+
+/** 便捷构造：mock 插件 ctx（agents + attachments 服务）。 */
+function makeSessionCtx({ events, attachments = true, readBytes = Buffer.from('fake-image-bytes') } = {}) {
+  const svc = {
+    get(name) {
+      if (name === 'agents') {
+        return { get: (sid) => sid === 'session-1' ? { session: { events } } : undefined }
+      }
+      if (name === 'attachments') {
+        if (!attachments) return undefined
+        return {
+          readImage: async (ref) => ({ ref, data: new Uint8Array(readBytes) }),
+        }
+      }
+      return undefined
+    },
+  }
+  return svc
+}
+
+test('resolveSessionImage: sessionImage defaults to most recent image, returns base64 + inferred fileName', async () => {
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  const media = await resolveSessionImage(ctx, 'session-1', { kind: 'image', sessionImage: true })
+  assert.equal(media.kind, 'image')
+  assert.equal(media.base64, Buffer.from('fake-image-bytes').toString('base64'))
+  // 最近一张 = ddd（tool-result 嵌套，seq 4）→ mediaType image/gif → .gif；
+  // fileName 用 attachmentId 前 8 位字母数字短名（sha256ddd → sha256dd）
+  assert.equal(media.fileName, 'sha256dd.gif')
+})
+
+test('resolveSessionImage: explicit attachmentId matches only session-referenced image', async () => {
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  const media = await resolveSessionImage(ctx, 'session-1', { kind: 'image', attachmentId: 'sha256:bbb' })
+  assert.equal(media.fileName, 'sha256bb.jpg') // jpeg → .jpg
+  // 未引用的 attachmentId → 如实报错（与 host session.attachment 授权一致）
+  await assert.rejects(
+    () => resolveSessionImage(ctx, 'session-1', { kind: 'image', attachmentId: 'sha256:zzz' }),
+    /不在本会话引用中/,
+  )
+})
+
+test('resolveSessionImage: honest degradation on old snapshot / no session / no image', async () => {
+  // 260809 进程：attachments 服务不存在（ctx.get 返回 undefined）
+  const noAtt = makeSessionCtx({ events: makeEvents(), attachments: false })
+  await assert.rejects(
+    () => resolveSessionImage(noAtt, 'session-1', { kind: 'image', sessionImage: true }),
+    /260810/,
+  )
+  // 会话不在本进程（无 events）
+  const noSess = makeSessionCtx({ events: undefined })
+  await assert.rejects(
+    () => resolveSessionImage(noSess, 'session-1', { kind: 'image', sessionImage: true }),
+    /无法读取本会话事件/,
+  )
+  // 本会话没有图片
+  const empty = makeSessionCtx({ events: [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }] } }] })
+  await assert.rejects(
+    () => resolveSessionImage(empty, 'session-1', { kind: 'image', sessionImage: true }),
+    /本会话没有图片/,
+  )
+})
+
+test('sendChannelDirect: sessionImage attachment resolved via exec.agent and sent as base64 image', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  // execute 语义：第二参 exec 携带当前会话 agent
+  const exec = { agent: { session: { id: 'session-1' } } }
+  const r = await sendChannelDirect(
+    { channels: 'feishu', content: '转发', attachments: [{ kind: 'image', sessionImage: true }] },
+    { ctx, exec },
+  )
+  assert.equal(r.results.length, 1)
+  assert.equal(r.results[0].ok, true)
+  // 发送的是最近一张图（ddd）的 base64，content 并入 caption
+  assert.equal(entry.calls[0].media.kind, 'image')
+  assert.equal(entry.calls[0].media.base64, Buffer.from('fake-image-bytes').toString('base64'))
+  assert.match(entry.calls[0].media.caption, /转发/)
+})
+
+test('sendChannelDirect: sessionImage without tool context (COI path) → honest error, no crash', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  // 无 ctx/exec（如 COI 自动通知调用 sendChannelNotify 的路径）
+  const r = await sendChannelDirect({ channels: 'feishu', attachments: [{ kind: 'image', sessionImage: true }] }, {})
+  assert.equal(r.results.length, 1)
+  assert.equal(r.results[0].ok, false)
+  assert.match(r.results[0].error, /工具调用上下文/)
+})
+
+test('sendChannelNotify: sessionImage attachments resolved once, reused across channels', async () => {
+  const feishu = feishuEntry()
+  const wecom = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu, wecom }
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  const exec = { agent: { session: { id: 'session-1' } } }
+  const r = await sendChannelNotify(
+    { channels: 'all', content: '通知', attachments: [{ kind: 'image', attachmentId: 'sha256:aaa' }] },
+    { ctx, exec },
+  )
+  // de_notify 语义：content 走 send（文本）+ 附件走 sendMedia，每渠道 2 条 → 共 4 条
+  assert.equal(r.results.length, 4)
+  assert.equal(r.results.every((x) => x.ok), true)
+  // 附件部分（第 2、4 条）是解析后的 base64 图片
+  assert.equal(feishu.calls[1].media.base64, Buffer.from('fake-image-bytes').toString('base64'))
+  assert.equal(wecom.calls[1].media.base64, Buffer.from('fake-image-bytes').toString('base64'))
+})
+
+test('querySessionImages: lists recent images newest-first with dedup', async () => {
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  const exec = { agent: { session: { id: 'session-1' } } }
+  const r = await querySessionImages(ctx, exec, { limit: 3 })
+  assert.equal(r.sessionId, 'session-1')
+  // 最近在前（按事件 seq 倒序）+ chunk/message 同图去重：ddd(seq4), bbb(seq3 chunk, seq1 message 去重), ccc(seq2)
+  assert.deepEqual(r.images.map((i) => i.attachmentId), ['sha256:ddd', 'sha256:bbb', 'sha256:ccc'])
+  assert.equal(r.images[0].mediaType, 'image/gif')
+  assert.equal(r.images[0].role, 'assistant')
+  assert.equal(r.images[1].role, 'assistant')
+  assert.equal(r.images[2].role, 'user')
+  assert.match(r.summary, /attachmentId/)
+})
+
+test('querySessionImages: no session context / no events / no images → summary explains', async () => {
+  // 无 exec（无工具调用上下文）
+  const ctx = makeSessionCtx({ events: makeEvents() })
+  const noExec = await querySessionImages(ctx, undefined, {})
+  assert.equal(noExec.sessionId, '')
+  assert.match(noExec.summary, /上下文/)
+  // 无事件
+  const noEvents = await querySessionImages(makeSessionCtx({ events: undefined }), { agent: { session: { id: 'session-1' } } }, {})
+  assert.match(noEvents.summary, /无法读取本会话事件/)
+  // 会话无图片
+  const empty = await querySessionImages(makeSessionCtx({ events: [{ type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'x' }] } }] }), { agent: { session: { id: 'session-1' } } }, {})
+  assert.deepEqual(empty.images, [])
+  assert.match(empty.summary, /没有图片/)
+})
+
+test('session_images tool: DSH-compatible schema and execute forwarding', async () => {
+  const tool = sessionImagesToolDefinition(async (exec, args) => ({ sessionId: 's', images: [], summary: 'ok' }))
+  assert.equal(tool.name, 'de_session_images')
+  assert.equal(tool.parameters.type, 'object') // 单一 type
+  assert.ok(Array.isArray(tool.parameters.required)) // 顶层 required 数组
+  assert.ok(tool.output.schema && typeof tool.output.render === 'function')
+  // execute 转发 (args, exec) → query(exec, args)
+  const value = await tool.execute({ limit: 2 }, { agent: { session: { id: 's1' } } })
+  assert.equal(value.summary, 'ok')
+})
+
+test('sessionImageQueryEnabled: RUNTIME_KEYS + validateRuntimePatch + 默认关', () => {
+  assert.ok(RUNTIME_KEYS.includes('sessionImageQueryEnabled'))
+  validateRuntimePatch('sessionImageQueryEnabled', false)
+  validateRuntimePatch('sessionImageQueryEnabled', true)
+  assert.throws(() => validateRuntimePatch('sessionImageQueryEnabled', 'yes'), /布尔值/)
+  assert.equal(resolveConfig({}).sessionImageQueryEnabled, false)
 })

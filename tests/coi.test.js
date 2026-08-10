@@ -963,7 +963,9 @@ async function bootApi(dir, overrides = {}) {
     adapters: stores.adapters,
     sessions: stores.sessions,
     tasks: stores.tasks,
-    config: { coiTaskTimeoutMs: 60000 },
+    // coiDataDir 与 svc.config 保持一致：resolveAttachments 需要它拼附件目录
+    // （2026-08-11 回归修复：曾缺该项，无附件调用时对象字面量 join 立即求值抛错）
+    config: { coiTaskTimeoutMs: 60000, coiDataDir: dir },
   }, { spawn: harness.spawn })
   schedulers.push(scheduler)
   scheduler.recover()

@@ -51,6 +51,11 @@ interface ModelRow {
   enabled: boolean
   /** 是否支持思考（插件开关，默认 true）。 */
   thinking: boolean
+  /**
+   * 图片输入能力（只读聚合，来自 adapter 能力元数据 inputModalities）：
+   * true=支持 / false=显式不支持 / null=未知（缺失声明，不猜测）。
+   */
+  supportsImage: boolean | null
   note: string
   configured: boolean
   reasoning: ModelReasoning | null
@@ -116,6 +121,7 @@ function modelsGuideSections(t: Translate): GuideSection[] {
         t('modelsTab.guide.config.item2'),
         t('modelsTab.guide.config.item3'),
         t('modelsTab.guide.config.item4'),
+        t('modelsTab.guide.config.item5'),
       ],
     },
     {
@@ -480,6 +486,12 @@ function RowView(props: {
         <div className="mt-models-model">
           <span className="mt-models-model-name">{row.name}</span>
           <span className="mt-models-model-id">{row.id}</span>
+          {/* 视觉能力标记（只读，来自 adapter 能力元数据 inputModalities）：
+              仅 true（模型显式声明支持图片输入）时显示；false/null 不显示，
+              不加列不动布局。 */}
+          {row.supportsImage === true
+            ? <span className="mt-models-tag" title={t('modelsTab.supportsImageHint')}>{t('modelsTab.supportsImage')}</span>
+            : null}
         </div>
       </td>
       <td className="mt-models-cell mt-models-col-capacity">
