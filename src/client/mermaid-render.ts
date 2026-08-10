@@ -301,7 +301,11 @@ function ensureDownloadButton(block: HTMLElement): void {
   const svg = wrap.querySelector<SVGSVGElement>('svg')
   if (svg === null) return
   // 幂等：按钮已存在（自己插的）则不动，避免重复累积。
-  if (wrap.querySelector('.me-mermaid-download') !== null) return
+  // ⚠️ 必须 **block 级** 检查：按钮优先插在 wrap 之外的 .action 操作区
+  // （复制按钮旁），若只查 wrap 内部永远查不到 → 每次 mutation 都重复
+  // 插入 → 插入本身又触发新的 mutation → observer 自激无限循环 → 主线程
+  // 被占满、页面卡死（2026-08-11 实测事故，commit cde0038 已回滚修复）。
+  if (block.querySelector('.me-mermaid-download') !== null) return
   // 优先插到复制按钮所在的操作区（.action，CSS module 类名含 action
   // 子串），贴近用户期望的"复制按钮旁边"；找不到操作区（结构变化）
   // 则退回 wrap 右上角（CSS 里绝对定位兜底）。
