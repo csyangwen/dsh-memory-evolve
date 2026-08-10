@@ -2,7 +2,7 @@
  * dsh-memory-evolve — 左侧会话列表「仅显示进行中」筛选 + 运行状态提示注入。
  *
  * 纯客户端 DOM 增强（不改 DSH 框架源码）。原理（调研文档
- * docs/DSH-UI设置模块-调研-20260809.md）：
+ * docs-local/DSH-UI设置模块-调研-20260809.md）：
  *
  * - 会话行 DOM：`div[role="treeitem"][aria-selected]`——工作区分组行有
  *   `aria-expanded` 无 `aria-selected`，搜索结果行是 `<button>`（天然排除

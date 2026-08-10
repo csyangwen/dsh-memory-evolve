@@ -43,7 +43,7 @@ memory-evolve 的体验。本仓自身无此 bug（已用 `ctx.slots.inject`）�
 同工作区多会话并行时对同一文件写入 / git 状态 / 服务产生冲突。用户拍板：①语义上属于"通知的一部分"，**归入会话广播模块**（模块已多，先归类不新开）；②默认关（大开关 broadcastEnabled + 子开关 wsCoordEnabled 均默认关）；③一期不做 git 互斥（让 AI 自己注意）与客户端面板；④**软模式**——先信任 AI，冲突只警告不拦截（enforceWrite 硬拦截保留为开关位）；⑤活动快照带当前日期时间。
 
 ### 调研
-- `docs/工作区冲突协调-调研-20260809.md`：源码级验证——`fs/write-intent` 被核心 fs-policy **单槽独占**（插件不可用）；`tools/pre-execute` 是**官方留给插件的扩展点**（deny/allow/ask，核心无占用者）→ 冲突检测通道；`fs/observed` 是 emit 事件、actor=ToolExecution（可拿 agent.session.id）、targetKey=realpath → **自动登记通道**（写过的文件自动进占用集，不靠 AI 自觉）；`tools/post-execute` additionalContexts 可注入警告上下文（官方测试同款写法）。
+- `docs-local/工作区冲突协调-调研-20260809.md`：源码级验证——`fs/write-intent` 被核心 fs-policy **单槽独占**（插件不可用）；`tools/pre-execute` 是**官方留给插件的扩展点**（deny/allow/ask，核心无占用者）→ 冲突检测通道；`fs/observed` 是 emit 事件、actor=ToolExecution（可拿 agent.session.id）、targetKey=realpath → **自动登记通道**（写过的文件自动进占用集，不靠 AI 自觉）；`tools/post-execute` additionalContexts 可注入警告上下文（官方测试同款写法）。
 
 ### 实现
 - **宿主端** `lib/coi/ws-coord.js`（独立装配子单元，防 08-08「广播挂 COI 拆不开」事故）：`WsCoordStore`（<broadcastDataDir>/ws-coord/locks.json 原子写、TTL/过期清理/路径归一化/按 cwd 工作区隔离）；三工具 `de_ws_declare`（声明文件/服务 + conflicts 重叠检测）/ `de_ws_status`（**无参=工作区活动概览**——谁在跑、在干什么）+ 路径/会话交集查询）/ `de_ws_release`；事件监听：`fs/observed` 自动登记（autoRegister 子开关）、`tools/pre-execute` 写前冲突检测（软模式放行+记录 / enforceWrite 硬模式 deny）、`tools/post-execute` 警告注入（additionalContexts，模型下一轮可见）、`agent/status` 会话元信息（cwd/status）、`agent/turn-stopping` 释放本回合 observed 锁；冲突时给占用方发**定向通知**（notifyConflict 子开关，走广播 store send）；**活动感知快照段**【工作区活动】（wsCoordSnapshot 子开关：活跃会话 ≥2 时注入一行、**带当前时间**、别名显示、0~1 会话零开销）。
@@ -71,7 +71,7 @@ memory-evolve 的体验。本仓自身无此 bug（已用 `ctx.slots.inject`）�
 给对话的**每一轮打标签**（书签），独立列表一键跳回；**从任意轮创建官方分支**（官方 UI 只允许最后一轮分支——调研确认核心层 `session.fork` 支持任意已完成轮，限制仅是 UI 禁用按钮）。先做标记+跳转，分支经用户确认后本期一并实现。
 
 ### 调研
-- `docs/会话书签-调研-20260809.md`：双人并行调研（Grok 源码层 + Codex 设计层）综合——fork 在 Core/Host/Client 三层支持任意已完成轮（`fork.spec.ts` "forks from an earlier turn boundary…"）；UI 层按钮每条轮尾都渲染、非最后一条仅 `aria-disabled` + tooltip（产品层收敛非技术限制）；积木：`conversation.chat.turnTail` 槽 / `data-chat-anchor-key` 锚点 / `session.fork` RPC。
+- `docs-local/会话书签-调研-20260809.md`：双人并行调研（Grok 源码层 + Codex 设计层）综合——fork 在 Core/Host/Client 三层支持任意已完成轮（`fork.spec.ts` "forks from an earlier turn boundary…"）；UI 层按钮每条轮尾都渲染、非最后一条仅 `aria-disabled` + tooltip（产品层收敛非技术限制）；积木：`conversation.chat.turnTail` 槽 / `data-chat-anchor-key` 锚点 / `session.fork` RPC。
 
 ### 实现
 - **宿主端** `lib/bookmarks.js`：`BookmarkStore`（sidecar JSON 原子写、按 sessionId 隔离、同轮去重、上限 500/会话）；HTTP API `/memory-evolve/api/bookmarks`（CRUD + `/state` 探测，关闭时 404）；`buildForkSeed`（复刻官方 api-proxy 边界算法：atSeq → ≥ 该 seq 的第一个 `turn/end`，顺延吸收 out-of-band，**DSH 事件 seq 是 0-based**）；`forkSession`（`agents.create(seed, parentSession, seedLength, cwd)` + `workspace.attachSession`，与官方 fork RPC 同路径）；`bookmarkEnabled` 独立开关（默认关，RUNTIME_KEYS/validateRuntimePatch/applyRuntimePatch sync 链）；
@@ -134,7 +134,7 @@ npm test 272 全绿；DSH `assertSupportedJsonSchema` 通过；npm run build 成
 每个工作区都有很多会话，最关注的是正在运行的这一个——给左侧会话列表加筛选，**默认只显示进行中的会话**。作为新独立模块「DSH UI 设置」（dsh-ui-settings）的第一个功能：对 DSH web 界面做样式级小功能（后期扩展主题更换等）。用户拍板筛选语义：**只隐藏纯 idle**，活跃（正在生成/等审批/等回答/有子代理在跑/出错）+ 已完成未查看全部保留。
 
 ### 方案（纯客户端 DOM 增强，不改 DSH 框架）
-- 调研确认（docs/DSH-UI设置模块-调研-20260809.md）：左侧列表由 ui-workspace 渲染在 `sidebar.workspaces`（kind:single，无法叠加组件）→ 走 DOM 增强；会话行有稳定锚点 `div[role=treeitem][aria-selected]`（工作区行有 aria-expanded、搜索结果行是 button 天然排除）；状态点 StateDot 带 `data-state` 属性，**纯 idle 行无状态点**
+- 调研确认（docs-local/DSH-UI设置模块-调研-20260809.md）：左侧列表由 ui-workspace 渲染在 `sidebar.workspaces`（kind:single，无法叠加组件）→ 走 DOM 增强；会话行有稳定锚点 `div[role=treeitem][aria-selected]`（工作区行有 aria-expanded、搜索结果行是 button 天然排除）；状态点 StateDot 带 `data-state` 属性，**纯 idle 行无状态点**
 - 过滤规则是纯 CSS：`html[data-dsh-ui-filter="on"] [role="tree"] div[role="treeitem"][aria-selected]:not(:has([data-state])) { display:none }`——React 重渲染后选择器实时生效（会话开始跑自动出现、空闲自动隐藏），无轮询；`:has()` 需 Chrome 105+
 - session-filter.ts：注入「仅进行中/全部」分段筛选条（锚定 [role=tree] 插到列表顶部）+ MutationObserver 保活（React 重渲染清掉后自动重注入）+ localStorage 偏好（无记录默认开启筛选）；状态挂 `documentElement.dataset`（React 不管理 html 属性）
 

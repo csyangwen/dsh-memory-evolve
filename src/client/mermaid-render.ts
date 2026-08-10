@@ -1,7 +1,7 @@
 /**
  * dsh-memory-evolve — Mermaid 图表渲染（DSH UI 设置模块·功能六）。
  *
- * 背景（调研 docs/Mermaid显示支持-调研-20260810.md）：DSH Web GUI 的
+ * 背景（调研 docs-local/Mermaid显示支持-调研-20260810.md）：DSH Web GUI 的
  * Markdown 渲染管线（ui-primitives render.tsx / CodeBlock / Shiki 语法
  * 白名单）没有 mermaid 分支，```mermaid 块一律显示为代码文本（无高亮、
  * 可复制）。本模块用 client 侧 DOM 增强补上：MutationObserver 监听消息

@@ -10,7 +10,7 @@
  * 过滤规则作用域挂在 <html data-dsh-ui-filter="on">（session-filter.ts
  * 控制，localStorage 记忆偏好，默认开启）。
  *
- * 选择器依据（调研文档 docs/DSH-UI设置模块-调研-20260809.md）：
+ * 选择器依据（调研文档 docs-local/DSH-UI设置模块-调研-20260809.md）：
  * - 会话行 = div[role="treeitem"][aria-selected]（工作区分组行有
  *   aria-expanded 无 aria-selected；搜索结果行是 <button>——div 天然排除，
  *   搜索模式下筛选不生效）；

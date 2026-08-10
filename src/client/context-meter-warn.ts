@@ -5,7 +5,7 @@
  * （ContextMeter）平时是灰色小环，占用率高时没有警示。需求：**≥30% 变
  * 黄色提醒、≥40% 变红色提醒**，低于阈值恢复原色。
  *
- * 实现原理（调研文档 docs/DSH-UI设置模块-调研-20260809.md）：
+ * 实现原理（调研文档 docs-local/DSH-UI设置模块-调研-20260809.md）：
  * - ContextMeter（ui-conversation/src/client/skeleton/ContextMeter.tsx）
  *   的进度环是 SVG circle：`strokeDasharray = "${C·p/100} ${C}"`
  *   （C=2π×5.5≈34.56 恒定）→ **percent 可直接反推**：p = dash/34.56×100；

@@ -513,4 +513,4 @@ MIT
 
 ## Third-party notices
 
-- `vendor/mermaid.min.js` — [Mermaid](https://mermaid.js.org/) v11.16.0 (MIT License), used as the client-side diagram rendering engine (loaded lazily from the plugin's static endpoint; see docs/Mermaid显示支持-调研-20260810.md). Source: DSH checkout `node_modules/mermaid/dist/mermaid.min.js`.
+- `vendor/mermaid.min.js` — [Mermaid](https://mermaid.js.org/) v11.16.0 (MIT License), used as the client-side diagram rendering engine (loaded lazily from the plugin's static endpoint; see docs-local/Mermaid显示支持-调研-20260810.md). Source: DSH checkout `node_modules/mermaid/dist/mermaid.min.js`.
