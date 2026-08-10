@@ -33,6 +33,15 @@
 /** 内容稳定判定等待时长（ms）：流式输出停顿这么久且内容不变才渲染。 */
 const STABLE_MS = 400
 
+/**
+ * 强制重试路径的稳定判定等待（ms）：渲染被打断/图被还原时内容不会再变
+ * （React 重建不改内容），短等待即可，缩短 Tab 切换恢复时间。
+ */
+const FORCE_STABLE_MS = 150
+
+/** 渲染被打断后的重试延迟（ms）：等 React 重建窗口过去再重试（重建通常 <100ms）。 */
+const RETRY_DELAY_MS = 200
+
 /** 引擎脚本地址（宿主端静态端点，见 lib/mermaid.js）。 */
 const ENGINE_SRC = '/memory-evolve/mermaid/mermaid.min.js'
 
@@ -180,7 +189,7 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
   // schedule(force=true) 跳过源码短路、重置稳定判定计时器。React 若持续
   // 重渲染则重试到稳定为止。
   if (!state.rendered && block.isConnected && block.querySelector('pre') !== null) {
-    window.setTimeout(() => { schedule(block, true) }, 600)
+    window.setTimeout(() => { schedule(block, true) }, RETRY_DELAY_MS)
   }
 }
 
@@ -204,11 +213,14 @@ function schedule(block: HTMLElement, force = false): void {
   // 捕获为 const：setTimeout 闭包会引用 state，TS 对 let 的收窄在闭包
   // 捕获后会失效（conservative reset），const 捕获不受影响。
   const s = state
-  // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置重走。
+  // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置并**立即**走
+  // 强制路径重渲染（图被还原时内容不会再变，短稳定等待即可，不等 400ms）。
   if (s.rendered && block.querySelector('.me-mermaid-wrap') === null) {
     s.rendered = false
     s.failCount = 0 // 图被还原 = 环境已重置，清失败计数允许重新尝试。
     block.removeAttribute(RENDERED_MARK)
+    schedule(block, true)
+    return
   }
   if (s.rendered) return
   const source = block.querySelector('pre')?.textContent ?? ''
@@ -223,7 +235,7 @@ function schedule(block: HTMLElement, force = false): void {
     } else {
       schedule(block) // 仍在变化（流式继续）→ 重新计时。
     }
-  }, STABLE_MS)
+  }, force ? FORCE_STABLE_MS : STABLE_MS)
 }
 
 /**
@@ -277,7 +289,7 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
    */
   const scheduleRescans = (): void => {
     window.clearTimeout(rescanTimer)
-    const delays = [500, 2000, 5000, 10000]
+    const delays = [300, 1000, 2500, 6000]
     const run = (index: number): void => {
       if (index >= delays.length) return
       rescanTimer = window.setTimeout(() => {
