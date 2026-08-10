@@ -175,20 +175,114 @@ function isMermaidBlock(block: HTMLElement): boolean {
  *
  * 之前的行为是静默保留代码块——用户看到"还是代码"却不知道为什么。
  * 提示文案跟随页面语言（zh/en），颜色样式见 mermaid-render.css。
+ * 附带 mermaid 错误信息首行（含行号定位，如 "Lexical error on line 5.
+ * Unrecognized text."），用户/AI 可据此针对性修正。
  *
  * @param block - 目标代码块。
+ * @param error - 最后一次渲染失败的错误（可选，用于提取定位信息）。
  */
-function showErrorHint(block: HTMLElement): void {
+function showErrorHint(block: HTMLElement, error?: unknown): void {
   if (block.querySelector('.me-mermaid-error') !== null) return // 已提示过，不重复插入。
   const pre = block.querySelector('pre')
   if (pre === null) return
   const hint = document.createElement('div')
   hint.className = 'me-mermaid-error'
+  // mermaid 错误信息首行含定位（如 "Lexical error on line 5. Unrecognized text."），
+  // 展示给用户/AI 便于针对性修正；截断防超长。
+  const detail = error instanceof Error
+    ? (String(error.message).split('\n')[0] ?? '').slice(0, 80)
+    : ''
   const zh = (document.documentElement.lang ?? '').toLowerCase().startsWith('zh')
   hint.textContent = zh
-    ? '⚠ mermaid 语法错误，已保留代码（可复制修正）'
-    : '⚠ mermaid syntax error, code kept'
+    ? `⚠ mermaid 渲染失败${detail === '' ? '' : `：${detail}`}，已保留代码（可复制修正）`
+    : `⚠ mermaid render failed${detail === '' ? '' : `: ${detail}`}, code kept`
   pre.insertAdjacentElement('beforebegin', hint)
+}
+
+/**
+ * mermaid 源码高置信度自动修正（首次渲染失败后尝试一次）。
+ *
+ * 雷区实测（2026-08-11，kroki / mermaid.ink 双真实引擎验证，mermaid 11.16.0）：
+ * 1. subgraph 标题字符集极窄：全角/半角括号、！？等标点都会报
+ *    "Lexical error ... Unrecognized text"；用双引号包裹标题即可绕过
+ *    （subgraph "标题（任意标点）" 实测通过）——AI 生成的图 subgraph
+ *    标题带中文括号太常见，这是"很多图显示不出来"的头号原因。
+ * 2. 边标签 |...| 与节点标签 [...] 里的半角引号（'、"）和半角括号
+ *    （()）会被 lexer 当成语法 token（STR / 形状定界符），报
+ *    "Parse error ... got 'STR'"；换成中文全角等价字符（‘ ’ “ ” （ ））
+ *    即成为普通文本，语义不变（实测通过）。引号按出现顺序交替成对
+ *    （第奇数个→左引号，第偶数个→右引号），`ctx.get('llm')` 显示为
+ *    `ctx.get（‘llm’）`。
+ *
+ * 原则：只做上述高置信度替换，宁可不修也不乱改——改错语义比不渲染更糟；
+ * 修正版仅用于渲染，代码块内保留原文供复制。
+ *
+ * @param source - 原始 mermaid 源码。
+ * @returns 修正后的源码；无需修正时返回 null。
+ */
+function autoFixMermaid(source: string): string | null {
+  let changed = false
+  const fixed = source.split('\n').map((line) => {
+    // 规则 1：subgraph 标题引号化。
+    //   形如 "subgraph 标题" 的行；标题未用引号包裹、也未用 [id] 形式，
+    //   且含 mermaid 标题 token 不认的标点 → 双引号包裹（内部 " 转义）。
+    const sub = /^(\s*subgraph\s+)(.+?)\s*$/.exec(line)
+    if (sub !== null) {
+      const title = sub[2]
+      if (
+        !title.startsWith('"') &&
+        !title.startsWith('[') &&
+        /[（）()！？!?，。；：、""''【】《》]/.test(title)
+      ) {
+        changed = true
+        return `${sub[1]}"${title.replace(/"/g, '\\"')}"`
+      }
+      return line
+    }
+    // 规则 2：边标签（-->|label|）里的危险字符中文化。
+    //   仅处理竖线形式标签（--text--> 形式不猜）；已用引号包裹的标签
+    //   跳过（不猜作者的转义意图）。
+    const edge = /^(\s*\S[^|]*?)\|([^|]*)\|(.*)$/.exec(line)
+    if (edge !== null && edge[1].includes('-->') && !edge[2].startsWith('"') && !edge[2].startsWith("'")) {
+      const fixedLabel = fixDangerChars(edge[2])
+      if (fixedLabel !== edge[2]) {
+        changed = true
+        return `${edge[1]}|${fixedLabel}|${edge[3]}`
+      }
+      return line
+    }
+    // 规则 3：节点标签 [...] 里的半角引号中文化（[ 后紧跟引号 = 已包裹，
+    //   跳过；半角括号在节点文本里实测安全，不处理）。
+    const node = /^(\s*\S+?\s*)(\[)([^\]]*)(\])(.*)$/.exec(line)
+    if (node !== null && !node[3].startsWith('"') && !node[3].startsWith("'") && /['"]/.test(node[3])) {
+      const fixedText = fixDangerChars(node[3])
+      if (fixedText !== node[3]) {
+        changed = true
+        return `${node[1]}${node[2]}${fixedText}${node[4]}${node[5]}`
+      }
+    }
+    return line
+  })
+  return changed ? fixed.join('\n') : null
+}
+
+/**
+ * 把一段 mermaid 文本里的半角引号/括号换成中文全角等价字符。
+ *
+ * 引号按出现顺序交替成对：' → ‘（开）/'（闭），" → “（开）/”（闭）；
+ * 括号成对替换：( → （，) → ）。
+ *
+ * @param text - 原始文本。
+ * @returns 替换后的文本（无危险字符时原样返回）。
+ */
+function fixDangerChars(text: string): string {
+  let singleOpen = true
+  let doubleOpen = true
+  return text.replace(/['"()]/g, (ch) => {
+    if (ch === "'") { const q = singleOpen ? '\u2018' : '\u2019'; singleOpen = !singleOpen; return q }
+    if (ch === '"') { const q = doubleOpen ? '\u201c' : '\u201d'; doubleOpen = !doubleOpen; return q }
+    return ch === '(' ? '\uff08' : '\uff09'
+  })
 }
 
 /**
@@ -219,35 +313,48 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
     }
     return
   }
-  // 渲染 id（mermaid.render 要求唯一）：mermaid 失败时默认会在 body 末尾
-  // 残留 #d{id} 错误块，本 id 变量同时用于失败路径的清理。
-  const id = `me-${++renderSeq}`
+  // 尝试序列：原样源码 → 高置信度自动修正版（autoFixMermaid，仅当修正
+  // 有意义才追加；修正版只用于渲染，代码块里的源码保持原文可复制）。
+  const attempts: Array<{ text: string }> = [{ text: source }]
+  const fixed = autoFixMermaid(source)
+  if (fixed !== null) attempts.push({ text: fixed })
+  let lastError: unknown
   try {
-    const pre = block.querySelector('pre')
-    // 等待引擎期间块被 React 换掉（重渲染/移除）→ 放弃本轮，走下方重试。
-    if (pre === null || !pre.isConnected) return
-    const { svg } = await engine.render(id, source)
-    const preAfter = block.querySelector('pre')
-    // 渲染期间被 React 替换（Tab 切换 remount 视图等）→ 放弃，走下方重试。
-    if (preAfter !== pre) return
-    const wrap = document.createElement('div')
-    wrap.className = 'me-mermaid-wrap'
-    wrap.innerHTML = svg
-    pre.replaceWith(wrap)
-    state.rendered = true
-    state.failCount = 0
-    state.engineFails = 0
-    block.setAttribute(RENDERED_MARK, '')
-    // 成功 = 图真的渲染出来了，清掉可能的失败标记（之前失败过又被还原的块）。
-    block.removeAttribute(FAILED_MARK)
-  } catch (error) {
-    // 双保险清理：suppressErrorRendering 已让 mermaid 失败时自行清理临时
-    // 元素，这里再防御性删除本轮 id 对应的错误块（#d{id}），覆盖配置未
-    // 生效/版本差异的情况，保证页面不残留错误图。
-    document.getElementById(`d${id}`)?.remove()
-    // render 失败 = 图定义问题（典型语法错误）→ 重试无意义，计数 2 次后
-    // 标记永久失败（保留代码块 + 提示行 + console），此前延迟重试
-    // （防一次性抖动）。
+    for (const attempt of attempts) {
+      // 渲染 id（mermaid.render 要求唯一）：mermaid 失败时默认会在 body 末尾
+      // 残留 #d{id} 错误块，id 同时用于失败路径的清理（suppressErrorRendering
+      // 已让引擎自行清理，这里是双保险）。
+      const id = `me-${++renderSeq}`
+      try {
+        const pre = block.querySelector('pre')
+        // 等待引擎期间块被 React 换掉（重渲染/移除）→ 放弃本轮，走下方重试。
+        if (pre === null || !pre.isConnected) return
+        const { svg } = await engine.render(id, attempt.text)
+        const preAfter = block.querySelector('pre')
+        // 渲染期间被 React 替换（Tab 切换 remount 视图等）→ 放弃，走下方重试。
+        if (preAfter !== pre) return
+        const wrap = document.createElement('div')
+        wrap.className = 'me-mermaid-wrap'
+        wrap.innerHTML = svg
+        pre.replaceWith(wrap)
+        state.rendered = true
+        state.failCount = 0
+        state.engineFails = 0
+        block.setAttribute(RENDERED_MARK, '')
+        // 成功 = 图真的渲染出来了，清掉可能的失败标记（之前失败过又被还原的块）。
+        block.removeAttribute(FAILED_MARK)
+        return
+      } catch (error) {
+        lastError = error
+        // 双保险清理：防御性删除本轮 id 对应的错误块（#d{id}），保证页面
+        // 不残留错误图（2026-08-10 实测：语法错误块在页面下方堆积）。
+        document.getElementById(`d${id}`)?.remove()
+      }
+    }
+    // 所有尝试（原样 + 自动修正）都失败 → 图定义确实有问题（典型语法
+    // 错误）：计数 2 次后标记永久失败（保留代码块 + 提示行 + console），
+    // 此前延迟重试（防一次性抖动）。failCount 按 renderBlock 调用次数计，
+    // 不是按尝试次数（原样+修正只算一次失败）。
     state.failCount += 1
     if (state.failCount >= 2) {
       state.rendered = true
@@ -255,9 +362,9 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
       // 永久失败标记：restore 检测见到它不再重置重试（否则延迟重扫会把它
       // 当成"图被还原"反复重置，每次重试失败 mermaid 又插一个错误块）。
       block.setAttribute(FAILED_MARK, '')
-      showErrorHint(block)
+      showErrorHint(block, lastError)
     }
-    console.warn(`[dsh-memory-evolve] mermaid render failed (attempt ${state.failCount}):`, error)
+    console.warn(`[dsh-memory-evolve] mermaid render failed (attempt ${state.failCount}):`, lastError)
   } finally {
     state.rendering = false
   }
@@ -265,7 +372,7 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
   // （Tab 切换 remount 后 React 已稳定）——延迟一小段（等 React 稳定）强制
   // 重新调度；schedule(force=true) 跳过源码短路、重置稳定判定计时器。React
   // 若持续重渲染则重试到稳定为止；引擎失败也在此无限重试（本地端点恢复即
-  // 成功）。
+  // 成功）。成功路径已在上面 return，不会走到这里。
   if (!state.rendered && block.isConnected && block.querySelector('pre') !== null) {
     window.setTimeout(() => { schedule(block, true) }, RETRY_DELAY_MS)
   }
