@@ -33,3 +33,37 @@
   background: rgba(180, 83, 9, 0.08);
   border-bottom: 1px solid rgba(180, 83, 9, 0.25);
 }
+
+/* 「下载」按钮：插在 DSH 复制按钮旁（.action 容器），观感与复制按钮
+   近似（小字、透明底、hover 加深）；颜色/字体继承当前主题。 */
+.me-mermaid-download {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.me-mermaid-download:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.25);
+}
+
+/* 兜底位置：若块结构变化导致找不到操作区，按钮落在 wrap 右上角
+   （ensureDownloadButton 的 fallback），半透明小按钮悬于图上方。 */
+.me-mermaid-wrap {
+  position: relative;
+}
+
+.me-mermaid-wrap > .me-mermaid-download {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+}

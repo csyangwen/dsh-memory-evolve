@@ -286,6 +286,68 @@ function fixDangerChars(text: string): string {
 }
 
 /**
+ * 在 mermaid 块的操作区（复制按钮旁）补插「下载」按钮（幂等）。
+ *
+ * 按钮插在 CodeBlock 的 .banner .action 容器里（React 渲染的 DOM）——
+ * 复制按钮点击会切换 copied 状态、触发该区域 React 重渲染，把插件插入
+ * 的按钮清掉；本函数由 schedule（每个 mutation 命中已渲染块时）反复调用，
+ * 发现缺失即补插，实现按钮持久存在。
+ *
+ * @param block - 已渲染的 mermaid 代码块。
+ */
+function ensureDownloadButton(block: HTMLElement): void {
+  const wrap = block.querySelector<HTMLElement>('.me-mermaid-wrap')
+  if (wrap === null) return
+  const svg = wrap.querySelector<SVGSVGElement>('svg')
+  if (svg === null) return
+  // 幂等：按钮已存在（自己插的）则不动，避免重复累积。
+  if (wrap.querySelector('.me-mermaid-download') !== null) return
+  // 优先插到复制按钮所在的操作区（.action，CSS module 类名含 action
+  // 子串），贴近用户期望的"复制按钮旁边"；找不到操作区（结构变化）
+  // 则退回 wrap 右上角（CSS 里绝对定位兜底）。
+  const action = block.querySelector<HTMLElement>('[class*="action"]')
+  const target = action ?? wrap
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'me-mermaid-download'
+  const zh = (document.documentElement.lang ?? '').toLowerCase().startsWith('zh')
+  btn.textContent = zh ? '下载' : 'SVG'
+  btn.title = zh ? '下载此图为 SVG（矢量，可无损缩放）' : 'Download diagram as SVG'
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation() // 不冒泡，避免误触块级行为。
+    downloadSvg(svg)
+  })
+  target.appendChild(btn)
+}
+
+/**
+ * 把块内的 SVG 图序列化并触发浏览器下载（.svg 文件）。
+ *
+ * 用 XMLSerializer 序列化 DOM 中的 svg（含 mermaid 生成的 <style> 与
+ * foreignObject 文本），零依赖、无损矢量；文件名带本地时间戳。
+ * 选择 SVG 而非 PNG：SVG 是 mermaid 的标准交付格式、任意放大不糊；
+ * PNG 需 canvas 转换，而 mermaid 默认 htmlLabels 生成的 foreignObject
+ * 在 canvas 绘制时文本会丢失（浏览器规范限制），一期不做。
+ *
+ * @param svg - 要下载的 SVG 元素。
+ */
+function downloadSvg(svg: SVGSVGElement): void {
+  const xml = new XMLSerializer().serializeToString(svg)
+  const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `mermaid-${stamp}.svg`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
  * 渲染一个已稳定的 mermaid 块：引擎渲染 SVG → 包滚动容器替换 pre 正文。
  *
  * 复制按钮兼容：CodeBlock 的复制回调取 pre 文本，pre 被替换后 fallback 到
@@ -343,6 +405,8 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
         block.setAttribute(RENDERED_MARK, '')
         // 成功 = 图真的渲染出来了，清掉可能的失败标记（之前失败过又被还原的块）。
         block.removeAttribute(FAILED_MARK)
+        // 渲染成功后立即放下载按钮（复制按钮旁）；此后由 schedule 兜底补插。
+        ensureDownloadButton(block)
         return
       } catch (error) {
         lastError = error
@@ -398,20 +462,25 @@ function schedule(block: HTMLElement, force = false): void {
   // 捕获为 const：setTimeout 闭包会引用 state，TS 对 let 的收窄在闭包
   // 捕获后会失效（conservative reset），const 捕获不受影响。
   const s = state
-  // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置并**立即**走
-  // 强制路径重渲染（图被还原时内容不会再变，短稳定等待即可，不等 400ms）。
-  if (s.rendered && block.querySelector('.me-mermaid-wrap') === null) {
-    // 永久失败（语法错误等）不重置：重置会触发强制重渲染 → 再失败 → mermaid
-    // 再插一个错误图，延迟重扫下形成无限循环（2026-08-10 实测：页面下方
-    // 堆了一串 "Syntax error in text / mermaid version 11.16.0"）。
-    if (block.hasAttribute(FAILED_MARK)) return
-    s.rendered = false
-    s.failCount = 0 // 图被还原 = 环境已重置，清失败计数允许重新尝试。
-    block.removeAttribute(RENDERED_MARK)
-    schedule(block, true)
+  if (s.rendered) {
+    // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置并**立即**
+    // 走强制路径重渲染（图被还原时内容不会再变，短稳定等待即可，不等 400ms）。
+    if (block.querySelector('.me-mermaid-wrap') === null) {
+      // 永久失败（语法错误等）不重置：重置会触发强制重渲染 → 再失败 → mermaid
+      // 再插一个错误图，延迟重扫下形成无限循环（2026-08-10 实测：页面下方
+      // 堆了一串 "Syntax error in text / mermaid version 11.16.0"）。
+      if (block.hasAttribute(FAILED_MARK)) return
+      s.rendered = false
+      s.failCount = 0 // 图被还原 = 环境已重置，清失败计数允许重新尝试。
+      block.removeAttribute(RENDERED_MARK)
+      schedule(block, true)
+      return
+    }
+    // wrap 还在：补插下载按钮（复制按钮点击等 React 局部重渲染可能清掉
+    // 我们插在操作区里的按钮，mutation 驱动下幂等补插，保持按钮常驻）。
+    ensureDownloadButton(block)
     return
   }
-  if (s.rendered) return
   const source = block.querySelector('pre')?.textContent ?? ''
   if (!force && source === s.source && s.timer !== undefined) return // 内容未变，等计时器到期
   s.source = source
