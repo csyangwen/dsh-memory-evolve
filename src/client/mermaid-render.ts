@@ -51,6 +51,14 @@ const SCRIPT_MARK = 'data-me-mermaid'
 /** 渲染成功的标记属性（写在块上，观察器据此判断是否已处理）。 */
 const RENDERED_MARK = 'data-me-mermaid-rendered'
 
+/**
+ * 渲染永久失败的标记属性（写在块上）。restore 检测（rendered 但 wrap 不在）
+ * 见到它不再重置重试——否则语法错误块会被延迟重扫反复重置，而每次重试
+ * 失败 mermaid 都会往 body 末尾插一个错误图（#d{id}），无限循环堆积
+ * （2026-08-10 实测：页面下方堆了一串 "Syntax error in text"）。
+ */
+const FAILED_MARK = 'data-me-mermaid-failed'
+
 /** mermaid UMD 全局对象的极简类型（只用到 initialize/render）。 */
 interface MermaidEngine {
   initialize(options: object): void
@@ -112,11 +120,17 @@ function loadMermaid(): Promise<MermaidEngine> {
       // startOnLoad: false——不自动扫描页面，全由本模块调度；
       // securityLevel: 'strict'——显式声明安全契约（Grok 审阅意见 P0-③，
       //   不依赖上游默认值：剥离 click 等交互，模型源码不进可执行面）；
+      // suppressErrorRendering: true——渲染失败时 mermaid 默认会把错误图
+      //   插进 body 末尾的 #d{id} 元素且不清理（源码 removeTempElements
+      //   只在成功或本配置时执行），开启后失败只 reject、由本模块处理
+      //   （2026-08-10 实测：语法错误块在页面下方堆了一串 "Syntax error
+      //   in text / mermaid version 11.16.0"）；
       // theme: 按页面背景亮度选 base/dark（浅色→base，深色→dark）；
       // background: transparent——SVG 背景融入消息气泡，不出现白/黑方块。
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
+        suppressErrorRendering: true,
         theme: detectTheme(),
         themeVariables: { background: 'transparent' },
       })
@@ -157,6 +171,27 @@ function isMermaidBlock(block: HTMLElement): boolean {
 }
 
 /**
+ * 渲染永久失败时在代码块上方插入一行提示（保留原代码供复制修正）。
+ *
+ * 之前的行为是静默保留代码块——用户看到"还是代码"却不知道为什么。
+ * 提示文案跟随页面语言（zh/en），颜色样式见 mermaid-render.css。
+ *
+ * @param block - 目标代码块。
+ */
+function showErrorHint(block: HTMLElement): void {
+  if (block.querySelector('.me-mermaid-error') !== null) return // 已提示过，不重复插入。
+  const pre = block.querySelector('pre')
+  if (pre === null) return
+  const hint = document.createElement('div')
+  hint.className = 'me-mermaid-error'
+  const zh = (document.documentElement.lang ?? '').toLowerCase().startsWith('zh')
+  hint.textContent = zh
+    ? '⚠ mermaid 语法错误，已保留代码（可复制修正）'
+    : '⚠ mermaid syntax error, code kept'
+  pre.insertAdjacentElement('beforebegin', hint)
+}
+
+/**
  * 渲染一个已稳定的 mermaid 块：引擎渲染 SVG → 包滚动容器替换 pre 正文。
  *
  * 复制按钮兼容：CodeBlock 的复制回调取 pre 文本，pre 被替换后 fallback 到
@@ -184,11 +219,14 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
     }
     return
   }
+  // 渲染 id（mermaid.render 要求唯一）：mermaid 失败时默认会在 body 末尾
+  // 残留 #d{id} 错误块，本 id 变量同时用于失败路径的清理。
+  const id = `me-${++renderSeq}`
   try {
     const pre = block.querySelector('pre')
     // 等待引擎期间块被 React 换掉（重渲染/移除）→ 放弃本轮，走下方重试。
     if (pre === null || !pre.isConnected) return
-    const { svg } = await engine.render(`me-${++renderSeq}`, source)
+    const { svg } = await engine.render(id, source)
     const preAfter = block.querySelector('pre')
     // 渲染期间被 React 替换（Tab 切换 remount 视图等）→ 放弃，走下方重试。
     if (preAfter !== pre) return
@@ -200,13 +238,24 @@ async function renderBlock(block: HTMLElement, source: string, state: BlockState
     state.failCount = 0
     state.engineFails = 0
     block.setAttribute(RENDERED_MARK, '')
+    // 成功 = 图真的渲染出来了，清掉可能的失败标记（之前失败过又被还原的块）。
+    block.removeAttribute(FAILED_MARK)
   } catch (error) {
+    // 双保险清理：suppressErrorRendering 已让 mermaid 失败时自行清理临时
+    // 元素，这里再防御性删除本轮 id 对应的错误块（#d{id}），覆盖配置未
+    // 生效/版本差异的情况，保证页面不残留错误图。
+    document.getElementById(`d${id}`)?.remove()
     // render 失败 = 图定义问题（典型语法错误）→ 重试无意义，计数 2 次后
-    // 标记永久失败（保留代码块 + console），此前延迟重试（防一次性抖动）。
+    // 标记永久失败（保留代码块 + 提示行 + console），此前延迟重试
+    // （防一次性抖动）。
     state.failCount += 1
     if (state.failCount >= 2) {
       state.rendered = true
       block.setAttribute(RENDERED_MARK, '')
+      // 永久失败标记：restore 检测见到它不再重置重试（否则延迟重扫会把它
+      // 当成"图被还原"反复重置，每次重试失败 mermaid 又插一个错误块）。
+      block.setAttribute(FAILED_MARK, '')
+      showErrorHint(block)
     }
     console.warn(`[dsh-memory-evolve] mermaid render failed (attempt ${state.failCount}):`, error)
   } finally {
@@ -245,6 +294,10 @@ function schedule(block: HTMLElement, force = false): void {
   // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置并**立即**走
   // 强制路径重渲染（图被还原时内容不会再变，短稳定等待即可，不等 400ms）。
   if (s.rendered && block.querySelector('.me-mermaid-wrap') === null) {
+    // 永久失败（语法错误等）不重置：重置会触发强制重渲染 → 再失败 → mermaid
+    // 再插一个错误图，延迟重扫下形成无限循环（2026-08-10 实测：页面下方
+    // 堆了一串 "Syntax error in text / mermaid version 11.16.0"）。
+    if (block.hasAttribute(FAILED_MARK)) return
     s.rendered = false
     s.failCount = 0 // 图被还原 = 环境已重置，清失败计数允许重新尝试。
     block.removeAttribute(RENDERED_MARK)

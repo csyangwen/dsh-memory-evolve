@@ -22,3 +22,14 @@
   max-width: none;
   height: auto;
 }
+
+/* 渲染永久失败（语法错误等）时的提示行：插在 banner 与代码之间，琥珀色
+   小字 + 半透明底，深浅主题下都可见；代码原样保留、可复制修正。 */
+.me-mermaid-error {
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.08);
+  border-bottom: 1px solid rgba(180, 83, 9, 0.25);
+}
