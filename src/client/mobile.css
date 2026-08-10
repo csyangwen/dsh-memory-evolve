@@ -492,15 +492,11 @@ html[data-dsh-mobile] [data-phase] {
   --dsh-chat-content-width: 100% !important;
 }
 
-/* 对话区左边距 10px（用户反馈 2026-08-09）：对话区在手机上满宽贴左，
-   加 margin-left 让整个区域（含背景/消息/输入框）右移 10px、左侧留出
-   空隙；width 同步减 10px 保持右边缘对齐，不产生横向溢出
-   （.scrollBody 另有 overflow-x: hidden 兜底）。不加 !important：
-   这是新增布局约束，与兜底层/其他规则无方向冲突。 */
-html[data-dsh-mobile] [data-phase] {
-  margin-left: 10px;
-  width: calc(100% - 10px);
-}
+/* 注意：不要给 [data-phase]（对话区容器，含底部输入框）加 margin-left /
+   width 覆盖——2026-08-10 曾误加「左留白 10px」导致整个区域（含输入框）
+   宽度被改，真机出现输入框光标与文字错位、文字间出现空隙（用户实测反馈）。
+   对话区满宽由上方 --dsh-chat-content-width: 100% 规则控制即可，输入框
+   宽度由其自身 width: min(..., 100%) 兜底，容器级覆盖一律不加。 */
 
 /* 用户消息气泡满宽：默认 max-width: min(525px, 82%)（MessageItem.
    module.css .bubble），手机上放开为 100%，消除两侧留白；短消息仍按
