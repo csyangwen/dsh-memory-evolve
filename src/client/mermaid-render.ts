@@ -56,6 +56,10 @@ interface BlockState {
   timer?: number
   /** 已渲染（含渲染失败标记态——失败也标记，避免反复重试刷屏）。 */
   rendered: boolean
+  /** 渲染进行中（防并发：稳定判定 timer 与延迟重试可能重叠）。 */
+  rendering: boolean
+  /** 连续失败次数（临时性失败如引擎加载可重试，语法错误 2 次后放弃）。 */
+  failCount: number
 }
 
 /** 全局 mermaid 引擎加载 Promise（只加载一次）。 */
@@ -139,42 +143,62 @@ function isMermaidBlock(block: HTMLElement): boolean {
  * @param state - 该块的处理状态（成功后置 rendered，失败也置——防刷屏）。
  */
 async function renderBlock(block: HTMLElement, source: string, state: BlockState): Promise<void> {
+  // 防并发：同一块同时只允许一个渲染在途（稳定判定 timer 与延迟重试可能
+  // 重叠，重复渲染同一 id 的 mermaid 图会互相干扰）。
+  if (state.rendering) return
+  state.rendering = true
   try {
     const engine = await loadMermaid()
     const pre = block.querySelector('pre')
-    // 等待期间块被 React 换掉（重渲染/移除）→ 放弃本轮，等观察器下一轮。
+    // 等待引擎期间块被 React 换掉（重渲染/移除）→ 放弃本轮，走下方重试。
     if (pre === null || !pre.isConnected) return
     const { svg } = await engine.render(`me-${++renderSeq}`, source)
     const preAfter = block.querySelector('pre')
-    if (preAfter !== pre) return // 渲染期间被 React 替换，放弃（下一轮重来）
+    // 渲染期间被 React 替换（Tab 切换 remount 视图等）→ 放弃，走下方重试。
+    if (preAfter !== pre) return
     const wrap = document.createElement('div')
     wrap.className = 'me-mermaid-wrap'
     wrap.innerHTML = svg
     pre.replaceWith(wrap)
     state.rendered = true
+    state.failCount = 0
     block.setAttribute(RENDERED_MARK, '')
   } catch (error) {
-    // 渲染失败（语法错误等）：保留原代码块（用户仍可复制源码），标记
-    // 失败态避免反复重试；刷新页面可重新尝试。
-    state.rendered = true
-    block.setAttribute(RENDERED_MARK, '')
-    console.warn('[dsh-memory-evolve] mermaid render failed:', error)
+    // 失败分两类：引擎临时加载失败（可重试）与语法错误（重试无意义）。
+    // 连续 2 次失败才标记永久失败（保留代码块 + console），此前延迟重试。
+    state.failCount += 1
+    if (state.failCount >= 2) {
+      state.rendered = true
+      block.setAttribute(RENDERED_MARK, '')
+    }
+    console.warn(`[dsh-memory-evolve] mermaid render failed (attempt ${state.failCount}):`, error)
+  } finally {
+    state.rendering = false
+  }
+  // 被 React 打断或临时失败：不会再有后续 mutation 保证重试（Tab 切换
+  // remount 后 React 已稳定）——延迟一小段（等 React 稳定）强制重新调度；
+  // schedule(force=true) 跳过源码短路、重置稳定判定计时器。React 若持续
+  // 重渲染则重试到稳定为止。
+  if (!state.rendered && block.isConnected && block.querySelector('pre') !== null) {
+    window.setTimeout(() => { schedule(block, true) }, 600)
   }
 }
 
 /**
  * 调度一个代码块：识别 mermaid → 内容稳定判定 → 渲染。
  *
- * 流式输出中每帧都会调用（观察器回调），内部短路：源码未变直接返回；
- * 源码变了重置 STABLE_MS 计时器，到时再对比一次，一致才渲染。
+ * 流式输出中每帧都会调用（观察器回调）。短路规则：内容未变且已有待触发
+ * 的稳定判定计时器时不动；`force` 用于渲染被打断/临时失败后的重试——跳过
+ * 短路、强制重置计时器。
  *
  * @param block - 候选代码块（.md-code-block 或其中的元素）。
+ * @param force - 强制重置稳定判定计时器（默认 false）。
  */
-function schedule(block: HTMLElement): void {
+function schedule(block: HTMLElement, force = false): void {
   if (!isMermaidBlock(block)) return
   let state = states.get(block)
   if (state === undefined) {
-    state = { source: '', rendered: false }
+    state = { source: '', rendered: false, rendering: false, failCount: 0 }
     states.set(block, state)
   }
   // 捕获为 const：setTimeout 闭包会引用 state，TS 对 let 的收窄在闭包
@@ -183,18 +207,19 @@ function schedule(block: HTMLElement): void {
   // React 重渲染把图还原成代码：标记还在但 wrap 已不在 → 重置重走。
   if (s.rendered && block.querySelector('.me-mermaid-wrap') === null) {
     s.rendered = false
+    s.failCount = 0 // 图被还原 = 环境已重置，清失败计数允许重新尝试。
     block.removeAttribute(RENDERED_MARK)
   }
   if (s.rendered) return
   const source = block.querySelector('pre')?.textContent ?? ''
-  if (source === s.source) return // 内容未变，等待计时器到期对比
+  if (!force && source === s.source && s.timer !== undefined) return // 内容未变，等计时器到期
   s.source = source
   window.clearTimeout(s.timer)
   s.timer = window.setTimeout(() => {
     const current = block.querySelector('pre')?.textContent ?? ''
     if (current === s.source) {
-      // 两次读取一致 = 流式已稳定 → 渲染。
-      void renderBlock(block, s.source, s)
+      // 两次读取一致 = 流式已稳定 → 渲染（渲染中则由延迟重试接管，防并发）。
+      if (!s.rendering) void renderBlock(block, s.source, s)
     } else {
       schedule(block) // 仍在变化（流式继续）→ 重新计时。
     }
@@ -215,9 +240,11 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
 
   /** 观察器回调：新增节点（消息渲染/历史回放/React 重挂载）→ 调度处理。 */
   const onMutations = (mutations: MutationRecord[]): void => {
+    let addedCount = 0
     for (const mutation of mutations) {
       if (mutation.type === 'childList') {
         for (const node of mutation.addedNodes) {
+          addedCount += 1
           if (!(node instanceof HTMLElement)) continue
           const block = node.classList.contains('md-code-block') ? node : node.closest<HTMLElement>('.md-code-block')
           if (block !== null) schedule(block)
@@ -235,6 +262,10 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
         if (block instanceof HTMLElement) schedule(block)
       }
     }
+    // 视图整体重挂载（顶部 Tab 切换 remount、会话切换）会一次性插入大量
+    // 节点——渲染可能恰在 React 重建窗口内被打断（见 renderBlock 重试），
+    // 批量插入时额外触发一次延迟补扫序列兜底。
+    if (addedCount > 40) scheduleRescans()
   }
 
   /**
@@ -246,7 +277,7 @@ export function createMermaidRenderer(): { setEnabled(enabled: boolean): void; d
    */
   const scheduleRescans = (): void => {
     window.clearTimeout(rescanTimer)
-    const delays = [500, 2000, 5000]
+    const delays = [500, 2000, 5000, 10000]
     const run = (index: number): void => {
       if (index >= delays.length) return
       rescanTimer = window.setTimeout(() => {
