@@ -1,5 +1,5 @@
 /**
- * 渠道通知模块（de_notify + de_feishu_send）测试。
+ * 渠道通知模块（de_notify + de_channel_send）测试。
  *
  * 覆盖（2026-08-09 一期：飞书单渠道，方案 A 全局注册表）：
  *  - sendChannelNotify 发送内核：成功 / 渠道未注册 / 无最近交互 / 显式
@@ -8,8 +8,8 @@
  *    render 输出（时间锚点、失败如实呈现、不掩盖）
  *  - 2026-08-10 扩展（用户拍板：DSH→飞书单向发送图片/文件）：
  *    sendChannelNotify attachments 附件（sendMedia 槽位/版本不支持报错）、
- *    sendFeishuDirect 直发内核（content 作附件 caption / 纯文本 / 缺参报错）、
- *    feishuSendToolDefinition schema 与 execute、feishuSendEnabled 开关
+ *    sendChannelDirect 直发内核（content 作附件 caption / 纯文本 / 缺参报错 / 多渠道）、
+ *    channelSendToolDefinition schema 与 execute、channelSendEnabled 开关
  *  - buildNotify（COI 完成自动通知）：命令+渠道组合 / 只渠道 / 无配置
  *    undefined / 渠道未启用静默跳过 / 内容模板断言
  */
@@ -19,9 +19,9 @@ import assert from 'node:assert/strict'
 
 import {
   sendChannelNotify,
-  sendFeishuDirect,
+  sendChannelDirect,
   notifyToolDefinition,
-  feishuSendToolDefinition,
+  channelSendToolDefinition,
 } from '../lib/notify.js'
 import { buildNotify, buildChannelContent } from '../lib/coi/index.js'
 import { resolveConfig, validateRuntimePatch, RUNTIME_KEYS } from '../lib/index.js'
@@ -275,7 +275,7 @@ test('buildNotify: sendChannelNotify throwing → notification failure does not 
 })
 
 // ---------------------------------------------------------------------------
-// 2026-08-10 扩展：attachments 附件（de_notify）+ de_feishu_send 直发
+// 2026-08-10 扩展：attachments 附件（de_notify）+ de_channel_send 直发（四渠道）
 // ---------------------------------------------------------------------------
 
 test('notify: attachments send via sendMedia after content, one result per item', async () => {
@@ -319,19 +319,19 @@ test('notify: attachments with channel lacking sendMedia → honest version erro
 test('feishu direct: content only → single text sendMedia (no notify annotation)', async () => {
   const entry = feishuEntry()
   globalThis[REGISTRY_KEY] = { feishu: entry }
-  const r = await sendFeishuDirect({ content: '直接发给你' })
+  const r = await sendChannelDirect({ content: '直接发给你' })
   assert.equal(r.results.length, 1)
   assert.equal(r.results[0].ok, true)
   assert.equal(entry.calls.length, 1)
   assert.equal(entry.calls[0].media.kind, 'text')
   assert.equal(entry.calls[0].media.content, '直接发给你')
-  assert.equal(r.summary, '飞书直发：1/1 个发送成功')
+  assert.equal(r.summary, '渠道直发：1/1 个发送成功')
 })
 
 test('feishu direct: content + attachments merges content into first caption', async () => {
   const entry = feishuEntry()
   globalThis[REGISTRY_KEY] = { feishu: entry }
-  const r = await sendFeishuDirect({
+  const r = await sendChannelDirect({
     content: '这是报告',
     attachments: [
       { kind: 'file', path: '/tmp/r.pdf' },
@@ -346,23 +346,23 @@ test('feishu direct: content + attachments merges content into first caption', a
 
 test('feishu direct: neither content nor attachments → clear error', async () => {
   globalThis[REGISTRY_KEY] = { feishu: feishuEntry() }
-  const r = await sendFeishuDirect({})
+  const r = await sendChannelDirect({})
   assert.equal(r.results[0].ok, false)
   assert.match(r.results[0].error, /至少提供 content/)
 })
 
 test('feishu direct: channel missing or lacking sendMedia → honest error', async () => {
-  const r1 = await sendFeishuDirect({ content: 'x' }) // 无注册表
+  const r1 = await sendChannelDirect({ content: 'x' }) // 无注册表
   assert.equal(r1.results[0].ok, false)
   assert.match(r1.results[0].error, /渠道未注册/)
   globalThis[REGISTRY_KEY] = { feishu: feishuEntry({ sendMedia: undefined }) }
-  const r2 = await sendFeishuDirect({ content: 'x' }) // 旧版插件
+  const r2 = await sendChannelDirect({ content: 'x' }) // 旧版插件
   assert.equal(r2.results[0].ok, false)
   assert.match(r2.results[0].error, /不支持主动发送/)
 })
 
 test('feishu send tool: DSH-compatible schema and execute forwarding', async () => {
-  const tool = feishuSendToolDefinition(sendFeishuDirect)
+  const tool = channelSendToolDefinition(sendChannelDirect)
   const walk = (node, path, container = false) => {
     if (node === null || typeof node !== 'object') return
     if (!container) {
@@ -379,6 +379,8 @@ test('feishu send tool: DSH-compatible schema and execute forwarding', async () 
   walk(tool.output.schema, `${tool.name}.output`)
   assert.ok(tool.output.schema && typeof tool.output.render === 'function')
   assert.ok(typeof tool.execute === 'function')
+  assert.equal(tool.name, 'de_channel_send')
+  assert.deepEqual(tool.parameters.properties.channels.enum, ['feishu', 'qq', 'weixin', 'wecom', 'all'])
   assert.deepEqual(tool.parameters.properties.attachments.items.properties.kind.enum, ['image', 'file'])
   // execute 转发直发内核
   const entry = feishuEntry()
@@ -388,12 +390,44 @@ test('feishu send tool: DSH-compatible schema and execute forwarding', async () 
   assert.equal(entry.calls[0].media.content, 'execute 直发')
 })
 
-test('feishuSendEnabled: RUNTIME_KEYS + validateRuntimePatch + 默认开', () => {
-  assert.ok(RUNTIME_KEYS.includes('feishuSendEnabled'))
-  validateRuntimePatch('feishuSendEnabled', true)
-  validateRuntimePatch('feishuSendEnabled', false)
-  assert.throws(() => validateRuntimePatch('feishuSendEnabled', 'yes'), /布尔/)
+test('channelSendEnabled: RUNTIME_KEYS + validateRuntimePatch + 默认开', () => {
+  assert.ok(RUNTIME_KEYS.includes('channelSendEnabled'))
+  validateRuntimePatch('channelSendEnabled', true)
+  validateRuntimePatch('channelSendEnabled', false)
+  assert.throws(() => validateRuntimePatch('channelSendEnabled', 'yes'), /布尔/)
   const config = resolveConfig({})
   // 2026-08-10 用户拍板：直发功能默认开启（开箱即用），与 notifyEnabled 默认关不同
-  assert.equal(config.feishuSendEnabled, true)
+  assert.equal(config.channelSendEnabled, true)
+})
+
+test('channel direct: channels=qq routes to the qq entry (四渠道泛化)', async () => {
+  const qqEntry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { qq: qqEntry }
+  const r = await sendChannelDirect({ channels: 'qq', content: '发给QQ' })
+  assert.equal(r.results.length, 1)
+  assert.equal(r.results[0].channel, 'qq')
+  assert.equal(r.results[0].ok, true)
+  assert.equal(qqEntry.calls[0].media.kind, 'text')
+  assert.equal(qqEntry.calls[0].media.content, '发给QQ')
+  assert.equal(r.summary, '渠道直发：1/1 个发送成功')
+})
+
+test('channel direct: channels=all iterates every registered channel', async () => {
+  const feishu = feishuEntry()
+  const wecom = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu, wecom }
+  const r = await sendChannelDirect({ channels: 'all', content: '群发', attachments: [{ kind: 'image', path: '/tmp/x.png' }] })
+  assert.deepEqual(r.results.map((x) => x.channel), ['feishu', 'wecom'])
+  assert.equal(r.results.length, 2) // 各渠道 1 条媒体
+  assert.equal(r.results.every((x) => x.ok), true)
+  assert.equal(feishu.calls[0].media.kind, 'image')
+  assert.equal(wecom.calls[0].media.kind, 'image')
+})
+
+test('channel direct: channels=all iterates only registered channels', async () => {
+  // 'all' 语义与 de_notify 一致：只遍历**已注册**的渠道（未注册的不出现）
+  globalThis[REGISTRY_KEY] = { feishu: feishuEntry() }
+  const r = await sendChannelDirect({ channels: 'all', content: 'x' })
+  assert.deepEqual(r.results.map((x) => x.channel), ['feishu'])
+  assert.equal(r.results[0].ok, true)
 })
