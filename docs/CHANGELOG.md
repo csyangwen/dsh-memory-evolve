@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-08-11 — 260810 快照迁移适配：dsh.client 配置迁移 + 图片链路五大能力 + 实机验证三项修复
+
+### 背景
+DSH 主代码升级到 260810 快照（本机 checkout 切 tag 模式，分支 260810）：①client 插件发现机制变更（package.json 顶层 `dshClient` 字段废弃，改 `dsh.client`）；②消息机制支持图片（ImageBlock + 持久附件层 + 输入框贴图）；③Agent 配置预设（Preset）机制上线（官方工具移入 per-preset 平面）；④模型目录新增输入模态能力声明。本插件完成迁移适配 + 借势新增五大能力，实机验证发现并修复三个 bug。
+
+### 迁移（P0）
+- **dsh.client 配置迁移**：dsh-memory-evolve 与 dsh-mobileweb-adapter（dsh-android-edapp）两插件 package.json 顶层 `dshClient` → `dsh.client`（260810 起旧字段不再被 client-modules 扫描，不迁移则浏览器端 Tab 静默全灭，服务端 API 正常——与 issue #3 同症状模式）；build.mjs 的 PLUGIN_ID 动态读取不受影响。
+
+### 新能力（五项，多会话并行开发后由主线会话统一检测）
+- **P1 输入框图片 → IM 渠道桥**（lib/notify.js）：de_channel_send / de_notify 附件来源新增 `sessionImage`（=true 取本会话最近一张图）与 `attachmentId`（显式引用，仅限本会话事件引用过的图片，授权语义与 host session.attachment 一致）；新增 **de_session_images** 查询工具（列出本会话图片引用，独立开关 `sessionImageQueryEnabled` 默认关）；260809 无附件服务时如实降级报错，path/url/base64 既有来源不受影响；
+- **P2 COI 派单带图**（lib/coi/attachments.js 等）：de_coi_dispatch 新增 `attachments` 参数（path / url / attachmentId 三来源，非法附件整体拒绝）；适配器图片支持矩阵——codex（`-i` flag）/ hermes（`--image` flag）/ kimi（prompt 附路径读图）/ grok（prompt 附路径，待实测）/ zcode（纯文本明确报错）；API 与 relay 透传；
+- **P3-1 de_session 支持 Agent 预设**（lib/session-orch.js）：spawn 新增 `agentPreset` 参数（格式校验 + roster 文件系统探测 + 留档）；**spawn/wake 恢复均挂载预设**（动态获取 agentPresets 服务 → resolve 默认 standard → agents.create/resume 的 setup 回调 presets.mount，旧快照降级）——260810 起官方工具在预设平面，不挂载则会话无 bash/read/write/edit；
+- **P3-2 de_models 视觉能力**（lib/models.js）：输出新增 `supportsImage` 三态（true=支持 / false=显式不支持 / null=未知不猜测，读模型目录 inputModalities 元数据），GUI 模型 Tab 显示「🖼 图片输入」标记；
+- **P3-3 广播图片附件**（lib/coi/broadcast.js + broadcast-api.js + BroadcastView）：de_broadcast send 新增 `attachments`（path/url/base64，魔数嗅探 PNG/JPEG/WebP/GIF、≤5MiB/≤10 张、原子落盘）；read/list 渲染文本直接包含附件 file 绝对路径（AI 可读图/转发）；收件箱 GUI 渲染 64px 缩略图（受控字节端点）；附件在消息删除后**延迟保留 24h**（转发窗口）由 prune 清孤儿；子开关 broadcastImageEnabled。
+
+### 实机验证修复（重启到 260810 后逐项实测发现）
+- **spawn/wake 预设挂载**（严重，lib/session-orch.js）：260810 官方工具在 agent 预设平面，de_session 直接 agents.create/resume 不带 setup 挂载 → spawn 会话与 wake 恢复的老会话全部缺失 bash/read/write/edit（GUI 新建走 composeAgent 正常）。修复=动态获取 agentPresets 服务 + resolve（含默认 standard）+ setup 回调 mount；实机验证：新 spawn 与三个老会话工具面完整；
+- **适配器存储覆盖内置定义**（lib/coi/adapters.js）：AdaptorStore 构造加载 custom（adapters.json 旧存储）时整体覆盖 BUILTIN 新字段（image 配置丢失）→ kimi/codex/grok 带图一律报「不支持」。修复=构造时对内置 id 合并 `{...BUILTIN, ...custom}`；实机验证：kimi 带图真实读图成功；
+- **广播 read 附件路径不可见**（lib/coi/broadcast.js）：模型只能看到 render 文本看不到结构化 value，read 渲染只有「N 张（大小）」摘要且附件随 read 即删。修复=read/list 渲染含附件 file 绝对路径明细 + 附件延迟保留 24h；实机验证：对端 read 拿路径 + ls 确认文件存在 + 转发链路通。
+
+### 测试与验证
+- 全量 **376/376 全绿**（新增：notify 42 项、coi-attachments 11 项、session-orch agentPreset 2 项、broadcast-image 19 项含延迟清理语义更新）；assertSupportedJsonSchema 全部通过；
+- 实机端到端：广播带图 → read 路径 → ls 确认 → de_coi_dispatch 透传 → Kimi 识图成功（一次测试验证广播附件 + COI 传图两条链路）；
+- 遗留：grok prompt 路径读图待真机实测；COI 附件单张字节上限（建议 ≤10MiB，二期）；官方缺口——resume 恢复路径不读 header.agentPreset 补默认（本插件 wake 已自带补挂，GUI 打开老会话依赖官方 composeAgent）。
+
+---
+
 ## 2026-08-10 — memory 工具支持 entries 多轨批量写与 feedback 情绪反馈记录
 
 ### 实现

@@ -179,6 +179,7 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
   - **收件箱式快照**：快照直接列出未读消息的 id+主题+发送者+时间（不注入正文，克制），AI 看到即可 read，无需先 list；标题为 AI 指令式（必须逐条 read 处理，未处理完不要结束回合）；
   - **read 即消费（显式接收者）**：read 返回全文并标记已读；**全部显式接收者已读后消息自动删除**（单接收者 = read 即删；多接收者各自读，最后一个读完触发删除）；房间/项目消息是共享讨论，read 只清未读提示、**保留 30 天供回看**；
   - **长内容**：超过 8KB 自动写入文件 `broadcast/broadcasts/<id>.txt`，接收方 read 时返回全文（文件随消息删除一并清理）；
+  - **图片附件**（DSH 260810+ 图片机制）：`send` 可带 `attachments`（每项 `path` 本地路径 / `url` http(s) / `base64` 内联，≤5MiB/张、≤10 张，仅 PNG/JPEG/WebP/GIF，魔数嗅探真实类型）；图片存 `broadcast/attachments/<msgId>-<序号>.<ext>`（消息 JSON 只存元数据）；**read/list 渲染文本直接含附件 file 绝对路径**（AI 可读图/转发给 de_channel_send）；收件箱 GUI 显示 64px 缩略图（点击看原图）；附件在消息删除后**延迟保留 24h**（给 AI 留转发/读图窗口）由 prune 清理孤儿；子开关 `broadcastImageEnabled`（默认开，关=带图发送明确报错不静默忽略）；
   - **清理**：消息 30 天自动过期；**房间 30 天无活动（无人发消息/加入）自动删除连同其消息**（启动 + 每日定时 prune）；
   - **边界**：快照定点注入 = 对方"下一次生成前"才看到，**非实时 IM**（长任务中实时性取决于对方是否回合内 wait/轮询）。
 - **工具（de_broadcast，action 参数）**：`send`（recipients 必填 / content 必填 / subject 可选）/ `list`（收件箱式：只显示主题+简介，像邮件列表）/ `read`（全文并标记已读，快照提示随之消失）/ `delete`（手动删除，发送方或可见者）/ `room-create` / `room-join` / `room-leave` / `room-list` / `room-rm`（聊天室：房间成员=会话 ID 数组，**跨工作目录**，成员同时收到消息；发送者须是成员；创建者可解散；房间消息保留 30 天供回看）/ `presence`（**在线状态查询**：roomId 列出房间成员谁在线 running=正在生成、谁已结束回合 idle=等用户驱动相当于离线——**避免傻等已离线的会话**；sessionId 查单个；返回 lastActiveAt）。
@@ -220,8 +221,9 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
   - `prompt`（**必填**）：**完整提示词**（自由组合的长文本：角色/任务/要求一次写清，如"你是美工，负责网站视觉…现在开始执行任务：…"）——**不需要单独的角色提示词**，一条提示词既是角色设定也是任务指令；
   - `cwd`（可选）：新会话工作目录（**缺省=继承发起会话的工作目录**，保证同一项目内协作；spawn 自动把会话**挂到 cwd 对应的工作区分组**——左侧"项目"分组，GUI 新建时自动 attach，spawn 曾漏掉导致显示在「未分组」）；
   - `roomId`（可选）：加入广播房间（需广播模块启用；房间不存在/广播未启用**只提示不阻断**创建——与广播是松耦合桥接）；
-  - `model`（可选）：覆盖模型（**缺省=继承发起会话的 provider/model**——新会话无历史配置必须显式给，否则系统提示词 {{model}} 无值回合失败）。
-  - 创建后**立即自动开跑**（等价替用户发消息）；spawn 记录落盘（`<memoryDir>/session-orch/sessions.json`：谁建的/任务/房间/model/cwd/时间）。
+  - `model`（可选）：覆盖模型（**缺省=继承发起会话的 provider/model**——新会话无历史配置必须显式给，否则系统提示词 {{model}} 无值回合失败）；
+  - `agentPreset`（可选，DSH 260810+ 起）：Agent 预设 id（如 `code`/`cordis`/`minimal`/`standard`；格式不合法/不存在会明确报错并列出可用预设，**不创建会话**）——决定该会话的工具面与人格；不传=走 DSH 默认预设（当前 `standard`）。⚠️ **无论是否显式传，spawn/wake 恢复都会挂载预设**（动态获取 agentPresets 服务 + setup 回调 presets.mount；260810 起官方工具在预设平面，不挂载则会话没有 bash/read/write/edit——实机验证踩坑；旧快照自动降级不挂载）。
+  - 创建后**立即自动开跑**（等价替用户发消息）；spawn 记录落盘（`<memoryDir>/session-orch/sessions.json`：谁建的/任务/房间/model/cwd/agentPreset/时间）。
 - **wake（唤醒已有会话）**：`sessionId` + `prompt`（要对方做的事）——**等价替用户给对方发一条消息**，对方 AI 自动醒来处理（正在跑则排队，忙完前不要重复派活）；进程重启后的会话**自动 resume 再唤醒**（**用会话自己的模型配置**——log 里最后的 provider/model，含你在 webUI 改过的；绝不继承发起会话的模型）；会话不存在/跨实例时明确报错。
 - **status / list（查状态）**：`status sessionId` → running（正在生成）/ idle（空闲）/ offline（不在本进程）；`list` → 全部 live 会话（含 GUI 手动开的）+ 本模块 spawn 过的会话（角色提示词/任务/所属房间/状态，均附 **lastActiveAt** 最后活动时间）。
 - **rename（改名称/别名做标记）**：`sessionId` + `title`（可选，**会话名称**=左侧列表标题，走 DSH sessionTitle，需会话 live——offline 可先 wake 恢复再改）+ `alias`（可选，**会话别名**≤10 字，广播/快照显示，空串=清除）——两者至少给一个、可同时改；产品经理给员工会话做标记后就清楚谁是谁了。
@@ -246,6 +248,7 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 - **前置条件**：飞书机器人主动发消息要求你添加过该机器人；通知默认发给「最近交互的飞书对话」（需曾与机器人聊过）。
 - **配置**：`notifyEnabled`（开关，记忆 Tab 运行时配置可切）/ COI 侧 `coiNotifyChannels`（COI 运行时配置）。
 - **实现**（`lib/notify.js`）：`sendChannelNotify`（发送内核：注册表遍历 + 逐渠道回执 + 永不抛错）+ `notifyToolDefinition`（de_notify 工具定义）+ `installNotify`（独立装配）；COI 侧 `buildNotify`（lib/coi/index.js，命令+渠道组合回调，无配置时零开销）。
+- **附件来源（de_channel_send / de_notify 的 attachments）**：五选一——`path` 本地绝对路径 / `url` http(s) 远程自动下载 / `base64` 内联（配 fileName）/ `sessionImage: true`（**本会话最近一张图**：用户在 DSH 输入框粘贴/拖入发送的图，需 260810+ 快照）/ `attachmentId`（显式引用：先 `de_session_images` 列出本会话图片再精确转发；**仅限本会话事件引用过的图片**，与 host session.attachment 授权一致）；260809 无附件服务时 sessionImage/attachmentId 如实报错，path/url/base64 不受影响；`de_session_images` 查询工具独立开关 `sessionImageQueryEnabled`（默认关）。
 
 ## 安装
 

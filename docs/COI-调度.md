@@ -108,6 +108,21 @@ CLI 任务完成后，其**结果摘要（输出尾部 1KB）**会自动注入�
 - **超长处理**：注入文本 ≤ 32KB 直接内联；超过自动写入本地文件并把路径告诉 COI（AI CLI 会读文件）
 - **建议**：做项目开发时至少注入 `key`，让 COI 了解项目约定与上下文
 
+## 7.5 图片附件（`attachments`，260810 快照图片机制）
+
+派单可带图片（「把这张截图发给 grok 分析」）。附件来源三选一：`path` 本地绝对路径 / `url` http(s) 远程（30s 超时下载）/ `attachmentId` 会话图片引用（从发起会话 user/message 事件的 ImageBlock 解析，仅限本会话引用过的图）；任一附件非法整体拒绝（不建半成品任务）。适配器图片支持矩阵：
+
+| 适配器 | 支持 | 传图方式 |
+|---|---|---|
+| codex | ✅ | 专用参数 `-i <path>`（可重复） |
+| hermes | ✅ | 专用参数 `--image <path>` |
+| kimi | ✅ | prompt 附图片绝对路径，kimi agent 调读图工具（实测通过） |
+| grok | ⚠️ | prompt 附图片路径（agent 读图，待实测验证） |
+| zcode | ❌ | 纯文本通道，派单明确报错并提示可用适配器 |
+| qoder-cn / dsh | ❌（暂） | 未确认，默认不支持并报错 |
+
+附件文件落盘 `<coiDataDir>/attachments/`；任务记录附件元数据（source/original/localPath/name/caption）。GUI 派单表单的图片上传入口为二期。
+
 ## 8. 跨 COI 接力与模板
 
 - **接力**（发起时选「接力引用」或 `refTaskId`）：把任务 A 的完整输出拼进任务 B——**可跨 COI**（如 codex 写完 → kimi review）；输出超 256KB 自动写文件+尾部预览
