@@ -1254,6 +1254,23 @@
   background: transparent;
 }
 
+/* 分页器（美观视图大文件分页，2026-08-10） */
+.mt-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.2));
+}
+
+.mt-pager-info {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.85));
+}
+}
+
 /* ---------- Todo sub-tab ---------- */
 
 .me-tabs {

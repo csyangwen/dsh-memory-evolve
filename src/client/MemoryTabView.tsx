@@ -137,6 +137,12 @@ function entryMatches(entry: MemoryEntry, q: string): boolean {
     || (entry.tag ?? '').toLowerCase().includes(q)
 }
 
+/**
+ * 美观视图分页大小（2026-08-10）：项目日志/每日日志是追加增长型文件
+ * （一年可达几千条），一次性渲染全部条目会卡顿；按条目分页，每页 50 条。
+ */
+const PAGE_SIZE = 50
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/memory-evolve${path}`, {
     headers: { 'content-type': 'application/json' },
@@ -232,6 +238,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [branches, setBranches] = useState<string[]>([])
   const [view, setView] = useState<ViewMode>('pretty')
   const [query, setQuery] = useState('')
+  // 美观视图分页（大文件如项目日志按条目分页渲染，每页 PAGE_SIZE 条）
+  const [page, setPage] = useState(0)
   /** 当前激活的文件 key（tab 切换）。 */
   const [activeKey, setActiveKey] = useState<string | null>(persistedFileKey)
   /** 手动添加项目关键记忆的草稿与保存状态。 */
@@ -472,6 +480,13 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       activeHidden = q !== '' && activeEntries.length === 0
     }
   }
+  // 分页：先倒序（最新在前）再切页——每页都是连续的最新条目；
+  // 页码越界（搜索/删除后条目变少）时自动回退到最后一页。
+  const pageCount = activeEntries === null ? 1 : Math.max(1, Math.ceil(activeEntries.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageEntries = activeEntries === null
+    ? null
+    : [...activeEntries].reverse().slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   return (
     <div className="mt-panel">
@@ -509,9 +524,11 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
             aria-selected={row.key === activeKey}
             className={row.key === activeKey ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
             onClick={() => {
-              // 点文件页签 → 切回文件视图并选中该文件（功能面板与文件视图互斥）
+              // 点文件页签 → 切回文件视图并选中该文件（功能面板与文件视图互斥）；
+              // 页码重置回第一页（新文件的条目列表从头开始）
               setActiveKey(row.key)
               setFeature(null)
+              setPage(0)
             }}
           >
             {row.title}
@@ -563,7 +580,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
               className="mt-search"
               value={query}
               placeholder={t('memoryTab.searchPlaceholder')}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setPage(0) // 搜索条件变化 → 回到第一页
+              }}
             />
           </div>
           {q !== '' && activeHidden && (
@@ -648,7 +668,7 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                 <pre className="mt-content">{activeRow.content}</pre>
               ) : (
                 <div className="mt-entries">
-                  {[...activeEntries].reverse().map((entry, index) => (
+                  {(pageEntries ?? []).map((entry, index) => (
                     <div key={index} className="mt-entry">
                       <div className="mt-entry-head">
                         {entry.time !== null && <span className="mt-entry-time">{entry.time}</span>}
@@ -780,6 +800,30 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+              {/* 分页器：仅多页时显示；上一页/下一页 + 页码 + 总条数 */}
+              {activeEntries !== null && pageCount > 1 && (
+                <div className="mt-pager">
+                  <button
+                    type="button"
+                    className="mt-btn"
+                    disabled={safePage <= 0}
+                    onClick={() => setPage(safePage - 1)}
+                  >
+                    {t('memoryTab.pagePrev')}
+                  </button>
+                  <span className="mt-pager-info">
+                    {t('memoryTab.pageInfo', { page: safePage + 1, total: pageCount, count: activeEntries.length })}
+                  </span>
+                  <button
+                    type="button"
+                    className="mt-btn"
+                    disabled={safePage >= pageCount - 1}
+                    onClick={() => setPage(safePage + 1)}
+                  >
+                    {t('memoryTab.pageNext')}
+                  </button>
                 </div>
               )}
               {activeRow.truncated && <p className="mt-muted">{t('memoryTab.truncated')}</p>}
