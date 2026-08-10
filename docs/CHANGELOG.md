@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-08-10 — 旧插件迁移引导加强（issue #5）：dsh-skills-manager 残留导致整页崩溃的文档与迁移修复
+
+### 背景（issue #5）
+用户仍可能按旧文档安装 `dsh-external/dsh-skills-manager`：其客户端仍调用 DSH 已移除的
+`ui-slots.deferRegistration`，在 08-06+ 新 DSH 上直接 `Failed to load plugins …
+deferRegistration is not a function`，Web 整页不可用——用户被挡在门外，到不了
+memory-evolve 的体验。本仓自身无此 bug（已用 `ctx.slots.inject`），缺的是迁移引导与
+迁移覆盖。
+
+### 实现
+- **迁移逻辑增强**（`lib/skills-manager.js`）：legacy 状态迁移支持多候选——
+  `DEFAULT_LEGACY_STATE_FILES = [dsh-skill-browser, dsh-skills-manager]` 两个历史
+  插件目录的 `state.json`，按顺序取第一个含禁用列表的来源导入（仅当本仓
+  `skills-state.json` 不存在时执行一次）；单路径调用方完全兼容（字符串归一为单元素数组）。
+- **文档**（`README-详细说明.md`）：安装章节新增醒目「从 dsh-skills-manager /
+  dsh-skill-browser 迁移」小节——先卸旧插件（移除 insert 注册 + 删 `@dsh-local/` 软链）
+  再启本仓，说明残留旧插件会导致整页不可用、二者不可同时启用；
+  `README.md` 能力索引补技能管理条目 + 迁移提示。
+- **测试**：`tests/skills-manager.test.js` 新增 2 个用例（多候选取第一个非空、
+  迁移持久化含自定义目录），13/13 全绿。
+
+### 外部动作（用户拍板 C）
+- dsh-skills-manager 仓库（本地 `~/.dsh/plugins/dsh-skill-browser/`，remote 指向
+  dsh-external/dsh-skills-manager）：README「安装」章节改为「⚠️ 不要安装本插件
+  （已废弃）+ 已安装用户卸载四步」，已 push（68c1f0b）；
+- 该仓库已在 GitHub 上标记 archived。
+
+### 验证
+- HEAD 干净克隆全量回归 36/36 全绿（skills-manager 13 + plugin 23）；
+  工作区 2 个失败用例系并行会话未提交改动（renderSnapshot 提示文本）所致，与本次无关。
+
+---
+
 ## 2026-08-09 — 工作区冲突协调（ws-coord，会话广播模块子功能）：同工作区多会话并行的资源占用协调
 
 ### 需求（用户拍板）
