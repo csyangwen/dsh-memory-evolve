@@ -115,6 +115,12 @@ export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps)
             checked={features.mermaidRender}
             onChange={(checked) => toggleFeature('mermaidRender', checked)}
           />
+          <FeatureSwitchRow
+            label={t('uiSettings.feature.directoryPickerNative')}
+            hint={t('uiSettings.feature.directoryPickerNative.hint')}
+            checked={features.directoryPickerNative}
+            onChange={(checked) => toggleFeature('directoryPickerNative', checked)}
+          />
         </div>
       </div>
     </section>
