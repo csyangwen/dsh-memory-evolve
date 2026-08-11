@@ -352,16 +352,30 @@ test('三层开关：模块开关≠项目开关；项目开关默认关、打�
     assert.equal(meta2.enabled, true)
     const syncOk = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
     assert.equal(syncOk.kind, 'success')
-    // ④ 轨开关：关掉项目记忆轨 → sync 被拒（无内容可对账）
+    // ④ 轨位（遗留位）自愈：三态取代旧「项目记忆轨」勾选开关（2026-08-11
+    //    用户拍板：A/B=轨纳入，不启用=轨退出）。已启用项目若轨位残留旧
+    //    UI 写入的 false → sync **自愈复位并继续**（不再拒绝——否则报
+    //    「重新勾选同步范围」但新 UI 无该入口，拉取/推送永久死锁）
     const trackOff = ops.setTrack(cwd, false)
     assert.equal(trackOff.kind, 'success')
     const meta3 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
     assert.equal(meta3.tracks.project, false)
-    const syncTrackRejected = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
-    assert.equal(syncTrackRejected.kind, 'error')
-    assert.match(syncTrackRejected.text, /退出同步|未选择任何同步内容/)
-    // ⑤ 轨开关恢复
-    ops.setTrack(cwd, true)
+    const syncHealed = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(syncHealed.kind, 'success')
+    const meta4 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta4.tracks.project, true)
+    // ⑤ 停用联动：off = 不启用 = 轨也退出（与 setup 的 projectOptIn 复位互逆）
+    const off2 = await handleCommand('off', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(off2.kind, 'success')
+    const meta5 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta5.enabled, false)
+    assert.equal(meta5.tracks.project, false)
+    // ⑥ 重新启用（setup adopt 路径）→ enabled + 轨位一并复位
+    const setup2 = await handleCommand('setup', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(setup2.kind, 'success')
+    const meta6 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta6.enabled, true)
+    assert.equal(meta6.tracks.project, true)
   } finally {
     clean(root)
   }
