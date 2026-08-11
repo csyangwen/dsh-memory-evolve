@@ -182,7 +182,7 @@ test('handleCommand setup：模式 B（共享记忆仓库 url）初始化', { sk
     // （不再固定 main——main 只用于老单项目仓库兼容）
     const setup = await handleCommand('setup', [privateBare], cwd, { config: { memoryDir }, ...rt })
     assert.equal(setup.kind, 'success')
-    assert.match(setup.text, /共享记忆仓库/)
+    assert.match(setup.text, /记忆同步初始化完成/)
     const info = projectSyncInfo({ memoryDir }, cwd)
     assert.equal(info.remoteBranch, `dsh-shared/${identity.id}`)
     assert.ok(existsSync(join(info.dir, 'PROVENANCE')))

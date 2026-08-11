@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-08-11 — 记忆同步：统一单一模式 + 项目待办接入同步（用户拍板）
+
+### 背景
+用户拍板（连续三轮讨论）：①模式 A/B 二选一的概念冗余——统一为**单一模式**：一个记忆远端（默认=主代码仓库 / 指定=共享记忆仓库）+ 每项目一条专属分支；②项目待办（TODOS.md）并入项目记忆轨同步；③全局轨（用户档案/每日日志/提示词等）二期、**仅共享记忆仓库可用**；④技能/本机状态类（队列/别名/书签/模型配置等）不做；⑤UI 以普通用户可理解为目标（无 A/B 术语）。
+
+### 核心能力
+- **统一单一模式**（概念归零）：
+  - setup 两条路径合并为一条：`probeUrl = url ?? 已配置 origin ?? 主仓库 origin`，无参=主代码仓库（零配置保留）、有参=共享记忆仓库；分支决策泛化为**候选探测**（`dsh-shared/<项目身份>` → 老 `dsh-shared/memory` → 老 `main`，PROVENANCE.projectId 精确匹配才认）——一次 ls-remote 探全部候选，老配置自动识别、零迁移；
+  - 新项目统一走专属分支 `dsh-shared/<projectId>`（模式 A/B 同分支命名）；老用户 PROVENANCE.remoteBranch 保留；
+  - 状态卡片新增「记忆远端类型」（sync origin 与主仓库 remote 归一化对比 = 主代码仓库 / 共享记忆仓库）；
+- **项目待办 TODOS.md 接入项目记忆轨**：
+  - TodoStore 注入 projectDirResolver（项目待办路径跟随 sync 目录 projectId，未启用项目回退 projectHash 零变化）；
+  - 白名单（stagePaths/.gitignore/isMemoryFile）加 TODOS.md；同步读取/写回专用 TODO 解析（剥文件头注释块、header 写回保留——todo.js 解析器依赖）；
+  - 合并器按文件分流：TODO 条目不补发行首身份证（会破坏 tag 格式），entryKey 用 tag id（`[id: xxxx]` 带空格，`TODO_ID_RE` 与记忆行首 `[id:xxxx]` 无空格刻意区分）；
+  - resolve both 的换新 ID 适配 TODO 形态（tag 行内 id）；
+- **UI 普通用户化**：操作区 = 「开始同步（用代码仓库）」主按钮 + 可选共享记忆仓库输入框；说明卡改「记忆放哪？怎么选」（隐私是主要区别）；状态卡片显示记忆远端类型；移除全部 A/B 术语（中英文案同步）。
+
+### 测试与验证
+- 全量 **478/478 全绿**（新增 tests/sync-todo.test.js 3 用例：resolver 跟随 / 双设备并集含 header 保留 / 冲突 resolve both 收敛；更新 sync-index 模式 B 断言、sync-shared-branch kind 断言、allowlist 回归断言）；
+- 修复一个真 bug：stripIdToNew 的 TODO_ID_RE 用 `\s*` 误伤记忆行首 id（resolve both 会把记忆条目 id 换成带空格格式破坏身份证）——改 `\s+` 严格区分两种形态，被 sync-conflict 既有用例捕获；
+- 老分支兼容回归：`dsh-shared/memory`（老模式 A）与 `main`（老单项目）识别/续用/串项目防护全部通过。
+
+### 文档
+- docs/记忆同步.md 重写「记忆远端：怎么选」（统一模型 + 切换语义 + 全局轨二期边界）；README 场景、README-详细说明.md 特性条目与章节同步更新。
+
+---
+
 ## 2026-08-11 — 记忆同步：模式 B 升级为「共享记忆仓库」（一个仓库装所有项目）
 
 ### 背景

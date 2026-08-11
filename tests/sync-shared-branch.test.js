@@ -165,7 +165,7 @@ test('decideModeBBranch：main 属于本项目（老单项目仓库）→ legacy
     const dir = join(root, 'mem', 'projects', identity.id)
     const r = await decideModeBBranch({ dir, remoteUrl: bare, projectId: identity.id })
     assert.equal(r.ok, true)
-    assert.equal(r.kind, 'legacy')
+    assert.equal(r.kind, 'legacy-main')
     assert.equal(r.branch, 'main')
   } finally {
     clean(root)
@@ -181,7 +181,7 @@ test('decideModeBBranch：main 属于其他项目（共享仓库已有别家）�
     const dir = join(root, 'mem', 'projects', identity.id)
     const r = await decideModeBBranch({ dir, remoteUrl: bare, projectId: identity.id })
     assert.equal(r.ok, true)
-    assert.equal(r.kind, 'shared-fresh')
+    assert.equal(r.kind, 'fresh')
     assert.equal(r.branch, `dsh-shared/${identity.id}`)
     // 决策过程只读 main（fetch 后清理），不产生任何分支改动
     const heads = git(bare, ['for-each-ref', '--format=%(refname)', 'refs/heads'])
@@ -201,7 +201,7 @@ test('decideModeBBranch：main 存在但无 PROVENANCE（归属不明）→ 保�
     const dir = join(root, 'mem', 'projects', identity.id)
     const r = await decideModeBBranch({ dir, remoteUrl: bare, projectId: identity.id })
     assert.equal(r.ok, true)
-    assert.equal(r.kind, 'shared-fresh')
+    assert.equal(r.kind, 'fresh')
     assert.equal(r.branch, `dsh-shared/${identity.id}`)
     assert.match(r.message, /无法确认归属|专属分支/)
   } finally {
@@ -230,14 +230,14 @@ test('e2e：新共享记忆仓库双设备——A 初始化走专属分支，B �
   const root = tempDir()
   try {
     const bare = makeBare(root)
-    // 设备 A：setup 模式 B（全新共享仓库）→ fresh → 专属分支 + 模块开关自动开
+    // 设备 A：setup 指定共享仓库（统一模式）→ fresh → 专属分支 + 模块开关自动开
     const cwdA = join(root, 'workA')
     const identityA = identityFor(cwdA)
     const memA = join(root, 'memA')
     const rtA = mockRuntime(false)
     const setupA = await handleCommand('setup', [bare], cwdA, { config: { memoryDir: memA }, ...rtA })
     assert.equal(setupA.kind, 'success')
-    assert.match(setupA.text, /共享记忆仓库初始化完成/)
+    assert.match(setupA.text, /记忆同步初始化完成/)
     assert.ok(rtA.patches.some((p) => p.syncEnabled === true), 'setup = 明确启用意图 → 自动开模块开关')
     const infoA = projectSyncInfo({ memoryDir: memA }, cwdA)
     assert.equal(infoA.remoteBranch, `dsh-shared/${identityA.id}`)
@@ -257,7 +257,7 @@ test('e2e：新共享记忆仓库双设备——A 初始化走专属分支，B �
     const rtB = mockRuntime(false)
     const setupB = await handleCommand('setup', [bare], cwdB, { config: { memoryDir: memB }, ...rtB })
     assert.equal(setupB.kind, 'success')
-    assert.match(setupB.text, /已接入共享记忆仓库/)
+    assert.match(setupB.text, /已接入远端记忆/)
     assert.ok(rtB.patches.some((p) => p.syncEnabled === true))
     const infoB = projectSyncInfo({ memoryDir: memB }, cwdB)
     assert.equal(infoB.remoteBranch, `dsh-shared/${identityB.id}`)
