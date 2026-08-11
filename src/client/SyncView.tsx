@@ -129,6 +129,11 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
         <div className="bb-empty">{t('syncTab.loading')}</div>
       ) : (
         <>
+          {/* 未深度测试提示（用户要求，2026-08-11）：本功能体量大、影响大，
+              尚未经过用户深度测试——上线初期必须明示慎重使用 */}
+          <div className="me-notice me-notice-warn" style={{ marginBottom: '8px' }}>
+            {t('syncTab.betaWarning')}
+          </div>
           {notice !== null && (
             <div className={notice.kind === 'ok' ? 'me-notice-ok' : 'me-notice-error'}>
               {notice.text}

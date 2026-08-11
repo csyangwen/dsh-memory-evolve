@@ -356,6 +356,7 @@ export const zh = {
   // 会话书签（独立子模块，bookmarkEnabled 默认关）：
   'syncTab.label': '记忆同步',
   'syncTab.loading': '加载中…',
+  'syncTab.betaWarning': '⚠️ 记忆同步是新上线的大功能，尚未经过深度测试——请先在非关键项目/记忆上试用，谨慎开启同步，重要数据请保留本地备份。',
   'syncTab.loadFailed': '状态加载失败：{message}',
   'syncTab.projectEnabled': '本项目同步',
   'syncTab.projectEnabled.hint': '项目级开关（默认关）：打开 = 初始化本项目并开始对账（记忆远端默认用你的代码仓库，零配置；也可在下方填一个共享记忆仓库地址）。关闭 = 本项目停用（记忆完整保留本地，随时可重新启用）。**未打开的项目保持未开发本模块前的纯本地状态**（不建 Git 仓库、不生成身份证）',
@@ -1071,6 +1072,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   // Session bookmarks (independent submodule, bookmarkEnabled off by default):
   'syncTab.label': 'Memory Sync',
   'syncTab.loading': 'Loading…',
+  'syncTab.betaWarning': '⚠️ Memory sync is a brand-new large feature that has not been deeply tested yet — please try it on non-critical projects/memory first, enable sync with caution, and keep local backups of important data.',
   'syncTab.loadFailed': 'Failed to load status: {message}',
   'syncTab.projectEnabled': 'Sync this project',
   'syncTab.projectEnabled.hint': 'Project-level switch (off by default): turning it on initializes this project and starts syncing (memory remote defaults to your code repo, zero config; you can also paste a shared memory repo URL below). Off disables it for this project (memory stays local, re-enable anytime). **Projects never opted in keep the exact pre-module local state** (no Git repo, no entry IDs)',
