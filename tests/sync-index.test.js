@@ -191,25 +191,32 @@ test('handleCommand setup：模式 B（私有仓库 url）初始化', { skip }, 
   }
 })
 
-test('handleCommand off：关闭 syncEnabled；status 反映启用/未初始化', { skip }, async () => {
+test('handleCommand off：项目级停用（PROVENANCE.enabled=false，记忆保留）；status 显示三层开关', { skip }, async () => {
   const root = tempDir()
   try {
-    const { cwd, memoryDir } = await bootProject(root)
+    const { cwd, memoryDir, dir } = await bootProject(root)
     const rt = mockRuntime(false)
-    // 未启用时 status 提示先 setup
+    // 模块未启用时 status 提示先 setup/开模块
     const st = await handleCommand('status', [], cwd, { config: { memoryDir }, ...rt })
     assert.equal(st.kind, 'success')
     assert.match(st.text, /未启用/)
-    // off：调用 applyRuntimePatch 关开关
+    // off：项目级停用——PROVENANCE.enabled=false（不关全局开关）
     const off = await handleCommand('off', [], cwd, { config: { memoryDir }, ...rt })
     assert.equal(off.kind, 'success')
-    assert.deepEqual(rt.patches, [{ syncEnabled: false }])
-    // 启用后 status 显示项目信息
+    assert.deepEqual(rt.patches, [], 'off 不应触碰全局 syncEnabled')
+    const meta = JSON.parse(readFileSync(join(dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta.enabled, false)
+    // 停用后 sync 被拒
+    const syncAfter = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(syncAfter.kind, 'error')
+    assert.match(syncAfter.text, /已停用同步/)
+    // 启用后 status 显示项目信息与三层开关状态
     const rt2 = mockRuntime(true)
     const st2 = await handleCommand('status', [], cwd, { config: { memoryDir }, ...rt2 })
     assert.equal(st2.kind, 'success')
     assert.match(st2.text, /项目身份/)
     assert.match(st2.text, /远端分支：dsh-shared\/memory/)
+    assert.match(st2.text, /本项目同步：已停用/)
   } finally {
     clean(root)
   }
@@ -308,3 +315,50 @@ test('syncStatusSync：初始化后返回完整状态字段', { skip }, async ()
     clean(root)
   }
 })
+
+/* ---------------- 三层开关（2026-08-11 用户拍板） ---------------- */
+
+test('三层开关：模块开关≠项目开关；项目开关默认关、打开走 setup、关闭停用', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const { cwd, memoryDir } = await bootProject(root)
+    const rt = mockRuntime(true)
+    const ops = installMemorySync(mockCtxOf(), { config: { memoryDir }, getRuntime: rt.getRuntime, applyRuntimePatch: rt.applyRuntimePatch }).ops
+    // ① 模块开关开、项目未初始化：projectEnabled 语义 = PROVENANCE 不存在 →
+    //    setup 引导（项目开关"打开"动作 = setup）
+    const status0 = syncStatusSync({ memoryDir }, cwd)
+    assert.ok(status0.initialized)
+    // ② 项目开关关闭（显式停用）→ PROVENANCE.enabled=false → sync 被拒
+    const off = await ops.setProjectEnabled(cwd, false)
+    assert.equal(off.kind, 'success')
+    const meta = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta.enabled, false)
+    const syncRejected = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(syncRejected.kind, 'error')
+    assert.match(syncRejected.text, /已停用同步/)
+    // ③ 重新启用（项目开关打开）→ enabled=true，sync 恢复
+    const on = await ops.setProjectEnabled(cwd, true)
+    assert.equal(on.kind, 'success')
+    const meta2 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta2.enabled, true)
+    const syncOk = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(syncOk.kind, 'success')
+    // ④ 轨开关：关掉项目记忆轨 → sync 被拒（无内容可对账）
+    const trackOff = ops.setTrack(cwd, false)
+    assert.equal(trackOff.kind, 'success')
+    const meta3 = JSON.parse(readFileSync(join(projectSyncInfo({ memoryDir }, cwd).dir, 'PROVENANCE'), 'utf8'))
+    assert.equal(meta3.tracks.project, false)
+    const syncTrackRejected = await handleCommand('sync', [], cwd, { config: { memoryDir }, ...mockRuntime(true) })
+    assert.equal(syncTrackRejected.kind, 'error')
+    assert.match(syncTrackRejected.text, /退出同步|未选择任何同步内容/)
+    // ⑤ 轨开关恢复
+    ops.setTrack(cwd, true)
+  } finally {
+    clean(root)
+  }
+})
+
+/** 最小 mock ctx（installMemorySync 命令注册用）。 */
+function mockCtxOf() {
+  return { get: () => undefined }
+}

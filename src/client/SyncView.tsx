@@ -21,6 +21,10 @@ const API = '/memory-evolve/memory-sync'
 interface SyncStatus {
   enabled: boolean
   initialized: boolean
+  /** 项目级同步开关（三层开关第 2 层）：PROVENANCE.enabled !== false。 */
+  projectEnabled?: boolean
+  /** 轨级开关（第 3 层）：一期唯一轨=项目记忆。 */
+  tracks?: { project?: boolean }
   uncommitted?: number
   behind?: number
   conflicts?: number
@@ -142,6 +146,44 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
               className="me-switch"
               checked={status?.enabled === true}
               onChange={(event) => { void setEnabled(event.target.checked) }}
+            />
+          </label>
+
+          {/* ── 项目级同步开关（三层开关第 2 层）：默认关——不启用 = 维持
+              未开发本模块前的纯本地状态（不建仓库、不生成身份证）── */}
+          <label className="me-field">
+            <span className="me-field-label">
+              {t('syncTab.projectEnabled')}
+              <em className="me-field-hint">{t('syncTab.projectEnabled.hint')}</em>
+            </span>
+            <input
+              type="checkbox"
+              className="me-switch"
+              disabled={status?.enabled !== true}
+              checked={status?.projectEnabled === true}
+              onChange={(event) => {
+                const target = event.target.checked
+                void run(() => api<{ ok: boolean; text: string }>('/project-enabled', { method: 'POST', body: JSON.stringify({ sessionId, enabled: target }) }))
+              }}
+            />
+          </label>
+
+          {/* ── 轨级开关（三层开关第 3 层）：项目记忆轨参与同步（一期唯一轨；
+              全局轨 memory/user/daily 二期独立开关）── */}
+          <label className="me-field">
+            <span className="me-field-label">
+              {t('syncTab.trackProject')}
+              <em className="me-field-hint">{t('syncTab.trackProject.hint')}</em>
+            </span>
+            <input
+              type="checkbox"
+              className="me-switch"
+              disabled={status?.projectEnabled !== true}
+              checked={status?.tracks?.project !== false}
+              onChange={(event) => {
+                const target = event.target.checked
+                void run(() => api<{ ok: boolean; text: string }>('/track', { method: 'POST', body: JSON.stringify({ sessionId, on: target }) }))
+              }}
             />
           </label>
 
