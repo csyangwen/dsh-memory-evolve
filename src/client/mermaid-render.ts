@@ -16,7 +16,7 @@
  * 2. DOM 增强而非改渲染器：DSH 渲染器无消息级挂载点且 DOM 被 pin（不可
  *    信输出策略），只在外围替换 .md-code-block 的正文；失败/关闭随时可弃。
  * 3. 控制器模式（setEnabled/dispose）：与 wide-chat / session-filter 同款，
- *    开关挂「DSH UI 设置」Tab「综合」子 tab（localStorage + 事件广播）。
+ *    开关挂「Web UI 设置」Tab「综合」子 tab（localStorage + 事件广播）。
  * 4. 内容稳定判定：流式输出时代码块持续变化，等内容停顿 STABLE_MS 且两次
  *    读取一致才渲染，避免渲染半截语法报错。
  * 5. React 重渲染防御：CodeBlock 由 React 渲染，重渲染会把 SVG 还原成代码

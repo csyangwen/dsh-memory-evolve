@@ -1821,7 +1821,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* ---- 模型配置 Tab（models-hub）----
+/* ---- 模型设置 Tab（models-hub）----
  * mt-models-* 前缀，token 与风格与现有 mt- 类一致（不自建样式体系）。
  * 表格 + 行内配置（启用开关 / 思考等级标签与编辑器 / 备注输入）。 */
 
@@ -2066,7 +2066,7 @@
   white-space: nowrap;
 }
 
-/* 思考关闭标记（模型配置表格行内）。 */
+/* 思考关闭标记（模型设置表格行内）。 */
 .mt-models-tag-off {
   color: var(--dsw-alias-state-error-primary);
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);

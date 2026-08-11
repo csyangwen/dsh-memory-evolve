@@ -1,7 +1,7 @@
 /**
- * dsh-memory-evolve — 模型配置 tab（conversation.view entry）。
+ * dsh-memory-evolve — 模型设置 tab（conversation.view entry）。
  *
- * 「模型配置」Tab：以表格形式展示 DSH 现有供应商与模型（只读聚合——
+ * 「模型设置」Tab：以表格形式展示 DSH 现有供应商与模型（只读聚合——
  * 供应商目录 + settings 模型目录 + adapter 思考等级），并支持给每个模型
  * 设置（写插件自有 models.json，不碰 DSH 配置）：
  *   1) 启用/禁用（插件口径的可用性标记）；
@@ -93,13 +93,13 @@ function capacityText(value: number | undefined): string {
 /** 保存中的模型 key 集合。 */
 type SavingSet = ReadonlySet<string>
 
-/** 模型配置 Tab 的两个子功能：模型配置（表格）/ 指南。 */
+/** 模型设置 Tab 的两个子功能：模型设置（表格）/ 指南。 */
 type ModelsFeature = 'models' | 'guide'
 
 /** 跨重挂持久化的子 tab 选择（模块级：快照刷新导致组件重挂后恢复）。 */
 let persistedModelsFeature: ModelsFeature | null = null
 
-/** 模型配置 Tab 专属指南内容（「指南」子 Tab）。 */
+/** 模型设置 Tab 专属指南内容（「指南」子 Tab）。 */
 function modelsGuideSections(t: Translate): GuideSection[] {
   return [
     {
@@ -142,12 +142,12 @@ function modelsGuideSections(t: Translate): GuideSection[] {
 }
 
 /**
- * 模型配置表格组件。
+ * 模型设置表格组件。
  * @param props - 会话上下文 + locale。
  */
 export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.Element {
   const { t } = props
-  /** 当前激活的子 tab（缺省=模型配置表格，指南为附加说明）。 */
+  /** 当前激活的子 tab（缺省=模型设置表格，指南为附加说明）。 */
   const [feature, setFeature] = useState<ModelsFeature>(persistedModelsFeature ?? 'models')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -306,7 +306,7 @@ export function ModelsTabView(props: ConvViewProps & ModelsTabViewProps): JSX.El
 
   return (
     <div className="mt-panel">
-      {/* 子 tab 条：模型配置（表格）/ 指南 */}
+      {/* 子 tab 条：模型设置（表格）/ 指南 */}
       <div className="mt-file-tabs" role="tablist">
         <button
           type="button"

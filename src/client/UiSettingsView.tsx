@@ -1,7 +1,7 @@
 /**
- * dsh-memory-evolve — DSH UI 设置 Tab（conversation.view entry）。
+ * dsh-memory-evolve — Web UI 设置 Tab（conversation.view entry）。
  *
- * 「DSH UI 设置」Tab：本模块的操作/说明界面，两个子 Tab：
+ * 「Web UI 设置」Tab：本模块的操作/说明界面，两个子 Tab：
  *   「综合」：**各功能的小开关列表**（用户拍板：每个功能设置都要有单独
  *     的小开关按钮；功能未定型前不精确分类，先统一收在「综合」）——当前
  *     两个功能：会话筛选（左侧列表只显示进行中）、对话区加宽（中间区域
@@ -57,7 +57,7 @@ function FeatureSwitchRow({ label, hint, checked, onChange }: {
   )
 }
 
-/** The conversation view DSH UI 设置 tab component. */
+/** The conversation view Web UI 设置 tab component. */
 export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps): JSX.Element {
   const { t } = props
   const [feature, setFeature] = useState<UiSettingsFeature>(persistedUiSettingsFeature ?? 'mixed')
