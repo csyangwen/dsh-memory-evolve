@@ -23,7 +23,7 @@ interface SyncStatus {
   initialized: boolean
   /** 项目级同步开关（三层开关第 2 层）：PROVENANCE.enabled !== false。 */
   projectEnabled?: boolean
-  /** 轨级开关（第 3 层）：一期唯一轨=项目记忆。 */
+  /** 轨级开关（第 3 层）：项目记忆轨 + 全局轨（见 global）。 */
   tracks?: { project?: boolean }
   uncommitted?: number
   behind?: number
@@ -33,6 +33,13 @@ interface SyncStatus {
   remoteKind?: 'main-repo' | 'shared-repo'
   identity?: { displayName: string; kind: string; remoteUrl?: string }
   migrateFrom?: string | null
+  /** 全局轨状态（设备级；仅共享记忆仓库可用，2026-08-11 本期实现）。 */
+  global?: {
+    initialized: boolean
+    url: string
+    tracks: { memory?: boolean; user?: boolean; daily?: boolean; todo?: boolean }
+    uncommitted: number
+  }
 }
 
 /** 一条冲突（/conflicts 返回；resolve 用 index 定位）。 */
@@ -197,6 +204,48 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
               </>
             )}
           </div>
+
+          {/* ── 全局记忆同步区（设备级；仅共享记忆仓库 setup 后出现，
+               2026-08-11 用户拍板本期实现：开关做好功能必须实现）── */}
+          {status?.enabled === true && status?.global?.initialized === true && (
+            <div className="bb-settings">
+              <div className="bb-settings-title">{t('syncTab.global.title')}</div>
+              <p className="bb-settings-desc">
+                {t('syncTab.global.url', { url: status.global.url })}
+                <br />
+                {t('syncTab.global.uncommitted', { n: String(status.global.uncommitted ?? 0) })}
+              </p>
+              {/* 四轨开关（每轨独立 opt-in，默认关） */}
+              {([
+                ['memory', 'syncTab.global.trackMemory'],
+                ['user', 'syncTab.global.trackUser'],
+                ['daily', 'syncTab.global.trackDaily'],
+                ['todo', 'syncTab.global.trackTodo'],
+              ] as const).map(([track, labelKey]) => (
+                <label key={track} className="me-field">
+                  <span className="me-field-label">{t(labelKey)}</span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={status.global?.tracks?.[track] === true}
+                    onChange={(event) => {
+                      const target = event.target.checked
+                      void run(() => api<{ ok: boolean; text: string }>('/global-track', { method: 'POST', body: JSON.stringify({ sessionId, track, on: target }) }))
+                    }}
+                  />
+                </label>
+              ))}
+              <p className="bb-meta">{t('syncTab.global.hint')}</p>
+              <div className="bb-actions">
+                <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-sync', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
+                  {t('syncTab.global.sync')}
+                </button>
+                <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-sync', { method: 'POST', body: JSON.stringify({ sessionId, push: true }) })) }}>
+                  {t('syncTab.global.push')}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ── 操作区（未启用时隐藏——先开开关）── */}
           {status?.enabled === true && (

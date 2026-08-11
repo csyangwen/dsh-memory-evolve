@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-08-11 — 记忆同步：全局记忆轨本期实现（用户拍板：开关做好功能必须实现）
+
+### 背景
+用户拍板：全局记忆同步不能留到二期——开关（轨开关）设计好就必须有功能。范围：全局记忆（MEMORY.md）/ 用户档案（USER.md）/ 每日日志（daily/*.md）/ 待办（TODOS-life.md、TODOS-work.md、daily/*.todo.md）四个独立轨，仅共享记忆仓库可用；提示词（prompts.json，JSON 格式需专用合并）与技能（文件级策略）不纳入本期。
+
+### 核心能力
+- **全局记忆仓库**：记忆根目录（<memoryDir>）的 .git——deny-all 白名单只放行全局记忆文件（projects/ 等内部目录不入库）；PROVENANCE 记录绑定的共享记忆仓库 URL（URL 归一化指纹身份）+ 四轨开关（默认全关，opt-in 与项目级一致）；
+- **每轨一条分支**：dsh-shared/memory-global / user / daily / todo-global（需求 #5 命名空间），本地分支 refs/heads/<fileset> 独立——**同一工作树多轨并存**：各轨 sync 只处理自己的文件子集（fileset），提交前重建 index（rm --cached -f）防止跨轨文件混入提交树；
+- **机制全复用**：runSync/合并器/冲突/锁全部参数化（fileset + localBranch），合并器按路径模式识别 TODO 格式（TODOS.md/TODOS-life.md/TODOS-work.md/daily/*.todo.md）；每日日志/全局记忆老条目确定性补发身份证；
+- **入口**：记忆同步 Tab「全局记忆同步」区（四轨开关 + 同步/同步并推送，仅共享仓库项目显示）；命令 /memory_sync global status|on|off <memory|user|daily|todo>|sync [--push]；setup <url> 时自动初始化全局仓库（幂等）；
+- **边界**：全局记忆不填共享仓库地址 = 纯本地（与未安装一致）；切换共享仓库 URL 后旧分支留档。
+
+### 测试与验证
+- 全量 **492/492 全绿**（新增 tests/sync-global.test.js 5 用例：初始化/双设备三轨认亲/关轨不参与/每日日志轨/global status）；
+- 双设备 e2e：A 开轨推送 → B 开轨拉取（记忆/用户档案/待办），各轨远端分支内容隔离（todo 分支不含 MEMORY.md 等）。
+
+### 文档
+- docs/记忆同步.md 新增「全局记忆同步」章节（四轨开关/同步方式/边界）；README 场景与详细说明同步更新。
+
+---
+
 ## 2026-08-11 — 记忆同步：统一单一模式 + 项目待办接入同步（用户拍板）
 
 ### 背景
