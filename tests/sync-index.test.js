@@ -145,7 +145,7 @@ test('handleCommand setup：模式 A（未初始化引导 / 本地远端回退 /
     git(plainCwd, ['remote', 'add', 'origin', 'https://example.com/acme/beta.git'])
     const noSetup = await handleCommand('sync', [], plainCwd, { config: { memoryDir }, ...rt })
     assert.equal(noSetup.kind, 'error')
-    assert.match(noSetup.text, /setup/)
+    assert.match(noSetup.text, /开始同步/)
     // ② 本地路径 remote（file:// 语义，归一化失败 → fallback 身份）→
     //    setup 模式 A 如实报"没有可共享远端"（引导模式 B）
     const localCwd = join(root, 'plain3')

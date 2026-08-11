@@ -1,8 +1,7 @@
 /**
  * dsh-memory-evolve — 记忆同步 Tab（conversation.view entry，跟随 syncEnabled）。
  *
- * 把 /memory_sync 命令组的全部能力 UI 化（2026-08-11 用户拍板：本模块其他
- * 功能都少用指令了，同步也应有独立 Tab）：
+ * 把记忆同步能力集中到独立 Tab：
  *   - 状态卡片：项目身份 / 远端分支 / 未提交 / 落后 / 冲突数 / 迁移提示
  *   - 操作：启用开关、开始同步（用代码仓库一键 / 填共享记忆仓库地址）、
  *     同步、同步并推送（**点击即用户显式同意推送**，需求 #12）、停用
@@ -11,7 +10,7 @@
  *
  * 数据源：/memory-evolve/memory-sync/*（host API；与命令组同一套逻辑）。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -30,7 +29,9 @@ interface SyncStatus {
   conflicts?: number
   remoteBranch?: string
   /** 记忆远端类型（统一模式）：main-repo=主代码仓库（默认）；shared-repo=共享记忆仓库。 */
-  remoteKind?: 'main-repo' | 'shared-repo'
+  remoteKind?: 'main-repo' | 'shared-repo' | 'none'
+  /** 当前记忆实际对账的远端 origin URL。 */
+  originUrl: string
   identity?: { displayName: string; kind: string; remoteUrl?: string }
   migrateFrom?: string | null
   /** 全局轨状态（设备级；仅共享记忆仓库可用，2026-08-11 本期实现）。 */
@@ -82,8 +83,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
-  // 共享记忆仓库地址输入（可选；留空 = 用主代码仓库）
+  // 记忆远端地址输入：初始回显当前 origin，也可改为共享记忆仓库地址。
   const [remoteUrl, setRemoteUrl] = useState('')
+  // 用户开始编辑后，后台刷新不得用 status.originUrl 覆盖尚未提交的输入。
+  const remoteUrlEdited = useRef(false)
   const [initialized, setInitialized] = useState(false) // status 首次加载完成标记
 
   /** 拉取状态 + 冲突列表。 */
@@ -93,7 +96,9 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
         api<{ status?: SyncStatus } | SyncStatus>(`/status?sessionId=${encodeURIComponent(sessionId)}`),
         api<{ conflicts: ConflictItem[] }>(`/conflicts?sessionId=${encodeURIComponent(sessionId)}`),
       ])
-      setStatus('status' in s && s.status !== undefined ? s.status : (s as SyncStatus))
+      const nextStatus = 'status' in s && s.status !== undefined ? s.status : (s as SyncStatus)
+      setStatus(nextStatus)
+      if (!remoteUrlEdited.current) setRemoteUrl(nextStatus.originUrl ?? '')
       setConflicts(c.conflicts ?? [])
     } catch (error) {
       setNotice({ kind: 'error', text: t('syncTab.loadFailed', { message: (error as Error).message }) })
@@ -101,6 +106,11 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       setInitialized(true)
     }
   }, [sessionId, t])
+
+  useEffect(() => {
+    remoteUrlEdited.current = false
+    setRemoteUrl('')
+  }, [sessionId])
 
   useEffect(() => {
     void refresh()
@@ -121,6 +131,12 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       setBusy(false)
       void refresh()
     }
+  }
+
+  const sectionStyle = {
+    marginTop: '12px',
+    paddingTop: '12px',
+    borderTop: '1px solid var(--dsw-alias-border-l2)',
   }
 
   return (
@@ -181,7 +197,7 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
           </label>
 
           {/* ── 状态卡片 ── */}
-          <div className="bb-settings">
+          <div className="bb-settings" style={sectionStyle}>
             <div className="bb-settings-title">{t('syncTab.status.title')}</div>
             {status?.enabled !== true ? (
               <p className="bb-settings-desc">{t('syncTab.status.disabled')}</p>
@@ -190,11 +206,18 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             ) : (
               <>
                 <p className="bb-settings-desc">
-                  {t('syncTab.status.identity', { name: status?.identity?.displayName ?? '?', kind: status?.identity?.kind === 'remote' ? t('syncTab.status.remote') : t('syncTab.status.local') })}
+                  <strong>{t('syncTab.status.identity', { name: status?.identity?.displayName ?? '?', kind: status?.identity?.kind === 'remote' ? t('syncTab.status.remote') : t('syncTab.status.local') })}</strong>
                   <br />
-                  {/* 记忆远端：主代码仓库（默认）或共享记忆仓库（用户指定） */}
-                  {t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : status?.remoteKind === 'shared-repo' ? t('syncTab.status.remoteKindShared') : t('syncTab.status.remoteKindNone') })}
+                  {t('syncTab.status.identity.hint')}
+                </p>
+                <p className="bb-settings-desc">
+                  <strong>{t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : status?.remoteKind === 'shared-repo' ? t('syncTab.status.remoteKindShared') : t('syncTab.status.remoteKindNone') })}</strong>
                   <br />
+                  {t('syncTab.status.originUrl', { url: status?.originUrl || t('syncTab.status.remoteKindNone') })}
+                  <br />
+                  {t('syncTab.status.remoteKind.hint')}
+                </p>
+                <p className="bb-settings-desc">
                   {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
                   <br />
                   {t('syncTab.status.counts', {
@@ -210,17 +233,82 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             )}
           </div>
 
-          {/* ── 全局记忆同步区（设备级；仅共享记忆仓库 setup 后出现，
-               2026-08-11 用户拍板本期实现：开关做好功能必须实现）── */}
+          {/* ── 项目级操作区 ── */}
+          {status?.enabled === true && (
+            <div className="bb-settings" style={sectionStyle}>
+              <div className="bb-settings-title">{t('syncTab.actions.title')}</div>
+              <div className="bb-actions">
+                {status?.initialized !== true && (
+                  <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
+                    {t('syncTab.actions.setupDefault')}
+                  </button>
+                )}
+                {status?.initialized === true && (
+                  <>
+                    <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
+                      {t('syncTab.actions.sync')}
+                    </button>
+                    <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId, push: true }) })) }}>
+                      {t('syncTab.actions.push')}
+                    </button>
+                    <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/off', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
+                      {t('syncTab.actions.off')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── 记忆远端配置：与项目操作分区，避免混淆同步对象 ── */}
+          {status?.enabled === true && (
+            <div className="bb-settings" style={sectionStyle}>
+              <div className="bb-settings-title">{t('syncTab.remote.configTitle')}</div>
+              <div className="bb-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+                <em className="bb-meta">
+                  {status?.initialized === true ? t('syncTab.actions.switchShared.hint') : t('syncTab.actions.setupShared.hint')}
+                </em>
+                <span className="bb-actions-inline" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', width: '100%', minWidth: 0 }}>
+                  <input
+                    type="text"
+                    className="me-input"
+                    style={{ flex: '1 1 360px', width: 'auto', minWidth: 'min(280px, 100%)' }}
+                    placeholder={t('syncTab.actions.setupShared.placeholder')}
+                    value={remoteUrl}
+                    onChange={(event) => {
+                      remoteUrlEdited.current = true
+                      setRemoteUrl(event.target.value)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="me-btn"
+                    disabled={busy || remoteUrl.trim() === ''}
+                    onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
+                  >
+                    {status?.initialized === true ? t('syncTab.actions.switchShared') : t('syncTab.actions.setupShared')}
+                  </button>
+                </span>
+              </div>
+              <details className="bb-settings-desc" style={{ marginTop: '10px' }}>
+                <summary style={{ cursor: 'pointer' }}>{t('syncTab.remote.title')}</summary>
+                <div style={{ marginTop: '6px' }}>
+                  <p><strong>{t('syncTab.remote.default.title')}</strong>：{t('syncTab.remote.default.desc')}</p>
+                  <p><strong>{t('syncTab.remote.shared.title')}</strong>：{t('syncTab.remote.shared.desc')}</p>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* ── 全局记忆同步区（设备级；仅共享记忆仓库 setup 后出现）── */}
           {status?.enabled === true && status?.global?.initialized === true && (
-            <div className="bb-settings">
+            <div className="bb-settings" style={sectionStyle}>
               <div className="bb-settings-title">{t('syncTab.global.title')}</div>
               <p className="bb-settings-desc">
                 {t('syncTab.global.url', { url: status.global.url })}
                 <br />
                 {t('syncTab.global.uncommitted', { n: String(status.global.uncommitted ?? 0) })}
               </p>
-              {/* 四轨开关（每轨独立 opt-in，默认关） */}
               {([
                 ['memory', 'syncTab.global.trackMemory'],
                 ['user', 'syncTab.global.trackUser'],
@@ -252,74 +340,9 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             </div>
           )}
 
-          {/* ── 操作区（未启用时隐藏——先开开关）── */}
-          {status?.enabled === true && (
-            <div className="bb-settings">
-              <div className="bb-settings-title">{t('syncTab.actions.title')}</div>
-              {/* 记忆放哪说明（可折叠，2026-08-11 用户拍板：统一单一模式——
-                  一个记忆远端配置 + 每项目专属分支；隐私是主要区别） */}
-              <details className="bb-settings-desc">
-                <summary style={{ cursor: 'pointer' }}>{t('syncTab.remote.title')}</summary>
-                <div style={{ marginTop: '6px' }}>
-                  <p><strong>{t('syncTab.remote.default.title')}</strong>：{t('syncTab.remote.default.desc')}</p>
-                  <p><strong>{t('syncTab.remote.shared.title')}</strong>：{t('syncTab.remote.shared.desc')}</p>
-                </div>
-              </details>
-              <div className="bb-actions">
-                {status?.initialized !== true && (
-                  <>
-                    {/* 默认：记忆远端 = 主代码仓库（零配置） */}
-                    <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                      {t('syncTab.actions.setupDefault')}
-                    </button>
-                  </>
-                )}
-                {status?.initialized === true && (
-                  <>
-                    <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                      {t('syncTab.actions.sync')}
-                    </button>
-                    <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId, push: true }) })) }}>
-                      {t('syncTab.actions.push')}
-                    </button>
-                  </>
-                )}
-                <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/off', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                  {t('syncTab.actions.off')}
-                </button>
-              </div>
-              {/* 共享记忆仓库地址输入（**任何状态下都显示**——未初始化 = 初始化到
-                  指定仓库；已初始化 = 切换记忆远端（换对账对象，本地记忆保留、
-                  旧分支留档）。2026-08-11 用户反馈修复：此前只在未初始化时显示，
-                  已启用 A 模式的项目没有切换入口） */}
-              <div className="bb-actions" style={{ marginTop: '8px' }}>
-                <em className="bb-meta">
-                  {status?.initialized === true ? t('syncTab.actions.switchShared.hint') : t('syncTab.actions.setupShared.hint')}
-                </em>
-                <span className="bb-actions-inline">
-                  <input
-                    type="text"
-                    className="me-input"
-                    placeholder={t('syncTab.actions.setupShared.placeholder')}
-                    value={remoteUrl}
-                    onChange={(event) => setRemoteUrl(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="me-btn"
-                    disabled={busy || remoteUrl.trim() === ''}
-                    onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
-                  >
-                    {status?.initialized === true ? t('syncTab.actions.switchShared') : t('syncTab.actions.setupShared')}
-                  </button>
-                </span>
-              </div>
-            </div>
-          )}
-
           {/* ── 冲突区 ── */}
           {status?.enabled === true && conflicts.length > 0 && (
-            <div className="bb-settings">
+            <div className="bb-settings" style={sectionStyle}>
               <div className="bb-settings-title">{t('syncTab.conflicts.title', { count: conflicts.length })}</div>
               {conflicts.map((c) => (
                 <div key={c.index} className="bb-session-line">
