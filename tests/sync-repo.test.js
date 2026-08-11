@@ -182,7 +182,7 @@ test('设备 B：远端分支存在 → adopt 接入，工作树含远端记忆'
     // 测试环境直接 push 到裸仓库（显式 URL，绕过假 https origin；真实场景
     // push 需用户同意——施工图 §12）
     const pushA = runGitSync(dirA, ['push', '-q', bare, 'main:dsh-shared/memory'])
-    assert.ok(pushA !== null || true) // push 成功（无输出）
+    assert.ok(pushA !== null, 'push 应成功（runGitSync 失败返回 null）')
     // 远端确有分支（"." = 当前仓库；ls-remote 需要 remote 参数）
     const ls = runGitSync(bare, ['ls-remote', '--exit-code', '.', 'refs/heads/dsh-shared/memory'], { allowFail: true })
     assert.ok(ls !== '', '远端应有 dsh-shared/memory 分支')
