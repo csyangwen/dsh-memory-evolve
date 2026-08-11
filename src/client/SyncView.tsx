@@ -44,6 +44,8 @@ interface SyncStatus {
   /** 全局轨状态（设备级；仅共享记忆仓库可用，2026-08-11 本期实现）。 */
   global?: {
     initialized: boolean
+    /** 共享记忆库启用位（设备级，2026-08-11 用户拍板）：false = 停用。 */
+    enabled?: boolean
     url: string
     tracks: { memory?: boolean; user?: boolean; daily?: boolean; todo?: boolean }
     uncommitted: number
@@ -84,7 +86,7 @@ function clamp(text: string | null, max = 60): string {
 /** 操作反馈（成功/失败）。 */
 type Notice = { kind: 'ok' | 'error'; text: string } | null
 
-/** 子 Tab：project=本项目 / global=全局记忆 / remote=记忆远端。 */
+/** 子 Tab：project=本项目 / global=全局记忆 / remote=共享记忆库。 */
 type SyncFeature = 'project' | 'global' | 'remote'
 
 export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
@@ -96,10 +98,14 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const [initialized, setInitialized] = useState(false) // status 首次加载完成标记
   /** 当前子 Tab（跨重挂持久化：状态刷新导致组件重挂后恢复）。 */
   const [feature, setFeature] = useState<SyncFeature>('project')
-  /** 「记忆远端」子 Tab 的地址输入：初始回显已配置的共享仓库地址。 */
+  /** 「共享记忆库」子 Tab 的地址输入：初始回显已配置的共享仓库地址。 */
   const [remoteUrl, setRemoteUrl] = useState('')
   // 用户开始编辑后，后台刷新不得用已保存的地址覆盖尚未提交的输入。
   const remoteUrlEdited = useRef(false)
+  /** 共享记忆库启用意向（2026-08-11 用户拍板：本地单选，回显服务端
+   *  enabled；点「启用」只切本地意向并露出地址输入，点「启用并保存」才
+   *  真正执行；点「不启用」且当前已启用 → 立即停用）。 */
+  const [remoteOn, setRemoteOn] = useState(false)
 
   /** 拉取状态 + 冲突列表。 */
   const refresh = useCallback(async (): Promise<void> => {
@@ -113,6 +119,8 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       // 记忆远端输入框回显已配置的共享仓库地址（设备级 global.url；项目
       // 也可能已初始化到共享仓库——用项目 originUrl 更贴近当前引用）
       if (!remoteUrlEdited.current) setRemoteUrl(nextStatus.originUrl ?? '')
+      // 启用意向回显：跟随服务端 enabled（停用后刷新回"不启用"）
+      setRemoteOn(nextStatus.global?.enabled === true)
       setConflicts(c.conflicts ?? [])
     } catch (error) {
       setNotice({ kind: 'error', text: t('syncTab.loadFailed', { message: (error as Error).message }) })
@@ -161,9 +169,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       return r
     }
     if (mode === 'shared') {
-      // B 模式依赖设备级共享仓库地址：未配置（全局仓库未初始化）→ 拒绝并引导
-      if (status?.global?.initialized !== true) {
-        setFeature('remote') // 跳到「记忆远端」子 Tab 引导配置
+      // B 模式依赖设备级共享记忆库：未启用（enabled=false 或未初始化）→
+      // 拒绝并跳到「共享记忆库」子 Tab 引导（2026-08-11 用户拍板）
+      if (status?.global?.enabled !== true || status?.global?.initialized !== true) {
+        setFeature('remote') // 跳到「共享记忆库」子 Tab 引导启用
         return { ok: false, text: t('syncTab.project.mode.shared.needRemote') }
       }
       const url = status.global.url
@@ -348,7 +357,9 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
           {feature === 'global' && (
             <div className="sv-section">
               <div className="sv-section-title">{t('syncTab.section.global')}</div>
-              {status?.global?.initialized === true ? (
+              {/* 可用条件 = 共享记忆库已启用（enabled）且已初始化；停用/未配置
+                  时明确显示"不可用"并引导（2026-08-11 用户拍板） */}
+              {status?.global?.enabled === true && status?.global?.initialized === true ? (
                 <>
                   {/* 四轨开关（每轨独立 opt-in，默认关） */}
                   {([
@@ -391,41 +402,96 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             </div>
           )}
 
-          {/* ════════ 子 Tab 三：记忆远端（设备级配置，无 A/B 徽标）════════ */}
+          {/* ════════ 子 Tab 三：共享记忆库（设备级配置，无 A/B 徽标）════════ */}
           {feature === 'remote' && (
             <div className="sv-section">
               <div className="sv-section-title">{t('syncTab.section.remote')}</div>
               {/* 说明：设备级、项目 B 与全局共用 */}
               <p className="bb-settings-desc">{t('syncTab.remote.desc')}</p>
-              {/* 地址输入 + 保存（/global-remote：只配置设备级共享仓库，不碰项目） */}
-              <div className="sv-actions" style={{ marginTop: '8px' }}>
-                <input
-                  type="text"
-                  className="me-input"
-                  style={{ flex: '1 1 360px', width: 'auto', minWidth: 'min(280px, 100%)' }}
-                  placeholder={t('syncTab.remote.placeholder')}
-                  value={remoteUrl}
-                  onChange={(event) => {
-                    remoteUrlEdited.current = true
-                    setRemoteUrl(event.target.value)
-                  }}
-                />
-                <button
-                  type="button"
-                  className="me-btn me-btn-primary"
-                  disabled={busy || remoteUrl.trim() === ''}
-                  onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-remote', { method: 'POST', body: JSON.stringify({ url: remoteUrl.trim() }) })) }}
-                >
-                  {t('syncTab.remote.save')}
-                </button>
+
+              {/* 启用/停用单选（2026-08-11 用户拍板：共享记忆库也要有开关——
+                  不启用 = 项目 B 与全局记忆均不可用；已同步数据与地址保留）。
+                  用本地意向 remoteOn 控制显示；点「不启用」且当前已启用 →
+                  立即停用；点「启用」→ 露出地址输入，点「启用并保存」才生效 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label className={`sv-radio-row${!remoteOn ? ' sv-radio-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="sync-remote-enabled"
+                    checked={!remoteOn}
+                    onChange={() => {
+                      if (status?.global?.enabled === true) {
+                        // 当前已启用 → 直接停用（数据保留）
+                        void run(() => api<{ ok: boolean; text: string }>('/global-remote', { method: 'POST', body: JSON.stringify({ enabled: false }) }))
+                      } else {
+                        setRemoteOn(false)
+                      }
+                    }}
+                  />
+                  <span style={{ flex: 1 }}>
+                    <span className="sv-radio-label">{t('syncTab.remote.mode.off')}</span>
+                    <span className="sv-radio-desc">{t('syncTab.remote.mode.off.desc')}</span>
+                  </span>
+                </label>
+                <label className={`sv-radio-row${remoteOn ? ' sv-radio-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="sync-remote-enabled"
+                    checked={remoteOn}
+                    onChange={() => setRemoteOn(true)}
+                  />
+                  <span style={{ flex: 1 }}>
+                    <span className="sv-radio-label">{t('syncTab.remote.mode.on')}</span>
+                    <span className="sv-radio-desc">{t('syncTab.remote.mode.on.desc')}</span>
+                  </span>
+                </label>
               </div>
-              {/* 当前已配置地址（只读展示） */}
-              {status?.global?.initialized === true && status?.global?.url !== '' && (
-                <p className="bb-meta" style={{ marginTop: '8px' }}>
-                  {t('syncTab.remote.current', { url: status.global.url })}
-                </p>
+
+              {/* 启用意向态：地址输入 + 启用并保存（/global-remote：只配置设备级
+                  共享记忆库，不碰项目）；已启用时附「停用共享记忆库」按钮 */}
+              {remoteOn ? (
+                <>
+                  <div className="sv-actions" style={{ marginTop: '10px' }}>
+                    <input
+                      type="text"
+                      className="me-input"
+                      style={{ flex: '1 1 360px', width: 'auto', minWidth: 'min(280px, 100%)' }}
+                      placeholder={t('syncTab.remote.placeholder')}
+                      value={remoteUrl}
+                      onChange={(event) => {
+                        remoteUrlEdited.current = true
+                        setRemoteUrl(event.target.value)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="me-btn me-btn-primary"
+                      disabled={busy || remoteUrl.trim() === ''}
+                      onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-remote', { method: 'POST', body: JSON.stringify({ url: remoteUrl.trim(), enabled: true }) })) }}
+                    >
+                      {t('syncTab.remote.save')}
+                    </button>
+                    {status?.global?.initialized === true && status?.global?.url !== '' && (
+                      <button
+                        type="button"
+                        className="me-btn me-btn-danger"
+                        disabled={busy}
+                        onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-remote', { method: 'POST', body: JSON.stringify({ enabled: false }) })) }}
+                      >
+                        {t('syncTab.remote.disable')}
+                      </button>
+                    )}
+                  </div>
+                  {/* 当前已配置地址（只读展示） */}
+                  {status?.global?.initialized === true && status?.global?.url !== '' && (
+                    <p className="bb-meta" style={{ marginTop: '8px' }}>
+                      {t('syncTab.remote.current', { url: status.global.url })}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="bb-meta" style={{ marginTop: '8px' }}>{t('syncTab.remote.switchHint')}</p>
               )}
-              <p className="bb-meta" style={{ marginTop: '6px' }}>{t('syncTab.remote.switchHint')}</p>
             </div>
           )}
 
