@@ -10,19 +10,27 @@ function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-skills-test-'))
 }
 
-/** A real catalog with a few skills (some protected, some non-invocable). */
+/** A real catalog with a few skills (some protected, some non-invocable).
+ * 每个技能在临时目录里建真实 SKILL.md（issue #6 方案 A：禁用需写文件
+ * frontmatter 标记，测试技能必须有可写的本地文件）。 */
 function makeCatalog() {
   const catalog = new Map()
-  const put = (name, source, invocation) => {
+  const dir = tempDir()
+  const put = (name, source, invocation, opts = {}) => {
+    const skillDir = join(dir, name)
+    mkdirSync(skillDir, { recursive: true })
+    const file = join(skillDir, 'SKILL.md')
+    const description = opts.description ?? `${name} description`
+    writeFileSync(file, `---\nname: ${name}\ndescription: "${description}"\n---\nBody text\n`)
     const skill = {
       name,
-      description: `${name} description`,
+      description,
       whenToUse: `${name} when`,
       source,
       provider: 'test',
       invocation: invocation ?? { modelInvocable: true, userInvocable: true },
-      resourceBase: null,
-      path: null,
+      resourceBase: { kind: 'directory', path: skillDir },
+      path: file,
       content: '',
     }
     catalog.set(name, skill)
@@ -32,7 +40,7 @@ function makeCatalog() {
   put('beta', 'bundled')
   put('gamma', 'project-dsh')
   const bravo = put('bravo', 'user-agents', { modelInvocable: false, userInvocable: true })
-  return { catalog, put, bravo }
+  return { catalog, put, bravo, dir }
 }
 
 /**
@@ -139,8 +147,7 @@ async function bootSkillsManager(overrides = {}) {
     lastListScope: () => lastListScope,
     close: () => new Promise((resolve) => server.close(resolve)),
     cleanup: () => { rmSync(dir, { recursive: true, force: true }) },
-  }
-}
+  }}
 
 test('skills-manager: disabled list migrates once from the standalone plugin state', async () => {
   const dir = tempDir()
@@ -476,5 +483,88 @@ test('skills-manager: no agentPresets service falls back to scopeless queries', 
   } finally {
     await sm.close()
     sm.cleanup()
+  }
+})
+
+// issue #6 方案 A：禁用落地为 SKILL.md frontmatter 的 disable-model-invocation
+// 标记（skill-local 官方解析 → modelInvocable:false），不依赖 layer shadow。
+test('skills-manager: disable writes the frontmatter flag, enable removes it (issue #6)', async () => {
+  const sm = await bootSkillsManager()
+  try {
+    const alpha = sm.catalog.get('alpha')
+    // 禁用：文件出现标记 + state 记录 + shadow 注册（catalog 目录被覆盖）
+    const disable = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'alpha' })
+    assert.equal(disable.status, 200)
+    assert.equal(disable.data.disabled, true)
+    const marked = readFileSync(alpha.path, 'utf8')
+    assert.match(marked, /^disable-model-invocation: true$/m)
+    // 其余 frontmatter 内容原样保留
+    assert.match(marked, /^name: alpha$/m)
+    assert.match(marked, /^Body text$/m)
+    assert.equal(sm.catalog.get('alpha').invocation.modelInvocable, false)
+    const state = JSON.parse(readFileSync(sm.stateFile, 'utf8'))
+    assert.ok(state.disabled.includes('alpha'))
+    // 再次禁用幂等（标记不重复）
+    const again = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'alpha' })
+    assert.equal(again.status, 200)
+    const markedAgain = readFileSync(alpha.path, 'utf8')
+    assert.equal(markedAgain.match(/^disable-model-invocation: true$/gm)?.length, 1)
+    // 启用：标记移除 + state 清空 + shadow 恢复
+    const enable = await sm.request('POST', '/skills-manager/api/skills/enable', { name: 'alpha' })
+    assert.equal(enable.status, 200)
+    const cleared = readFileSync(alpha.path, 'utf8')
+    assert.doesNotMatch(cleared, /disable-model-invocation/)
+    assert.equal(sm.catalog.get('alpha').invocation.modelInvocable, true)
+    const stateAfter = JSON.parse(readFileSync(sm.stateFile, 'utf8'))
+    assert.ok(!stateAfter.disabled.includes('alpha'))
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #6 方案 A：bundled（安装目录）技能拒绝禁用；project 源维持拒绝。
+test('skills-manager: bundled skills refuse disable, project skills stay protected', async () => {
+  const sm = await bootSkillsManager()
+  try {
+    const bundled = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'beta' })
+    assert.equal(bundled.status, 403)
+    // bundled 文件未被改写
+    const beta = sm.catalog.get('beta')
+    assert.doesNotMatch(readFileSync(beta.path, 'utf8'), /disable-model-invocation/)
+    const protectedSkill = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'gamma' })
+    assert.equal(protectedSkill.status, 403)
+    assert.doesNotMatch(readFileSync(sm.catalog.get('gamma').path, 'utf8'), /disable-model-invocation/)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #6 方案 A 懒迁移：预置 state.disabled 中「当前目录 modelInvocable 仍为
+// true」的技能（shadow 被 scope 层覆盖的场景），装配时自动落地 frontmatter 标记。
+test('skills-manager: stale disables migrate to frontmatter on boot (issue #6)', async () => {
+  const dir = tempDir()
+  try {
+    const stateFile = join(dir, 'skills-state.json')
+    // 预置：alpha 在禁用列表，但目录里 modelInvocable 仍为 true（模拟禁用失效）
+    writeFileSync(stateFile, JSON.stringify({ disabled: ['alpha'], customDirs: [] }))
+    const sm = await bootSkillsManager({ stateFile })
+    try {
+      const alpha = sm.catalog.get('alpha')
+      const text = readFileSync(alpha.path, 'utf8')
+      assert.match(text, /^disable-model-invocation: true$/m)
+      // 已生效（shadow）的技能（bravo modelInvocable:false）不动文件
+      const bravo = sm.catalog.get('bravo')
+      assert.doesNotMatch(readFileSync(bravo.path, 'utf8'), /disable-model-invocation/)
+      // UI disabled 显示仍来自 state 列表
+      const list = await sm.request('GET', '/skills-manager/api/skills')
+      assert.equal(list.data.skills.find((s) => s.name === 'alpha').disabled, true)
+    } finally {
+      await sm.close()
+      sm.cleanup()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
