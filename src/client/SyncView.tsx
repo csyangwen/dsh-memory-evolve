@@ -31,7 +31,10 @@ interface SyncStatus {
   projectEnabled?: boolean
   /** 轨级开关（第 3 层）：项目记忆轨 + 全局轨（见 global）。 */
   tracks?: { project?: boolean }
+  /** 工作树未提交变更数（改了还没 commit 的文件数）。 */
   uncommitted?: number
+  /** 已提交未推送的提交数（本地 HEAD 领先远端；2026-08-11 用户反馈后新增）。 */
+  ahead?: number
   behind?: number
   conflicts?: number
   remoteBranch?: string
@@ -48,7 +51,10 @@ interface SyncStatus {
     enabled?: boolean
     url: string
     tracks: { memory?: boolean; user?: boolean; daily?: boolean; todo?: boolean }
+    /** 工作树变更的轨数（未 commit）。 */
     uncommitted: number
+    /** 已提交未推送的轨数（本地轨分支领先远端；2026-08-11 用户反馈后新增）。 */
+    ahead?: number
   }
 }
 
@@ -284,8 +290,12 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                     <p>
                       {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
                       <br />
+                      {/* 「未推送」= 工作树未提交变更 + 已提交未推送的提交
+                          （2026-08-11 用户反馈：只看"未提交"会误以为拉取合并
+                          已把内容推上去；点拉取合并后 ahead 仍在 → 引导点
+                          「推送」才上远端） */}
                       {t('syncTab.status.counts', {
-                        uncommitted: String(status?.uncommitted ?? 0),
+                        pending: String((status?.uncommitted ?? 0) + (status?.ahead ?? 0)),
                         behind: String(status?.behind ?? 0),
                         conflicts: String(status?.conflicts ?? 0),
                       })}
@@ -377,7 +387,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                     </label>
                   ))}
                   <p className="bb-meta">
-                    {t('syncTab.global.uncommitted', { n: String(status.global.uncommitted ?? 0) })}
+                    {/* 「未推送」= 工作树变更轨 + 已提交未推送的轨（2026-08-11
+                        用户反馈：与「推送」按钮语义对齐——点拉取合并后领先轨
+                        仍在，引导点「推送」才上远端） */}
+                    {t('syncTab.global.uncommitted', { n: String((status.global.uncommitted ?? 0) + (status.global.ahead ?? 0)) })}
                     <br />
                     {t('syncTab.global.hint')}
                   </p>

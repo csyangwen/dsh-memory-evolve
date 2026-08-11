@@ -62,9 +62,11 @@ async function bootProject(root, name = 'work') {
   const boot = await ensureMemoryRepo({ dir, memoryDir, cwd, projectId: identity.id, displayName: identity.displayName, remoteUrl: identity.remoteUrl, remoteBranch: RB })
   assert.equal(boot.ok, true)
   // 记忆仓库 origin 指向可访问的裸仓库，并完成首次推送（远端分支存在 →
-  // setup 判定树走 adopt 分支）
+  // setup 判定树走 adopt 分支）。**用 origin 名推送**：git 会自动更新本地
+  // refs/remotes/origin/<RB> tracking ref，ahead（未推送提交数）基线干净
+  // （用路径推送不会更新 tracking ref，会把 initial import 误算成未推送）
   git(dir, ['remote', 'set-url', 'origin', bare])
-  git(dir, ['push', '-q', bare, `main:${RB}`])
+  git(dir, ['push', '-q', 'origin', `main:${RB}`])
   return { bare, cwd, memoryDir, identity, dir }
 }
 
@@ -109,23 +111,23 @@ test('renderSyncLine：未初始化 → 空串（不占快照体积）；初始�
     assert.equal(renderSyncLine({ memoryDir }, plainCwd), '')
     // 无 cwd：空串
     assert.equal(renderSyncLine({ memoryDir }, undefined), '')
-    // 已初始化：状态文本（刚初始化 → 未提交 0、落后 0 → "已同步"）
+    // 已初始化：状态文本（刚初始化 → 未推送 0、落后 0 → "已同步"）
     const line = renderSyncLine({ memoryDir }, cwd)
     assert.match(line, /^## 记忆同步/)
-    assert.match(line, /已同步|未提交/)
+    assert.match(line, /已同步|未推送/)
   } finally {
     clean(root)
   }
 })
 
-test('renderSyncLine：未提交变更会体现在状态行（状态驱动稳定）', { skip }, async () => {
+test('renderSyncLine：未推送变更会体现在状态行（状态驱动稳定；2026-08-11 用户反馈：口径 = 工作树未提交 + 已提交未推送）', { skip }, async () => {
   const root = tempDir()
   try {
     const { cwd, memoryDir, dir } = await bootProject(root)
     // 工作树加一条未提交记忆（模拟 store 写入后）
-    writeFileSync(join(dir, 'KEY.md'), '[id:aaaa0000] [2026-08-11] 未提交条目\n')
+    writeFileSync(join(dir, 'KEY.md'), '[id:aaaa0000] [2026-08-11] 未推送条目\n')
     const line = renderSyncLine({ memoryDir }, cwd)
-    assert.match(line, /未提交 1 条/)
+    assert.match(line, /未推送 1 条/)
   } finally {
     clean(root)
   }

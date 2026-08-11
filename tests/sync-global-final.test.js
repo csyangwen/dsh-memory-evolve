@@ -176,9 +176,9 @@ test('无变化二次 sync：committed=false（临时 index 对比，不假 dirt
     const r2 = await runSync({ dir: dev.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global' })
     assert.equal(r2.ok, true)
     assert.equal(r2.committed, false, '无变化不应产生新提交')
-    // 全局状态 uncommitted=0（fileset 检查不假脏）
+    // 全局状态未推送=0（fileset 检查不假脏；口径 = 工作树变更轨 + 领先轨）
     const st = await handleCommand('global', ['status'], dev.cwd, { config: cfg, ...rt })
-    assert.ok(!/未提交变更：-?[1-9]/.test(st.text), '无变化时未提交应为 0')
+    assert.ok(!/未推送：-?[1-9]/.test(st.text), '无变化时未推送应为 0')
   } finally {
     clean(root)
   }
