@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { makeProjectDirResolver, projectSyncInfo, renderSyncLine, handleCommand, spawnWorker, syncStatusSync } from '../lib/sync/index.js'
+import { makeProjectDirResolver, projectSyncInfo, renderSyncLine, handleCommand, spawnWorker, syncStatusSync, installMemorySync } from '../lib/sync/index.js'
 import { ensureMemoryRepo, deviceBConnect } from '../lib/sync/repo.js'
 import { resolveProjectId } from '../lib/sync/identity.js'
 import { projectHash } from '../lib/store.js'
@@ -247,6 +247,46 @@ test('spawnWorker：真实子进程执行 worker（sync 未初始化目录报可
   } finally {
     clean(root)
   }
+})
+
+/* ---------------- installMemorySync 装配冒烟 ---------------- */
+
+test('installMemorySync：命令注册 + dispose 清理 + syncStatus', () => {
+  // mock ctx（commands 服务）：验证命令组注册与卸载
+  const registered = []
+  let disposed = 0
+  const mockCtx = {
+    get(name) {
+      if (name === 'commands') {
+        return {
+          register(def) {
+            registered.push(def)
+            return () => { disposed += 1 }
+          },
+        }
+      }
+      return undefined
+    },
+  }
+  const rt = { syncEnabled: true }
+  const installed = installMemorySync(mockCtx, {
+    config: { memoryDir: '/tmp/nonexistent' },
+    getRuntime: () => ({ ...rt }),
+    applyRuntimePatch: () => {},
+  })
+  // 命令注册
+  assert.ok(registered.some((d) => d.name === 'memory_sync'), '应注册 /memory_sync 命令')
+  const def = registered.find((d) => d.name === 'memory_sync')
+  assert.match(def.input.syntax, /setup/)
+  // syncStatus：未初始化项目如实返回
+  const status = installed.syncStatus('/tmp/nonexistent-cwd')
+  assert.equal(status.enabled, true)
+  assert.equal(status.initialized, false)
+  // dispose：清理命令注册
+  installed.dispose()
+  assert.ok(disposed >= 1, 'dispose 应清理注册')
+  // 幂等 dispose
+  installed.dispose()
 })
 
 /* ---------------- syncStatusSync（API 数据源） ---------------- */
