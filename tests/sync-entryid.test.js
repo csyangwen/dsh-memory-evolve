@@ -11,11 +11,11 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { MemoryStore, splitEntryHead } from '../lib/store.js'
+import { MemoryStore, projectHash, splitEntryHead } from '../lib/store.js'
 import {
   ENTRY_ID_RE, extractEntryId, ensureEntryIds, genEntryId, normalizeContent, stripEntryId,
 } from '../lib/sync/entryid.js'
@@ -110,9 +110,17 @@ test('entryIdMode=off（默认）：add 不生成 ID，splitEntryHead 行为不�
 
 const agent = { session: { header: { cwd: '/work/x' } } }
 
+/** 模拟已 bootstrap 的 sync 项目：在项目目录写 PROVENANCE（新判定要求）。 */
+function syncInit(dir, cwd = '/work/x') {
+  const projectDir = join(dir, 'projects', projectHash(cwd))
+  mkdirSync(projectDir, { recursive: true })
+  writeFileSync(join(projectDir, 'PROVENANCE'), JSON.stringify({ projectId: 'aaaaaaaaaaaa', displayName: 'x', version: 1 }) + '\n')
+}
+
 test('entryIdMode=on：key/project 轨 add 生成随机 ID；memory 轨不生成（一期仅项目轨）', () => {
   const dir = tempDir()
   try {
+    syncInit(dir)
     const store = new MemoryStore(dir, { entryIdMode: 'on' })
     const r1 = store.add('key', '决策 X', agent)
     const r2 = store.add('project', '进展 Y', agent)
@@ -134,6 +142,7 @@ test('entryIdMode=on：key/project 轨 add 生成随机 ID；memory 轨不生成
 test('entryIdMode=on：同内容重复 add 判重（剥离 ID 比较，不重复添加）', () => {
   const dir = tempDir()
   try {
+    syncInit(dir)
     const store = new MemoryStore(dir, { entryIdMode: 'on' })
     const r1 = store.add('key', '唯一事实', agent)
     const r2 = store.add('key', '唯一事实', agent)
@@ -149,6 +158,7 @@ test('entryIdMode=on：同内容重复 add 判重（剥离 ID 比较，不重复
 test('entryIdMode=on：replace 继承旧条目 ID（替换不换身份）', () => {
   const dir = tempDir()
   try {
+    syncInit(dir)
     const store = new MemoryStore(dir, { entryIdMode: 'on' })
     store.add('key', '原始内容', agent)
     const oldId = extractEntryId(store.entriesOf('key', agent)[0])
@@ -181,6 +191,7 @@ test('splitEntryHead：最优先剥离 [id:]（先于时间戳），head 保留 
 test('entryIdMode=on：list 出口剥离由展示层负责（stripEntryId 单测已覆盖）——store 原文保留 ID', () => {
   const dir = tempDir()
   try {
+    syncInit(dir)
     const store = new MemoryStore(dir, { entryIdMode: 'on' })
     store.add('key', '原文保留', agent)
     const raw = store.entriesOf('key', agent)[0]
