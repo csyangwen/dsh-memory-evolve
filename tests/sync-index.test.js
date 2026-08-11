@@ -312,8 +312,14 @@ test('syncStatusSync：初始化后返回完整状态字段', { skip }, async ()
     assert.equal(typeof status.behind, 'number')
     assert.equal(typeof status.conflicts, 'number')
     assert.equal(status.remoteBranch, RB)
-    // 未初始化项目 → null
-    assert.equal(syncStatusSync({ memoryDir }, join(root, 'nonexistent')), null)
+    // 未初始化项目 → 对象（initialized:false 且照常携带设备级 global，
+    // Codex 二轮 P1-8：切到未启用项目全局区不消失）
+    const uninit = syncStatusSync({ memoryDir }, join(root, 'nonexistent'))
+    assert.ok(uninit !== null)
+    assert.equal(uninit.initialized, false)
+    assert.ok('global' in uninit)
+    // 无 cwd → null
+    assert.equal(syncStatusSync({ memoryDir }, undefined), null)
   } finally {
     clean(root)
   }

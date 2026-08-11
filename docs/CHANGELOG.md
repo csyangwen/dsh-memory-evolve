@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-08-11 — 全局记忆轨 Codex 二轮终审修复（3 P0 + 8 P1 全部落地）
+
+### 背景
+用户选定 Codex 复审全局轨实现（其首轮审查 P0 最多、复现最扎实）。二轮报告 3 P0 + 8 P1 + 3 P2，全部带隔离 Git 复现，本轮全部修复。
+
+### 修复
+- **P0-1 凭证泄漏**：PROVENANCE.displayName/url 只存 sanitizeRemoteUrl 后的无凭证 URL（原始 token 不再进 git 历史）；切换远端时同步更新身份（projectId/displayName/url，P1-2）；
+- **P0-2 跨轨冲突数据风险**：冲突侧车按 fileset 独立（CONFLICTS.md 项目轨 / CONFLICTS-<fileset>.md 全局轨）——其他轨同步不再删本轨冲突；**未解决冲突禁止 push**（防缺条目树推远端）；**未解决冲突禁止继续 sync**（二次合并会把"空工作树"误判为删除、覆盖侧车——数据永久丢，实测复现）；resolve 白名单校验按 fileset；
+- **P0-3 fileset 越界**：resolveFilesetFiles 展开目录（daily/）时用 isMemoryFile 过滤——daily/notes.md 等非法路径绝不上传；
+- **P1-1 共享 index 假 dirty/重复提交**：提交改用**临时 GIT_INDEX_FILE** 构建本 fileset 树（从空树起步、只加本轨文件），与 lb^{tree} 直接比较判有无变化；提交后共享 index 重置到新提交树（单轨项目仓库 git status 干净）；globalSyncStatus 的未提交数改用逐轨树比较（不再依赖必然假脏的 git status）；
+- **P1-3 身份证生命周期**：store.replace 对"旧条目已有 ID"（任何轨）保留 ID——全局轨补发后 memory/user 的 replace 不再删除身份证；
+- **P1-4 快照剥离**：renderSnapshot 的 memory/user 段 stripEntryId（补发前缀不再进模型上下文）；
+- **P1-5 失败聚合**：globalSync 任一轨失败 → 整体 error + 明细（不假报成功）；
+- **P1-6 远端 TODO header**：readTreeFiles 携带 header，写回优先级 本机原 header > 远端 header > 默认常量；
+- **P1-7 并发 sync**：仓库级 asyncSyncLock（.sync.lock，独立于 .memory.lock——fetch 等网络不占 store 写锁）串行化同一 .git 的 fetch/index/ref/push；
+- **P1-8 设备级能力不依赖项目**：syncStatusSync 未初始化也携带 global（切到未启用项目全局区不消失）；global 命令先分派再检查 cwd；
+- **P2**：PROVENANCE 开关原子写（锁内 tmp+rename）；API method guard；命令/文档同步。
+
+### 测试与验证
+- 全量 **497/497 全绿**（新增 tests/sync-global-final.test.js 5 用例：凭证不泄漏/跨轨冲突隔离+禁 push/非法 daily 路径/无变化不重复提交/失败聚合）；
+- Codex 二轮隔离复现全部覆盖；node --check 全过。
+
+---
+
 ## 2026-08-11 — 记忆同步：全局记忆轨本期实现（用户拍板：开关做好功能必须实现）
 
 ### 背景

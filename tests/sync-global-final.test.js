@@ -1,0 +1,208 @@
+/**
+ * tests/sync-global-final.test.js — Codex 二轮终审修复回归测试
+ * （P0：凭证泄漏 / 跨轨冲突互删 / fileset 越界；P1：假 dirty 重复提交等）
+ */
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { ensureGlobalRepo } from '../lib/sync/repo.js'
+import { handleCommand } from '../lib/sync/index.js'
+import { resolveProjectId } from '../lib/sync/identity.js'
+import { runSync, resolveConflict, countConflicts } from '../lib/sync/worker.js'
+import { globalBranchFor } from '../lib/sync/filesets.js'
+
+function gitAvailable() {
+  try {
+    return spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0
+  } catch {
+    return false
+  }
+}
+
+function tempDir() {
+  return mkdtempSync(join(tmpdir(), 'dsh-global-final-'))
+}
+
+function clean(dir) {
+  rmSync(dir, { recursive: true, force: true })
+}
+
+function git(dir, args, { allowFail = false } = {}) {
+  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] })
+  if (r.status !== 0 && !allowFail) throw new Error(`git ${args.join(' ')} 失败：${r.stderr}`)
+  return String(r.stdout ?? '').trim()
+}
+
+const skip = !gitAvailable()
+
+function mockRuntime(syncEnabled) {
+  const state = { syncEnabled }
+  const patches = []
+  return {
+    getRuntime: () => ({ ...state }),
+    applyRuntimePatch: (patch) => { Object.assign(state, patch); patches.push(patch) },
+    patches,
+  }
+}
+
+/** 建设备（cwd 主仓库身份 + memoryDir）并初始化全局仓库（origin→bare）。 */
+async function setupGlobal(root, n, bare) {
+  const cwd = join(root, `work${n}`)
+  mkdirSync(cwd, { recursive: true })
+  git(cwd, ['init', '-q', '-b', 'main'])
+  git(cwd, ['remote', 'add', 'origin', 'https://example.com/acme/alpha.git'])
+  const identity = resolveProjectId(cwd)
+  const memoryDir = join(root, `mem${n}`)
+  const init = await ensureGlobalRepo({ dir: memoryDir, url: 'https://example.com/shared-memories.git' })
+  assert.equal(init.ok, true)
+  git(memoryDir, ['remote', 'set-url', 'origin', bare])
+  return { cwd, memoryDir, identity }
+}
+
+/* ---------------- P0-1：凭证 URL 不泄漏 ---------------- */
+
+test('凭证 URL 不写入 PROVENANCE（token 不进 git 历史）', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const memoryDir = join(root, 'mem')
+    const init = await ensureGlobalRepo({ dir: memoryDir, url: 'https://user:supersecret@example.com/shared.git' })
+    assert.equal(init.ok, true)
+    const prov = readFileSync(join(memoryDir, 'PROVENANCE'), 'utf8')
+    assert.ok(!prov.includes('supersecret'), 'PROVENANCE 不得含凭证')
+    assert.ok(prov.includes('example.com/shared.git'), '应存无凭证 URL')
+    // 提交历史里也不得出现
+    const log = git(memoryDir, ['log', '--all', '-p', '--', 'PROVENANCE'], { allowFail: true })
+    assert.ok(!log.includes('supersecret'), 'git 历史不得含凭证')
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- P0-2：跨轨冲突不互删 + 有冲突禁 push ---------------- */
+
+test('跨轨冲突隔离：memory 轨冲突不被 user 轨同步删除；冲突未解决禁 push', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const bare = join(root, 'bare.git')
+    mkdirSync(bare, { recursive: true })
+    git(bare, ['init', '-q', '--bare'])
+    const A = await setupGlobal(root, 'A', bare)
+    const B = await setupGlobal(root, 'B', bare)
+    const rtA = mockRuntime(true)
+    const cfgA = { memoryDir: A.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    assert.equal((await handleCommand('global', ['on', 'user'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    writeFileSync(join(A.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] 全局事实\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    // B 开 memory 轨拉取后双侧改同一条 → memory 轨冲突
+    const rtB = mockRuntime(true)
+    const cfgB = { memoryDir: B.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], B.cwd, { config: cfgB, ...rtB })).kind, 'success')
+    assert.equal((await handleCommand('global', ['sync'], B.cwd, { config: cfgB, ...rtB })).kind, 'success')
+    writeFileSync(join(A.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] A 的版本\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    writeFileSync(join(B.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] B 的版本\n')
+    const rSync = await runSync({ dir: B.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global' })
+    assert.equal(rSync.conflicts, 1)
+    assert.ok(existsSync(join(B.memoryDir, 'CONFLICTS-memory-global.md')), 'memory 轨侧车存在')
+    // user 轨同步不得删除 memory 轨侧车——且 memory 轨有未解决冲突时
+    // sync 被正确拦截（不再重新合并覆盖侧车）
+    const rtB2 = mockRuntime(true)
+    const cfgB2 = { memoryDir: B.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'user'], B.cwd, { config: cfgB2, ...rtB2 })).kind, 'success')
+    const gSync = await handleCommand('global', ['sync'], B.cwd, { config: cfgB2, ...rtB2 })
+    assert.equal(gSync.kind, 'error', 'memory 轨有未解决冲突 → 聚合失败（不假报成功）')
+    assert.match(gSync.text, /冲突未解决/)
+    assert.ok(existsSync(join(B.memoryDir, 'CONFLICTS-memory-global.md')), '其他轨同步后 memory 侧车必须还在')
+    assert.equal(countConflicts(B.memoryDir, 'memory-global'), 1)
+    // 冲突未解决禁止 push
+    const rPush = await runSync({ dir: B.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global', push: true })
+    assert.equal(rPush.ok, false)
+    assert.match(rPush.message, /冲突未解决/)
+    // 解决后推送成功
+    const res = await resolveConflict({ dir: B.memoryDir, index: 1, choice: 'ours', fileset: 'memory-global', localBranch: 'memory-global' })
+    assert.equal(res.ok, true)
+    const rPush2 = await runSync({ dir: B.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global', push: true })
+    assert.equal(rPush2.ok, true)
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- P0-3：非法 daily 路径不上传 ---------------- */
+
+test('daily/ 下的非法文件（非日期）不被 stage/上传', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const bare = join(root, 'bare.git')
+    mkdirSync(bare, { recursive: true })
+    git(bare, ['init', '-q', '--bare'])
+    const dev = await setupGlobal(root, 'A', bare)
+    const rt = mockRuntime(true)
+    const cfg = { memoryDir: dev.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'daily'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    mkdirSync(join(dev.memoryDir, 'daily'), { recursive: true })
+    writeFileSync(join(dev.memoryDir, 'daily', '2026-08-10.md'), '[id:aaaa0000] [00:05] 昨日日志\n')
+    writeFileSync(join(dev.memoryDir, 'daily', 'notes.md'), '非法文件（非日期命名）\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    // 远端 daily 分支只含日期文件
+    const tree = git(bare, ['ls-tree', '-r', '--name-only', `refs/heads/${globalBranchFor('daily-global')}`])
+    assert.ok(tree.split('\n').includes('daily/2026-08-10.md'))
+    assert.ok(!tree.includes('daily/notes.md'), '非法路径不得上传')
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- P1-1：无变化二次 sync 不重复提交 ---------------- */
+
+test('无变化二次 sync：committed=false（临时 index 对比，不假 dirty 重复提交）', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const bare = join(root, 'bare.git')
+    mkdirSync(bare, { recursive: true })
+    git(bare, ['init', '-q', '--bare'])
+    const dev = await setupGlobal(root, 'A', bare)
+    const rt = mockRuntime(true)
+    const cfg = { memoryDir: dev.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    writeFileSync(join(dev.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] 全局事实\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    // 无变化二次 sync → committed=false（不重复提交）
+    const r2 = await runSync({ dir: dev.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global' })
+    assert.equal(r2.ok, true)
+    assert.equal(r2.committed, false, '无变化不应产生新提交')
+    // 全局状态 uncommitted=0（fileset 检查不假脏）
+    const st = await handleCommand('global', ['status'], dev.cwd, { config: cfg, ...rt })
+    assert.ok(!/未提交变更：-?[1-9]/.test(st.text), '无变化时未提交应为 0')
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- P1-5：globalSync 失败聚合 ---------------- */
+
+test('globalSync 失败聚合：任一轨失败 → 整体 error，不假报成功', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const bare = join(root, 'bare.git')
+    mkdirSync(bare, { recursive: true })
+    git(bare, ['init', '-q', '--bare'])
+    const dev = await setupGlobal(root, 'A', bare)
+    const rt = mockRuntime(true)
+    const cfg = { memoryDir: dev.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    assert.equal((await handleCommand('global', ['on', 'user'], dev.cwd, { config: cfg, ...rt })).kind, 'success')
+    // 把 origin 指向不存在的仓库 → 两轨都失败
+    git(dev.memoryDir, ['remote', 'set-url', 'origin', join(root, 'no-such.git')])
+    const sync = await handleCommand('global', ['sync'], dev.cwd, { config: cfg, ...rt })
+    assert.equal(sync.kind, 'error', '全部轨失败必须返回 error')
+    assert.match(sync.text, /失败/)
+  } finally {
+    clean(root)
+  }
+})
