@@ -39,7 +39,7 @@
 - **回合内自我审查**：每 N 个用户回合，插件把一次记忆审查标记为到期，**主 LLM 在自己回合内静默执行**（提示词驱动 + `memory_review_status` 工具计数）——不再派生子代理、不重建转录，模型直接基于完整上下文审查：产出全局记忆建议（`memory_suggest`，用户确认后入库）并创建/优化技能；
 - **可追溯审查**：审查在主会话内进行，天然拥有全部上下文（工具输出、推理过程、对话细节零损耗），无需摘要重建、无需深读接口；
 - **技能自我进化（创建需确认）**：审查优化 `~/.agents/skills` 下已有技能（read-before-write 保护）；**新技能默认进入待确认队列**，会话页记忆 Tab 采纳后才移入技能库（创建门槛严格：多次踩坑、难度大、后续会复用才创建）——技能注入所有会话，必须克制；
-- **技能管理器（已合并原 dsh-skill-browser）**：会话页记忆 Tab 的「技能管理」子 Tab 提供完整技能管理——按**来源层级**（用户注入 user-* / 自定义 custom / 系统 bundled / 项目 project-*）浏览全部技能，**搜索 + 来源/状态筛选 + 分页**，**一键禁用/启用技能**（shadow 机制：禁用后从模型技能目录消失、`skill` 工具拒绝加载，project 系统技能结构性不可禁用），自定义技能目录添加/移除，目录树浏览与技能文件编辑；原独立插件的**禁用列表自动迁移**，API 前缀沿用 `/skills-manager`；
+- **技能管理器（已合并原 dsh-skill-browser）**：会话页记忆 Tab 的「技能管理」子 Tab 提供完整技能管理——按**来源层级**（用户注入 user-* / 自定义 custom / 系统 bundled / 项目 project-*）浏览全部技能，**搜索 + 来源/状态筛选 + 分页**，**一键禁用/启用技能**（260810 快照分层架构下禁用落地为 SKILL.md frontmatter 的 `disable-model-invocation` 标记——官方解析字段，scope 层与 global 层技能均生效；project/bundled 结构性不可禁用），自定义技能目录添加/移除，目录树浏览与技能文件编辑；原独立插件的**禁用列表自动迁移**，API 前缀沿用 `/skills-manager`；
 - **四轨待办（dtodo）**：会话页记忆 Tab 的「待办」子 Tab 与 `dtodo` 工具提供 生活/工作/本项目（按工作目录隔离）/每日 四轨待办——§ 分隔 MD 存储（文件头注释说明 tag 语法，任何编辑器/模型可直接读取），每条带**四象限**（q1-q4，重要×紧急）、**截止日期**、**状态**（pending/doing/done/blocked/cancelled，done 自动盖完成时间）、可选分类；**用户口述直写、模型自建进待确认队列**；`dtodo list` 默认只返回**需要关注的未完成项**（逾期/今日到期/本项目/重要紧急，最多 8 条），待办内容**永不注入**（固定提示行提醒收尾检查，缓存友好）；
 - **本地文件搜索（search_local_files）**：可选的 `memory_evolve_search_local_files` 工具——让模型在本机**所有磁盘/目录**中按文件名搜索文件（md/docx/pdf…，默认只匹配文件名、不读内容）。**默认禁用**：关闭时工具根本不注册，模型请求里没有它。启用后走**三层自适应**：平台索引（macOS `mdfind` Spotlight / Windows `es.exe`）→ `rg --files`（`--no-messages` 容忍外置卷权限错误）→ Node 并发遍历+结果缓存（零依赖兜底）；实现**可替换**：`registerSearchProvider` 注册新 provider，`searchDocsProviders` 配置顺序即可换实现，工具名/参数/返回不变。**内容检索（RAG 轻量版）**：新增可选参数 `content`（boolean，默认 false）与 `contentQuery`（内容关键词，缺省复用 query；传了即隐式开启内容检索）——在候选文件上做 rg 全文匹配（**候选枚举全量、不按 mtime 截断**——修复过"老文档漏检"事故；批次并发压到秒级），返回命中文件 + 命中片段（行号/上下文，每文件限 1-3 段），**"哪个文档里提过 XX"直接问 AI 即可**；旧调用（纯文件名）行为完全不变，零常驻索引。**四档模式**（`searchDocsMode`：「配置」里四选一，运行时可改即时生效）：`all` = 文件名+内容都可用（默认）/ `filename` = 仅文件名（content/contentQuery 忽略，不读任何文件内容——内容检索有自己的实现时选这个）/ `content` = 仅内容（query 视为内容关键词）/ `off` = 工具不注册。切换入口：「Memory Evolve 设置」Tab「配置」或 `/memory_evolve_search_files on|off`，**即时生效无需重启**；
 - **会话书签（session bookmarks，默认禁用，独立子模块）**：给对话的**每一轮打星标记**，之后从**独立「书签」Tab**（与记忆/技能/待办并列，按当前会话隔离）**一键跳回任意轮**——标签名 + 轮次 + 时间 + 摘要 + 搜索过滤，点击跳转自动切回对话区按 `data-chat-anchor-key` 定位（未加载的历史窗口自动先拉更早消息）；**星标按钮 DOM 注入轮尾操作区**（紧挨官方分支按钮，官方 produced-files 行保留——不占 turnTail chain 槽）。**任意轮分支（复用官方 fork 通道）**：书签列表每条「分支」按钮，或直接点官方分支按钮——**中间轮按钮被 Memory Evolve 接管**（移除禁用 + 悬浮标注"由此轮创建分支（Memory Evolve 增强）"+ 点击弹确认"官方仅支持最后一条消息"，确认后走官方 `agents.create(seed)` 通道创建分支会话，自动挂到源会话工作区，进入官方谱系树）；**最后一轮保持官方行为不干预**。数据存 `<memoryDir>/session-bookmarks.json`（按 sessionId 隔离、按轮 seq 定位，seq 即官方 fork 边界）；不碰官方会话日志。**独立开关 `bookmarkEnabled`**（默认关）+ 独立 HTTP API（`/memory-evolve/api/bookmarks` CRUD + `/fork`）；纯 UI + 宿主 API，不注册 AI 工具；
@@ -110,7 +110,7 @@
 - **入口**：会话页「技能」Tab → 「技能管理」子 Tab（与「待确认技能建议」并列，三栏布局：技能列表 + 目录树 + 文件查看/编辑器）。
 - **技能总览**：全部技能按来源分层展示——`user-dsh` / `user-agents`（用户注入）、`custom`（自定义目录，含本插件 UI 添加的）、`bundled`（系统内置）、`project-dsh` / `project-agents`（项目级，标「系统」徽标、**不可禁用**）；每张卡片显示名称、描述、适用场景、来源徽标、资源类型。
 - **搜索筛选**：关键字搜索（名称/描述/适用场景，支持中文）+ 来源筛选（带数量统计）+ 状态筛选（全部 / 可用 / 已禁用）+ 分页。
-- **禁用 / 启用**：一键禁用把技能从模型技能目录中移除（注册 `modelInvocable: false` 的 runtime shadow，rank 250 覆盖 user/custom/bundled 源但压不过 project 源——系统技能的结构性边界），模型不再看到、`skill` 工具拒绝加载；随时可重新启用；选择持久化保存，重启后恢复。`skill_manage` 工具天然跳过被禁用的技能。
+- **禁用 / 启用**：一键禁用把技能从模型技能目录中移除（260810 快照起技能按 agent preset scope 分层，禁用落地为**改写 SKILL.md frontmatter 的 `disable-model-invocation: true`**——skill-local 官方解析该字段 → `modelInvocable: false`，模型不再看到、`skill` 工具拒绝加载；对 scope 层（preset）与 global 层技能都生效）；禁用列表持久化保存（`skills-state.json`），**启动时自动把「旧禁用列表里当前仍可调用」的技能落地标记**（迁移 shadow 机制的历史禁用项）；随时可重新启用（移除标记）；`bundled`（DSH 安装目录内置）技能结构性不可禁用、`project` 源同样受保护；global 层技能另有 runtime shadow 兜底（与 frontmatter 标记互斥，标记后不再注册 shadow）。`skill_manage` 工具天然跳过被禁用的技能。
 - **自定义技能目录**：直接添加/移除你自己的技能目录（`<目录>/<技能>/SKILL.md` 或 `<目录>/<技能>.md` 布局，`~` 展开），与已有技能根重叠的路径会被拒绝；永久保存，重启后自动加载。
 - **文件浏览与编辑**：选中技能后以目录树浏览其本地目录（懒加载、面包屑、根切换），点击文本文件查看/编辑（行号、Ctrl/Cmd+S 保存、未保存确认）；读写均限技能目录范围内，越界/二进制/超大被拒。
 - **禁用列表迁移**：首次启动（无 `skills-state.json`）时自动从原独立插件的 `~/.dsh/plugins/dsh-skill-browser/state.json` **一次性导入**禁用列表与自定义目录并持久化——卸载原插件不会丢你的选择；之后以本插件的 `~/.dsh/memories/skills-state.json` 为准。
@@ -272,7 +272,7 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 `ui-slots.deferRegistration`，在 08-06+ 的新 DSH 上会直接报
 `Failed to load plugins … deferRegistration is not a function`，导致
 **Web 整页不可用**——即使本插件安装正确，也会被残留的旧插件挡住。
-另外二者不可同时启用（两套禁用 shadow 会对同一技能重复注册）。
+另外二者不可同时启用（两套禁用机制会对同一技能重复处理）。
 
 ### 标准安装（DSH 08-06+ profiles 架构，推荐）
 
