@@ -139,6 +139,33 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
     borderTop: '1px solid var(--dsw-alias-border-l2)',
   }
 
+  /**
+   * 统一同步：一个「同步」/「同步并推送」按钮同时驱动 项目轨 + 已开启的
+   * 全局轨（2026-08-11 用户拍板：按钮不重复，只保留一对推拉按钮）。
+   * 顺序执行并聚合结果：项目 sync（若已初始化）→ 全局轨 sync（若有轨开启）。
+   * @param push - true = 同步并推送（用户显式点击 = 同意推送）。
+   */
+  const syncAll = async (push: boolean): Promise<{ ok: boolean; text: string }> => {
+    const parts: string[] = []
+    let ok = true
+    // 项目轨（本项目已初始化才参与）
+    if (status?.initialized === true) {
+      const r = await api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId, ...(push ? { push: true } : {}) }) })
+      if (!r.ok) ok = false
+      parts.push(r.text)
+    }
+    // 全局轨（全局仓库已初始化且至少一个轨开启才参与）
+    const globalTracks = status?.global?.tracks ?? {}
+    const anyGlobalOn = Object.values(globalTracks).some((v) => v === true)
+    if (status?.global?.initialized === true && anyGlobalOn) {
+      const r = await api<{ ok: boolean; text: string }>('/global-sync', { method: 'POST', body: JSON.stringify({ sessionId, ...(push ? { push: true } : {}) }) })
+      if (!r.ok) ok = false
+      parts.push(r.text)
+    }
+    if (parts.length === 0) return { ok: false, text: t('syncTab.actions.nothingToSync') }
+    return { ok, text: parts.join('；') }
+  }
+
   return (
     <div className="mt-panel">
       {!initialized ? (
@@ -156,189 +183,179 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             </div>
           )}
 
-          {/* ── 项目级同步开关（三层开关第 2 层）：默认关——不启用 = 维持
-              未开发本模块前的纯本地状态（不建仓库、不生成身份证）。
-              模块开关（第 1 层）在「Memory Evolve 设置 → 配置」里，本 Tab
-              不重复（2026-08-11 用户拍板）── */}
-          <label className="me-field">
-            <span className="me-field-label">
-              {t('syncTab.projectEnabled')}
-              <em className="me-field-hint">{t('syncTab.projectEnabled.hint')}</em>
-            </span>
-            <input
-              type="checkbox"
-              className="me-switch"
-              disabled={status?.enabled !== true}
-              checked={status?.projectEnabled === true}
-              onChange={(event) => {
-                const target = event.target.checked
-                void run(() => api<{ ok: boolean; text: string }>('/project-enabled', { method: 'POST', body: JSON.stringify({ sessionId, enabled: target }) }))
-              }}
-            />
-          </label>
+          {/* ══ 分区一：本项目（2026-08-11 用户拍板布局：顶部介绍 → 本项目 →
+              全局 → 记忆远端与同步，自上而下）══ */}
+          <div className="bb-settings">
+            <div className="bb-settings-title">{t('syncTab.section.project')}</div>
+            {/* 项目级同步开关（三层开关第 2 层）：默认关——不启用 = 维持
+                未开发本模块前的纯本地状态（不建仓库、不生成身份证）。
+                模块开关（第 1 层）在「Memory Evolve 设置 → 配置」里，本 Tab
+                不重复（2026-08-11 用户拍板）。关闭本开关即停用本项目同步。 */}
+            <label className="me-field">
+              <span className="me-field-label">
+                {t('syncTab.projectEnabled')}
+                <em className="me-field-hint">{t('syncTab.projectEnabled.hint')}</em>
+              </span>
+              <input
+                type="checkbox"
+                className="me-switch"
+                disabled={status?.enabled !== true}
+                checked={status?.projectEnabled === true}
+                onChange={(event) => {
+                  const target = event.target.checked
+                  void run(() => api<{ ok: boolean; text: string }>('/project-enabled', { method: 'POST', body: JSON.stringify({ sessionId, enabled: target }) }))
+                }}
+              />
+            </label>
 
-          {/* ── 轨级开关（三层开关第 3 层）：项目记忆轨参与同步（一期唯一轨；
-              全局轨 memory/user/daily 二期独立开关）── */}
-          <label className="me-field">
-            <span className="me-field-label">
-              {t('syncTab.trackProject')}
-              <em className="me-field-hint">{t('syncTab.trackProject.hint')}</em>
-            </span>
-            <input
-              type="checkbox"
-              className="me-switch"
-              disabled={status?.projectEnabled !== true}
-              checked={status?.tracks?.project !== false}
-              onChange={(event) => {
-                const target = event.target.checked
-                void run(() => api<{ ok: boolean; text: string }>('/track', { method: 'POST', body: JSON.stringify({ sessionId, on: target }) }))
-              }}
-            />
-          </label>
+            {/* 轨级开关（三层开关第 3 层）：项目记忆轨参与同步 */}
+            <label className="me-field">
+              <span className="me-field-label">
+                {t('syncTab.trackProject')}
+                <em className="me-field-hint">{t('syncTab.trackProject.hint')}</em>
+              </span>
+              <input
+                type="checkbox"
+                className="me-switch"
+                disabled={status?.projectEnabled !== true}
+                checked={status?.tracks?.project !== false}
+                onChange={(event) => {
+                  const target = event.target.checked
+                  void run(() => api<{ ok: boolean; text: string }>('/track', { method: 'POST', body: JSON.stringify({ sessionId, on: target }) }))
+                }}
+              />
+            </label>
+          </div>
 
-          {/* ── 状态卡片 ── */}
+          {/* ══ 分区二：全局记忆（不属于本项目，仅共享记忆仓库可用）══ */}
           <div className="bb-settings" style={sectionStyle}>
-            <div className="bb-settings-title">{t('syncTab.status.title')}</div>
-            {status?.enabled !== true ? (
-              <p className="bb-settings-desc">{t('syncTab.status.disabled')}</p>
-            ) : status?.initialized !== true ? (
-              <p className="bb-settings-desc">{t('syncTab.status.notInit')}</p>
-            ) : (
+            <div className="bb-settings-title">{t('syncTab.section.global')}</div>
+            {status?.global?.initialized === true ? (
               <>
-                <p className="bb-settings-desc">
-                  <strong>{t('syncTab.status.identity', { name: status?.identity?.displayName ?? '?', kind: status?.identity?.kind === 'remote' ? t('syncTab.status.remote') : t('syncTab.status.local') })}</strong>
+                {/* 四轨开关（每轨独立 opt-in，默认关） */}
+                {([
+                  ['memory', 'syncTab.global.trackMemory'],
+                  ['user', 'syncTab.global.trackUser'],
+                  ['daily', 'syncTab.global.trackDaily'],
+                  ['todo', 'syncTab.global.trackTodo'],
+                ] as const).map(([track, labelKey]) => (
+                  <label key={track} className="me-field">
+                    <span className="me-field-label">{t(labelKey)}</span>
+                    <input
+                      type="checkbox"
+                      className="me-switch"
+                      checked={status.global?.tracks?.[track] === true}
+                      onChange={(event) => {
+                        const target = event.target.checked
+                        void run(() => api<{ ok: boolean; text: string }>('/global-track', { method: 'POST', body: JSON.stringify({ sessionId, track, on: target }) }))
+                      }}
+                    />
+                  </label>
+                ))}
+                <p className="bb-meta">
+                  {t('syncTab.global.uncommitted', { n: String(status.global.uncommitted ?? 0) })}
                   <br />
-                  {t('syncTab.status.identity.hint')}
+                  {t('syncTab.global.hint')}
                 </p>
-                <p className="bb-settings-desc">
-                  <strong>{t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : status?.remoteKind === 'shared-repo' ? t('syncTab.status.remoteKindShared') : t('syncTab.status.remoteKindNone') })}</strong>
-                  <br />
-                  {t('syncTab.status.originUrl', { url: status?.originUrl || t('syncTab.status.remoteKindNone') })}
-                  <br />
-                  {t('syncTab.status.remoteKind.hint')}
-                </p>
-                <p className="bb-settings-desc">
-                  {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
-                  <br />
-                  {t('syncTab.status.counts', {
-                    uncommitted: String(status?.uncommitted ?? 0),
-                    behind: String(status?.behind ?? 0),
-                    conflicts: String(status?.conflicts ?? 0),
-                  })}
-                </p>
-                {status?.migrateFrom != null && (
-                  <p className="bb-settings-desc">{t('syncTab.status.migrate', { dir: status.migrateFrom })}</p>
-                )}
               </>
+            ) : (
+              <p className="bb-settings-desc">{t('syncTab.global.notInit')}</p>
             )}
           </div>
 
-          {/* ── 项目级操作区 ── */}
-          {status?.enabled === true && (
-            <div className="bb-settings" style={sectionStyle}>
-              <div className="bb-settings-title">{t('syncTab.actions.title')}</div>
-              <div className="bb-actions">
-                {status?.initialized !== true && (
-                  <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                    {t('syncTab.actions.setupDefault')}
-                  </button>
-                )}
-                {status?.initialized === true && (
-                  <>
-                    <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                      {t('syncTab.actions.sync')}
-                    </button>
-                    <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/sync', { method: 'POST', body: JSON.stringify({ sessionId, push: true }) })) }}>
-                      {t('syncTab.actions.push')}
-                    </button>
-                    <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/off', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                      {t('syncTab.actions.off')}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {/* ══ 分区三：记忆远端与同步（A/B 切换 + 当前状态 + 推拉按钮）══ */}
+          <div className="bb-settings" style={sectionStyle}>
+            <div className="bb-settings-title">{t('syncTab.section.sync')}</div>
 
-          {/* ── 记忆远端配置：与项目操作分区，避免混淆同步对象 ── */}
-          {status?.enabled === true && (
-            <div className="bb-settings" style={sectionStyle}>
-              <div className="bb-settings-title">{t('syncTab.remote.configTitle')}</div>
-              <div className="bb-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
-                <em className="bb-meta">
-                  {status?.initialized === true ? t('syncTab.actions.switchShared.hint') : t('syncTab.actions.setupShared.hint')}
-                </em>
-                <span className="bb-actions-inline" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', width: '100%', minWidth: 0 }}>
-                  <input
-                    type="text"
-                    className="me-input"
-                    style={{ flex: '1 1 360px', width: 'auto', minWidth: 'min(280px, 100%)' }}
-                    placeholder={t('syncTab.actions.setupShared.placeholder')}
-                    value={remoteUrl}
-                    onChange={(event) => {
-                      remoteUrlEdited.current = true
-                      setRemoteUrl(event.target.value)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="me-btn"
-                    disabled={busy || remoteUrl.trim() === ''}
-                    onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
-                  >
-                    {status?.initialized === true ? t('syncTab.actions.switchShared') : t('syncTab.actions.setupShared')}
-                  </button>
-                </span>
-              </div>
-              <details className="bb-settings-desc" style={{ marginTop: '10px' }}>
-                <summary style={{ cursor: 'pointer' }}>{t('syncTab.remote.title')}</summary>
-                <div style={{ marginTop: '6px' }}>
-                  <p><strong>{t('syncTab.remote.default.title')}</strong>：{t('syncTab.remote.default.desc')}</p>
-                  <p><strong>{t('syncTab.remote.shared.title')}</strong>：{t('syncTab.remote.shared.desc')}</p>
-                </div>
-              </details>
+            {/* 当前记忆远端状态（一个仓库——用户拍板：B 模式只显示共享记忆
+                仓库，不再显示项目身份/代码仓库地址，避免"两个仓库"困惑） */}
+            <div className="bb-settings-desc">
+              {status?.enabled !== true ? (
+                t('syncTab.status.disabled')
+              ) : status?.initialized !== true ? (
+                t('syncTab.status.notInit')
+              ) : (
+                <>
+                  <p>
+                    <strong>{t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : status?.remoteKind === 'shared-repo' ? t('syncTab.status.remoteKindShared') : t('syncTab.status.remoteKindNone') })}</strong>
+                    <br />
+                    {t('syncTab.status.originUrl', { url: status?.originUrl || t('syncTab.status.remoteKindNone') })}
+                    <br />
+                    {t('syncTab.status.remoteKind.hint')}
+                  </p>
+                  <p>
+                    {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
+                    <br />
+                    {t('syncTab.status.counts', {
+                      uncommitted: String(status?.uncommitted ?? 0),
+                      behind: String(status?.behind ?? 0),
+                      conflicts: String(status?.conflicts ?? 0),
+                    })}
+                  </p>
+                  {status?.migrateFrom != null && (
+                    <p>{t('syncTab.status.migrate', { dir: status.migrateFrom })}</p>
+                  )}
+                </>
+              )}
             </div>
-          )}
 
-          {/* ── 全局记忆同步区（设备级；仅共享记忆仓库 setup 后出现）── */}
-          {status?.enabled === true && status?.global?.initialized === true && (
-            <div className="bb-settings" style={sectionStyle}>
-              <div className="bb-settings-title">{t('syncTab.global.title')}</div>
-              <p className="bb-settings-desc">
-                {t('syncTab.global.url', { url: status.global.url })}
-                <br />
-                {t('syncTab.global.uncommitted', { n: String(status.global.uncommitted ?? 0) })}
-              </p>
-              {([
-                ['memory', 'syncTab.global.trackMemory'],
-                ['user', 'syncTab.global.trackUser'],
-                ['daily', 'syncTab.global.trackDaily'],
-                ['todo', 'syncTab.global.trackTodo'],
-              ] as const).map(([track, labelKey]) => (
-                <label key={track} className="me-field">
-                  <span className="me-field-label">{t(labelKey)}</span>
-                  <input
-                    type="checkbox"
-                    className="me-switch"
-                    checked={status.global?.tracks?.[track] === true}
-                    onChange={(event) => {
-                      const target = event.target.checked
-                      void run(() => api<{ ok: boolean; text: string }>('/global-track', { method: 'POST', body: JSON.stringify({ sessionId, track, on: target }) }))
-                    }}
-                  />
-                </label>
-              ))}
-              <p className="bb-meta">{t('syncTab.global.hint')}</p>
-              <div className="bb-actions">
-                <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-sync', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
-                  {t('syncTab.global.sync')}
-                </button>
-                <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-sync', { method: 'POST', body: JSON.stringify({ sessionId, push: true }) })) }}>
-                  {t('syncTab.global.push')}
-                </button>
+            {/* 记忆放哪说明（可折叠） */}
+            <details className="bb-settings-desc" style={{ marginTop: '8px' }}>
+              <summary style={{ cursor: 'pointer' }}>{t('syncTab.remote.title')}</summary>
+              <div style={{ marginTop: '6px' }}>
+                <p><strong>{t('syncTab.remote.default.title')}</strong>：{t('syncTab.remote.default.desc')}</p>
+                <p><strong>{t('syncTab.remote.shared.title')}</strong>：{t('syncTab.remote.shared.desc')}</p>
               </div>
+            </details>
+
+            {/* 地址输入 + 切换/初始化（任何状态都显示；已初始化 = 切换记忆远端） */}
+            <div className="bb-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px', marginTop: '8px' }}>
+              <em className="bb-meta">
+                {status?.initialized === true ? t('syncTab.actions.switchShared.hint') : t('syncTab.actions.setupShared.hint')}
+              </em>
+              <span className="bb-actions-inline" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', width: '100%', minWidth: 0 }}>
+                <input
+                  type="text"
+                  className="me-input"
+                  style={{ flex: '1 1 360px', width: 'auto', minWidth: 'min(280px, 100%)' }}
+                  placeholder={t('syncTab.actions.setupShared.placeholder')}
+                  value={remoteUrl}
+                  onChange={(event) => {
+                    remoteUrlEdited.current = true
+                    setRemoteUrl(event.target.value)
+                  }}
+                />
+                <button
+                  type="button"
+                  className="me-btn"
+                  disabled={busy || remoteUrl.trim() === ''}
+                  onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
+                >
+                  {status?.initialized === true ? t('syncTab.actions.switchShared') : t('syncTab.actions.setupShared')}
+                </button>
+              </span>
             </div>
-          )}
+
+            {/* 统一操作按钮：未初始化 = 开始同步（用代码仓库）；已初始化 =
+                一个「同步」+ 一个「同步并推送」，同时驱动项目轨与已开启的全局轨
+                （2026-08-11 用户拍板：按钮不重复、只保留一对推拉按钮） */}
+            <div className="bb-actions" style={{ marginTop: '10px' }}>
+              {status?.initialized !== true ? (
+                <button type="button" className="me-btn me-btn-primary" disabled={busy || status?.enabled !== true} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
+                  {t('syncTab.actions.setupDefault')}
+                </button>
+              ) : (
+                <>
+                  <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => syncAll(false)) }}>
+                    {t('syncTab.actions.sync')}
+                  </button>
+                  <button type="button" className="me-btn me-btn-ok" disabled={busy} onClick={() => { void run(() => syncAll(true)) }}>
+                    {t('syncTab.actions.push')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
 
           {/* ── 冲突区 ── */}
           {status?.enabled === true && conflicts.length > 0 && (
