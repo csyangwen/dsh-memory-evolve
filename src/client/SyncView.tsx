@@ -55,7 +55,20 @@ interface SyncStatus {
     uncommitted: number
     /** 已提交未推送的轨数（本地轨分支领先远端；2026-08-11 用户反馈后新增）。 */
     ahead?: number
+    /** 各轨冲突数（track 名 → 条数；>0 的轨在全局子 Tab 显示冲突区）。 */
+    conflicts?: { memory?: number; user?: number; daily?: number; todo?: number }
   }
+}
+
+/** 全局轨 fileset（/conflicts 与 /resolve 的 fileset 参数；track → fileset）。 */
+const GLOBAL_FILESET: Record<string, string> = { memory: 'memory-global', user: 'user-global', daily: 'daily-global', todo: 'todo-global' }
+
+/** 全局轨显示名词典键（冲突区标题用；track → 词典键）。 */
+const GLOBAL_TRACK_LABEL: Record<string, string> = {
+  memory: 'syncTab.global.trackMemory',
+  user: 'syncTab.global.trackUser',
+  daily: 'syncTab.global.trackDaily',
+  todo: 'syncTab.global.trackTodo',
 }
 
 /** 一条冲突（/conflicts 返回；resolve 用 index 定位）。 */
@@ -99,6 +112,9 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const { t, sessionId } = props
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
+  /** 全局各轨冲突列表（track 名 → 列表；2026-08-11 用户反馈后新增——
+   *  全局推送被某轨冲突拦截时，冲突区就在全局子 Tab 里解决）。 */
+  const [globalConflicts, setGlobalConflicts] = useState<Record<string, ConflictItem[]>>({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
   const [initialized, setInitialized] = useState(false) // status 首次加载完成标记
@@ -113,7 +129,7 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
    *  真正执行；点「不启用」且当前已启用 → 立即停用）。 */
   const [remoteOn, setRemoteOn] = useState(false)
 
-  /** 拉取状态 + 冲突列表。 */
+  /** 拉取状态 + 冲突列表（项目 + 全局各轨）。 */
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const [s, c] = await Promise.all([
@@ -128,6 +144,20 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       // 启用意向回显：跟随服务端 enabled（停用后刷新回"不启用"）
       setRemoteOn(nextStatus.global?.enabled === true)
       setConflicts(c.conflicts ?? [])
+      // 全局各轨冲突详情：对 status.global.conflicts > 0 的轨逐轨拉取
+      // （/conflicts?fileset=<track>-global；2026-08-11 用户反馈：全局轨
+      // 冲突也要能在 UI 解决，不能只报"先到冲突区解决"却无处可点）
+      const gMap: Record<string, ConflictItem[]> = {}
+      const gCounts = nextStatus.global?.conflicts ?? {}
+      const gTracks = (Object.keys(gCounts) as Array<keyof typeof gCounts>)
+        .filter((track) => (gCounts[track] ?? 0) > 0)
+      await Promise.all(gTracks.map(async (track) => {
+        const fileset = GLOBAL_FILESET[track]
+        if (!fileset) return
+        const r = await api<{ conflicts: ConflictItem[] }>(`/conflicts?sessionId=${encodeURIComponent(sessionId)}&fileset=${encodeURIComponent(fileset)}`)
+        gMap[track] = r.conflicts ?? []
+      }))
+      setGlobalConflicts(gMap)
     } catch (error) {
       setNotice({ kind: 'error', text: t('syncTab.loadFailed', { message: (error as Error).message }) })
     } finally {
@@ -403,6 +433,45 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                       {t('syncTab.global.push')}
                     </button>
                   </div>
+
+                  {/* 全局各轨冲突区（2026-08-11 用户反馈：全局推送被某轨冲突
+                      拦截时，冲突区就在这里解决——fileset 透传给 /resolve；
+                      解决后本地提交、ahead+1，再点「推送」上远端） */}
+                  {Object.entries(globalConflicts).map(([track, items]) => (
+                    items.length > 0 ? (
+                      <div className="sv-section" key={`g-${track}`}>
+                        <div className="sv-section-title">
+                          {t('syncTab.conflicts.titleGlobal', { track: t(GLOBAL_TRACK_LABEL[track] ?? 'syncTab.global.title'), count: String(items.length) })}
+                        </div>
+                        {items.map((c) => (
+                          <div key={`g-${track}-${c.index}`} className="bb-session-line">
+                            <div>
+                              <strong>#{c.index} {c.entryKey}</strong>（{c.file}）· {c.reason}
+                              <br />
+                              <span className="bb-meta">
+                                {t('syncTab.conflicts.base')}：{clamp(c.base)}
+                                <br />
+                                {t('syncTab.conflicts.ours')}：{clamp(c.ours)}
+                                <br />
+                                {t('syncTab.conflicts.theirs')}：{clamp(c.theirs)}
+                              </span>
+                            </div>
+                            <div className="bb-actions">
+                              <button type="button" className="me-btn" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/resolve', { method: 'POST', body: JSON.stringify({ sessionId, index: c.index, choice: 'ours', fileset: GLOBAL_FILESET[track] }) })) }}>
+                                {t('syncTab.conflicts.oursBtn')}
+                              </button>
+                              <button type="button" className="me-btn" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/resolve', { method: 'POST', body: JSON.stringify({ sessionId, index: c.index, choice: 'theirs', fileset: GLOBAL_FILESET[track] }) })) }}>
+                                {t('syncTab.conflicts.theirsBtn')}
+                              </button>
+                              <button type="button" className="me-btn" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/resolve', { method: 'POST', body: JSON.stringify({ sessionId, index: c.index, choice: 'both', fileset: GLOBAL_FILESET[track] }) })) }}>
+                                {t('syncTab.conflicts.bothBtn')}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null
+                  ))}
                 </>
               ) : (
                 <p className="bb-settings-desc">{t('syncTab.global.notInit')}</p>

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ensureGlobalRepo } from '../lib/sync/repo.js'
-import { handleCommand } from '../lib/sync/index.js'
+import { handleCommand, installMemorySync } from '../lib/sync/index.js'
 import { resolveProjectId } from '../lib/sync/identity.js'
 import { runSync, resolveConflict, countConflicts } from '../lib/sync/worker.js'
 import { globalBranchFor } from '../lib/sync/filesets.js'
@@ -202,6 +202,60 @@ test('globalSync 失败聚合：任一轨失败 → 整体 error，不假报成�
     const sync = await handleCommand('global', ['sync'], dev.cwd, { config: cfg, ...rt })
     assert.equal(sync.kind, 'error', '全部轨失败必须返回 error')
     assert.match(sync.text, /失败/)
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- 全局轨冲突的 ops/命令层解决链路（2026-08-11 用户反馈：
+   全局推送被某轨冲突拦截后提示"请先在冲突区解决"，但 UI/API 此前只支持
+   项目轨——补全 ops.conflicts/resolve 的 fileset 透传与命令组支持） ---------------- */
+
+test('ops.conflicts/resolve 支持全局轨 fileset：冲突可查可解、解决提交落本轨分支、命令组同款', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const bare = join(root, 'bare.git')
+    mkdirSync(bare, { recursive: true })
+    git(bare, ['init', '-q', '--bare'])
+    const A = await setupGlobal(root, 'A', bare)
+    const B = await setupGlobal(root, 'B', bare)
+    const rtA = mockRuntime(true)
+    const cfgA = { memoryDir: A.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    writeFileSync(join(A.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] 全局事实\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    const rtB = mockRuntime(true)
+    const cfgB = { memoryDir: B.memoryDir }
+    assert.equal((await handleCommand('global', ['on', 'memory'], B.cwd, { config: cfgB, ...rtB })).kind, 'success')
+    assert.equal((await handleCommand('global', ['sync'], B.cwd, { config: cfgB, ...rtB })).kind, 'success')
+    // 双侧改同一条 → B 端 memory-global 冲突
+    writeFileSync(join(A.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] A 的版本\n')
+    assert.equal((await handleCommand('global', ['sync', '--push'], A.cwd, { config: cfgA, ...rtA })).kind, 'success')
+    writeFileSync(join(B.memoryDir, 'MEMORY.md'), '[id:aaaa0000] [2026-08-11 10:00] B 的版本\n')
+    const rSync = await runSync({ dir: B.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global' })
+    assert.equal(rSync.conflicts, 1)
+    // 命令组：conflict list <fileset> 能列出全局冲突
+    const clist = await handleCommand('conflict', ['list', 'memory-global'], B.cwd, { config: cfgB, ...mockRuntime(true) })
+    assert.equal(clist.kind, 'success')
+    assert.match(clist.text, /aaaa0000/)
+    // ops 层：带 fileset 查全局冲突；缺省（项目）查不到（隔离正确）
+    const ops = installMemorySync({ get: () => undefined }, { config: cfgB, getRuntime: rtB.getRuntime, applyRuntimePatch: rtB.applyRuntimePatch }).ops
+    const list = ops.conflicts(B.cwd, 'memory-global')
+    assert.equal(list.length, 1)
+    // entryKey 带命名空间前缀（记忆轨 m: / TODO 轨 t:，merge 联合索引）
+    assert.equal(list[0].entryKey, 'm:aaaa0000')
+    assert.equal(ops.conflicts(B.cwd, undefined).length, 0, '缺省 fileset 只查项目轨')
+    // 命令组：conflict resolve <编号> ours <fileset> 解决
+    const cres = await handleCommand('conflict', ['resolve', '1', 'ours', 'memory-global'], B.cwd, { config: cfgB, ...mockRuntime(true) })
+    assert.equal(cres.kind, 'success')
+    assert.equal(countConflicts(B.memoryDir, 'memory-global'), 0)
+    // ops.resolve 同样可用；解决提交必须落在 memory-global 分支（不串 main）
+    const res = await ops.resolve(B.cwd, 1, 'ours', 'memory-global')
+    assert.equal(res.kind, 'error', '侧车已清空：重复解决应如实失败（幂等保护）')
+    assert.ok(git(B.memoryDir, ['rev-parse', '--verify', 'refs/heads/memory-global']).length > 0, '解决提交应落在 memory-global 本地分支')
+    // 解决后推送成功（完整闭环）
+    const rPush = await runSync({ dir: B.memoryDir, remoteBranch: globalBranchFor('memory-global'), fileset: 'memory-global', localBranch: 'memory-global', push: true })
+    assert.equal(rPush.ok, true)
   } finally {
     clean(root)
   }
