@@ -631,6 +631,119 @@ test('scheduler: summary sink is called for non-temporary tasks', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+// ----------------------------------------------------------------- wakeOnComplete（完成唤醒投递）
+
+/** 假 Agent：记录 followup/inject 调用（与官方 Agent 接口同款签名）。 */
+function makeFakeAgent(status = 'idle') {
+  const calls = []
+  return {
+    status,
+    calls,
+    followup: (message) => calls.push(['followup', message]),
+    inject: (message) => calls.push(['inject', message]),
+  }
+}
+
+/** 启动带 agentsService 的调度器（复刻 bootScheduler，仅多注入假 agents；
+ *  eventCtx 带 on/effect，测试可手动触发 agent/inbox/claimed 重置预算）。 */
+function bootSchedulerWithAgents(dir, agent, agentsService) {
+  const stores = bootStores(dir)
+  const harness = makeSpawnHarness()
+  const listeners = {}
+  const eventCtx = {
+    emit: (name, data) => { for (const fn of listeners[name] ?? []) fn(data) },
+    on: (name, fn) => { ;(listeners[name] ??= []).push(fn); return () => {} },
+    off: () => {},
+    effect: (fn) => fn(),
+  }
+  const scheduler = new CoiScheduler(eventCtx, {
+    adapters: stores.adapters,
+    sessions: stores.sessions,
+    tasks: stores.tasks,
+    config: { coiTaskTimeoutMs: 60000, coiDataDir: dir },
+    agentsService: agentsService ?? { get: () => agent },
+  }, { spawn: harness.spawn })
+  schedulers.push(scheduler)
+  scheduler.recover()
+  return { ...stores, scheduler, harness, listeners }
+}
+
+test('wakeOnComplete: idle owner gets followup (wakeup delivery, message shape)', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  const result = scheduler.dispatch({ adapterId: 'grok', prompt: '唤醒我', ownerSessionId: 'sess-1', wakeOnComplete: true })
+  assert.equal(result.ok, true)
+  harness.children[0].emit('close', 0)
+  assert.equal(agent.calls.length, 1)
+  const [kind, message] = agent.calls[0]
+  assert.equal(kind, 'followup')
+  // 官方 UserMessage 结构：role/content/source（插件 notice 表单）+ id
+  assert.equal(message.role, 'user')
+  assert.equal(message.content[0].type, 'text')
+  assert.match(message.content[0].text, /COI 任务完成/)
+  assert.equal(message.source.kind, 'plugin')
+  assert.equal(message.source.form, 'notice')
+  assert.equal(typeof message.id, 'string')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wakeOnComplete: busy owner gets inject (no wake)', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('running')
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  scheduler.dispatch({ adapterId: 'grok', prompt: '忙', ownerSessionId: 'sess-1', wakeOnComplete: true })
+  harness.children[0].emit('close', 0)
+  assert.equal(agent.calls.length, 1)
+  assert.equal(agent.calls[0][0], 'inject')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wakeOnComplete: default (unset) does not deliver anything', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  scheduler.dispatch({ adapterId: 'grok', prompt: '默认不唤醒', ownerSessionId: 'sess-1' })
+  harness.children[0].emit('close', 0)
+  assert.equal(agent.calls.length, 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wakeOnComplete: wake budget capped at 3; user input resets, plugin notice does not', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler, harness, listeners } = bootSchedulerWithAgents(dir, agent)
+  const claim = (source) => { for (const fn of listeners['agent/inbox/claimed'] ?? []) fn({ agent, message: { source } }) }
+  // 连续 3 次完成：耗尽预算（3 次 followup）
+  for (let i = 0; i < 3; i += 1) {
+    scheduler.dispatch({ adapterId: 'grok', prompt: `唤醒 ${i}`, ownerSessionId: 'sess-1', wakeOnComplete: true })
+    harness.children[i].emit('close', 0)
+  }
+  assert.equal(agent.calls.filter((c) => c[0] === 'followup').length, 3)
+  assert.equal(agent.calls.filter((c) => c[0] === 'inject').length, 0)
+  // 插件 notice（source.kind 非 user）claimed 不重置预算 → 第 4 次降级 inject
+  claim({ kind: 'plugin', plugin: 'dsh-memory-evolve' })
+  scheduler.dispatch({ adapterId: 'grok', prompt: 'notice 不重置', ownerSessionId: 'sess-1', wakeOnComplete: true })
+  harness.children[3].emit('close', 0)
+  assert.equal(agent.calls.at(-1)[0], 'inject')
+  // 用户输入 claimed → 预算重置（对齐官方语义）→ 第 5 次恢复 followup
+  claim({ kind: 'user' })
+  scheduler.dispatch({ adapterId: 'grok', prompt: '重置后', ownerSessionId: 'sess-1', wakeOnComplete: true })
+  harness.children[4].emit('close', 0)
+  assert.equal(agent.calls.at(-1)[0], 'followup')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wakeOnComplete: no agentsService / unknown owner → silent skip, task still completes', () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const result = scheduler.dispatch({ adapterId: 'grok', prompt: '无 agents', ownerSessionId: 'sess-9', wakeOnComplete: true })
+  assert.equal(result.ok, true)
+  harness.children[0].emit('close', 0)
+  assert.equal(scheduler.status(result.taskId).task.status, 'completed')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 // ----------------------------------------------------------------- templates & stats
 
 test('templates and stats', () => {
