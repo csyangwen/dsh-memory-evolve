@@ -64,6 +64,12 @@ function clamp(text: string | null, max = 60): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
+/** 共享记忆仓库专属分支判定（dsh-shared/<12hex>，区别于模式 A 的
+ *  dsh-shared/memory）——分支名不可读，状态卡片附「（共享记忆仓库）」标注。 */
+function isSharedBranch(branch: string | undefined): boolean {
+  return typeof branch === 'string' && branch.startsWith('dsh-shared/') && branch !== 'dsh-shared/memory'
+}
+
 /** 操作反馈（成功/失败）。 */
 type Notice = { kind: 'ok' | 'error'; text: string } | null
 
@@ -177,7 +183,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                 <p className="bb-settings-desc">
                   {t('syncTab.status.identity', { name: status?.identity?.displayName ?? '?', kind: status?.identity?.kind === 'remote' ? t('syncTab.status.remote') : t('syncTab.status.local') })}
                   <br />
-                  {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
+                  {t('syncTab.status.branch', { branch: `${status?.remoteBranch ?? '?'}${isSharedBranch(status?.remoteBranch) ? t('syncTab.status.sharedBranch') : ''}` })}
+                  <br />
+                  {/* 当前模式（模式 A 固定分支 dsh-shared/memory；其余=模式 B） */}
+                  {t('syncTab.status.mode', { mode: status?.remoteBranch === 'dsh-shared/memory' ? t('syncTab.status.modeA') : t('syncTab.status.modeB') })}
                   <br />
                   {t('syncTab.status.counts', {
                     uncommitted: String(status?.uncommitted ?? 0),
@@ -196,6 +205,16 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
           {status?.enabled === true && (
             <div className="bb-settings">
               <div className="bb-settings-title">{t('syncTab.actions.title')}</div>
+              {/* 模式说明（可折叠，2026-08-11 用户拍板：A/B 是什么、什么场景
+                  推荐；隐私是主要区别——模式 A 记忆随代码仓库走） */}
+              <details className="bb-settings-desc">
+                <summary style={{ cursor: 'pointer' }}>{t('syncTab.mode.title')}</summary>
+                <div style={{ marginTop: '6px' }}>
+                  <p><strong>{t('syncTab.mode.a.title')}</strong>：{t('syncTab.mode.a.desc')}</p>
+                  <p><strong>{t('syncTab.mode.b.title')}</strong>：{t('syncTab.mode.b.desc')}</p>
+                  <p className="bb-meta">{t('syncTab.mode.privacy')}</p>
+                </div>
+              </details>
               <div className="bb-actions">
                 {status?.initialized !== true && (
                   <>
@@ -203,6 +222,7 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                       {t('syncTab.actions.setupA')}
                     </button>
                     <span className="bb-actions-inline">
+                      <em className="bb-meta">{t('syncTab.actions.setupB.hint')}</em>
                       <input
                         type="text"
                         className="me-input"

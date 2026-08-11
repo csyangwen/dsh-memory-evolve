@@ -164,7 +164,7 @@ test('handleCommand setup：模式 A（未初始化引导 / 本地远端回退 /
   }
 })
 
-test('handleCommand setup：模式 B（私有仓库 url）初始化', { skip }, async () => {
+test('handleCommand setup：模式 B（共享记忆仓库 url）初始化', { skip }, async () => {
   const root = tempDir()
   try {
     const privateBare = join(root, 'private-bare.git')
@@ -174,18 +174,21 @@ test('handleCommand setup：模式 B（私有仓库 url）初始化', { skip }, 
     mkdirSync(cwd, { recursive: true })
     git(cwd, ['init', '-q', '-b', 'main'])
     git(cwd, ['remote', 'add', 'origin', 'https://example.com/acme/alpha.git']) // 主仓库 remote（身份）
+    const identity = resolveProjectId(cwd)
     const memoryDir = join(root, 'memoriesB')
     const rt = mockRuntime(true)
-    // 模式 B：显式 url → remoteBranch=main、remote=私有仓库
+    // 模式 B：显式 url → 共享记忆仓库（2026-08-11 拍板：一个私有仓库装
+    // 所有项目的记忆）。空仓库 → fresh → 本项目使用专属分支 dsh-shared/<id>
+    // （不再固定 main——main 只用于老单项目仓库兼容）
     const setup = await handleCommand('setup', [privateBare], cwd, { config: { memoryDir }, ...rt })
     assert.equal(setup.kind, 'success')
-    assert.match(setup.text, /模式 B/)
+    assert.match(setup.text, /共享记忆仓库/)
     const info = projectSyncInfo({ memoryDir }, cwd)
-    assert.equal(info.remoteBranch, 'main')
+    assert.equal(info.remoteBranch, `dsh-shared/${identity.id}`)
     assert.ok(existsSync(join(info.dir, 'PROVENANCE')))
-    // PROVENANCE 记录了模式 B 分支
+    // PROVENANCE 记录了共享分支
     const meta = JSON.parse(readFileSync(join(info.dir, 'PROVENANCE'), 'utf8'))
-    assert.equal(meta.remoteBranch, 'main')
+    assert.equal(meta.remoteBranch, `dsh-shared/${identity.id}`)
   } finally {
     clean(root)
   }
