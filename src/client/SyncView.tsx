@@ -190,11 +190,6 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
         <div className="bb-empty">{t('syncTab.loading')}</div>
       ) : (
         <>
-          {/* 未深度测试提示（用户要求，2026-08-11）：本功能体量大、影响大，
-              尚未经过用户深度测试——上线初期必须明示慎重使用 */}
-          <div className="me-notice me-notice-warn" style={{ marginBottom: '8px' }}>
-            {t('syncTab.betaWarning')}
-          </div>
           {notice !== null && (
             <div className={notice.kind === 'ok' ? 'me-notice-ok' : 'me-notice-error'}>
               {notice.text}
@@ -469,7 +464,11 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                       disabled={busy || remoteUrl.trim() === ''}
                       onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/global-remote', { method: 'POST', body: JSON.stringify({ url: remoteUrl.trim(), enabled: true }) })) }}
                     >
-                      {t('syncTab.remote.save')}
+                      {/* 已启用 = 修改并保存（可换另一个共享记忆库，旧分支留档）；
+                          未启用 = 启用并保存（2026-08-11 用户拍板） */}
+                      {status?.global?.initialized === true && status?.global?.url !== ''
+                        ? t('syncTab.remote.modify')
+                        : t('syncTab.remote.save')}
                     </button>
                     {status?.global?.initialized === true && status?.global?.url !== '' && (
                       <button
