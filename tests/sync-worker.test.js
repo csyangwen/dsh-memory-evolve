@@ -13,7 +13,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -278,6 +278,56 @@ test('scripts/sync-worker.mjs 入口：stdout 单行 JSON + 退出码', { skip }
     const rs = spawnSync('node', [script, 'status', B.dir, RB], { encoding: 'utf8', timeout: 30000 })
     const sOut = JSON.parse(rs.stdout.trim())
     assert.equal(sOut.status.initialized, true)
+  } finally {
+    clean(root)
+  }
+})
+
+/* ---------------- CRLF 自愈（2026-08-11 Windows autocrlf 事故修复） ---------------- */
+
+test('CRLF 自愈：工作树被 Windows autocrlf 转 CRLF 后 sync 自动归一化（不再中止）', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const { bare, devices } = setupDevices(root, 'https://example.com/acme/alpha.git')
+    const B = devices.B
+    await deviceABootstrap({ bare, devices, keyLines: ['[id:aaaa0000] [2026-08-10] 原始内容'] })
+    await deviceBConnect({ dir: B.dir, remoteUrl: bare, remoteBranch: RB })
+    // 模拟 Windows git core.autocrlf=true 的 checkout 结果：KEY.md 全部 LF → CRLF
+    const keyPath = join(B.dir, 'KEY.md')
+    const lf = readFileSync(keyPath, 'utf8')
+    writeFileSync(keyPath, lf.replace(/\n/g, '\r\n'))
+    // 修复前：isCanonical 失败 → 中止（格式异常）；修复后：无损归一化 → 同步成功
+    const r = await runSync({ dir: B.dir, remoteBranch: RB })
+    assert.equal(r.ok, true, `CRLF 工作树应自愈而非中止：${r.message}`)
+    assert.match(r.message, /归一化/)
+    // 工作树已恢复 LF（合并写回）
+    const after = readFileSync(keyPath, 'utf8')
+    assert.ok(!after.includes('\r'), '写回后文件应为 LF')
+    assert.ok(after.includes('原始内容'), '条目内容应完好')
+  } finally {
+    clean(root)
+  }
+})
+
+test('CRLF 自愈：手工编辑的真·坏格式仍中止（备份 + 不重写）', { skip }, async () => {
+  const root = tempDir()
+  try {
+    const { bare, devices } = setupDevices(root, 'https://example.com/acme/alpha.git')
+    const B = devices.B
+    await deviceABootstrap({ bare, devices, keyLines: ['[id:aaaa0000] [2026-08-10] 原始内容'] })
+    await deviceBConnect({ dir: B.dir, remoteUrl: bare, remoteBranch: RB })
+    // 手工编辑破坏：混合行尾（\r\n 与孤立 \r 并存）+ 缺尾部换行——
+    // \r\n→\n 归一化后仍非 canonical（孤立 \r 保留、serialize 会补尾部
+    // \n），与"纯 CRLF 污染"可区分 → 必须中止（不猜、不重写）
+    const keyPath = join(B.dir, 'KEY.md')
+    writeFileSync(keyPath, '条目A\r\n§\r\n条目B\n更多\r孤立')
+    const r = await runSync({ dir: B.dir, remoteBranch: RB })
+    assert.equal(r.ok, false)
+    assert.equal(r.code, 3)
+    assert.match(r.message, /格式异常/)
+    // 原文件应被备份（.bak 存在）
+    const baks = readdirSync(B.dir).filter((n) => n.includes('.bak.'))
+    assert.ok(baks.length > 0, '坏格式文件应备份')
   } finally {
     clean(root)
   }

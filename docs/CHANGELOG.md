@@ -4,6 +4,42 @@
 
 ---
 
+## 2026-08-11 — 记忆同步：Windows 换行事故修复（CRLF 自愈 + .gitattributes 强制 LF）
+
+### 背景
+用户双设备实测（Mac ↔ Win11 笔记本，virtual-platform 项目）：笔记本同步报
+「本地记忆文件格式异常（KEY.md：CRLF/手工编辑，parse→serialize 不能往返）」，
+且记忆 Tab 项目日志美观列表"只有一行一项、没有正常分割"。根因不是同步算法：
+**Windows Git 默认 core.autocrlf=true（system 级）**，笔记本 checkout 记忆仓库
+时把 LF 全部转成 CRLF → 条目分隔符 `\n§\n` 被 \r 破坏（整文件解析成一条）→
+isCanonical 格式预检正确触发保护（备份+中止，防数据损坏）。
+
+### 修复（三层防线）
+- **防复发（新仓库/重新 setup）**：`ensureMemoryRepo` / `deviceBConnect` /
+  `ensureGlobalRepo` 三处初始化路径新增 `.gitattributes`（内容 `* -text`，
+  强制 git 不做任何换行转换）写入 + 仓库级 `git config core.autocrlf false`
+  （双保险，覆盖用户全局/系统配置）；.gitattributes 纳入 STAGE_META 白名单
+  随仓库传播到所有设备；.gitignore 白名单放行 `!.gitattributes`；
+- **存量仓库自愈（worker）**：`readWorkingMemoryFiles` 对纯 CRLF 文件做
+  **无损归一化**（`\r\n→\n` 后可往返才放行，合并写回以 LF 覆盖，消息提示
+  「已将 N 个文件从 CRLF 归一化为 LF」）；真·手工编辑/混合行尾（归一化后
+  仍不能往返）仍按 P0-2 备份+中止，绝不重写；
+- **状态面一致**：`globalFilesetDirtySync` 元数据集合补 `.gitattributes`
+  （否则含 .gitattributes 的提交树被判假 dirty，无变化也显示未提交）。
+
+### 测试与验证
+- 全量 **499/499 全绿**（新增 2 用例：纯 CRLF 自愈成功 / 手工编辑坏格式仍中止
+  备份；更新 sync-review-final 旧 CRLF 中止用例为自愈语义；修复 global-final
+  假 dirty 断言）；
+- 双设备实测：笔记本手动修复（config + .gitattributes + 重建 index 后文件
+  恢复 LF）→ worker 同步成功「无需合并（两边一致）」；Mac 端 .gitattributes
+  修复已提交（待用户推送）。
+
+### 文档
+- docs/记忆同步.md「已知边界」补 Windows autocrlf 说明（见下）。
+
+---
+
 ## 2026-08-11 — 全局记忆轨 Codex 二轮终审修复（3 P0 + 8 P1 全部落地）
 
 ### 背景

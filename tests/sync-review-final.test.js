@@ -179,23 +179,24 @@ test('多行条目冲突 → CONFLICTS.md 无损编码 → resolve 写回完整�
   }
 })
 
-/* ---------------- P0-2（Codex）：非 canonical 文件中止 ---------------- */
+/* ---------------- P0-2（Codex）：非 canonical 文件中止（2026-08-11 语义细化） ----------------
+ * 纯 CRLF（git autocrlf 污染，\r\n→\n 无损可往返）→ 自愈成功，不再中止；
+ * 真·手工编辑/混合行尾（\r\n→\n 后仍不能往返）→ 仍按 P0-2 中止+备份。
+ * 后者用例见 tests/sync-worker.test.js「CRLF 自愈：手工编辑的真·坏格式仍中止」。 */
 
-test('本地 CRLF 记忆文件 → sync 中止（code 3）、备份原文件、不改写', { skip }, async () => {
+test('本地纯 CRLF 记忆文件 → sync 自愈成功（LF 归一化，不再中止）', { skip }, async () => {
   const root = tempDir()
   try {
     const { dev, branch } = await setupE2E(root)
-    // 把 B 的 KEY.md 写成 CRLF（模拟手工编辑/Windows 产物）
+    // 把 B 的 KEY.md 写成纯 CRLF（模拟 Windows git core.autocrlf=true checkout 产物）
     writeFileSync(join(dev.B.dir, 'KEY.md'), '[id:aaaa0000] [2026-08-10] 初始条目\r\n§\r\n[id:cccc0000] [2026-08-10] CRLF 条目\r\n')
-    const before = readFileSync(join(dev.B.dir, 'KEY.md'), 'utf8')
     const r = await runSync({ dir: dev.B.dir, remoteBranch: branch })
-    assert.equal(r.ok, false)
-    assert.equal(r.code, 3)
-    assert.match(r.message, /格式异常/)
-    // 原文件未被改写（备份 + 中止）
-    assert.equal(readFileSync(join(dev.B.dir, 'KEY.md'), 'utf8'), before)
-    const baks = readdirSync(dev.B.dir).filter((n) => n.startsWith('KEY.md.bak.'))
-    assert.ok(baks.length === 1, '应有一份 .bak 备份')
+    assert.equal(r.ok, true, `纯 CRLF 应自愈而非中止：${r.message}`)
+    assert.match(r.message, /归一化/)
+    // 写回后为 LF（无 \r），条目分隔符完好
+    const after = readFileSync(join(dev.B.dir, 'KEY.md'), 'utf8')
+    assert.ok(!after.includes('\r'), '自愈后应为 LF')
+    assert.ok(after.includes('§'), '条目分隔符应完好')
   } finally {
     clean(root)
   }
