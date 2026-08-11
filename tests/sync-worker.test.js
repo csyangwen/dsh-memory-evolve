@@ -192,11 +192,14 @@ test('merge-base 降级：历史无法对齐 → 退出码 3，本地零影响',
     const B = devices.B
     await deviceABootstrap({ bare, devices, keyLines: ['[id:aaaa0000] [2026-08-10] 原始内容'] })
     await deviceBConnect({ dir: B.dir, remoteUrl: bare, remoteBranch: RB })
-    // 制造无共同祖先：B 在孤儿分支上建新根提交
+    // 制造无共同祖先：B 在孤儿分支上建新根提交（保留 PROVENANCE——它是
+    // 项目身份，现实中不会随历史被删；isProjectSyncEnabled 依赖它）
+    const bProv = readFileSync(join(B.dir, 'PROVENANCE'), 'utf8')
     git(B.dir, ['checkout', '-q', '--orphan', 'tmp'])
     git(B.dir, ['rm', '-q', '-r', '--cached', '.'])
     git(B.dir, ['clean', '-q', '-fd'])
     writeFileSync(join(B.dir, 'KEY.md'), KEY(['[id:cccc0000] [2026-08-10] 无关历史']))
+    writeFileSync(join(B.dir, 'PROVENANCE'), bProv)
     git(B.dir, ['add', '-A'])
     git(B.dir, ['commit', '-q', '-m', 'memory: orphan'])
     const r = await runSync({ dir: B.dir, remoteBranch: RB })
@@ -222,7 +225,8 @@ test('PROVENANCE 身份不匹配 → 退出码 3（拒绝合并）', { skip }, a
     const r = await runSync({ dir: B.dir, remoteBranch: RB })
     assert.equal(r.ok, false)
     assert.equal(r.code, 3)
-    assert.match(r.message, /身份不匹配/)
+    // 严格化后的消息（Codex P0-1）：本地/远端身份不一致一律拒绝
+    assert.match(r.message, /身份/)
   } finally {
     clean(root)
   }

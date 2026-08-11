@@ -12,7 +12,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -157,8 +157,10 @@ test('迁移：同名冲突保留双份 + logs/ 子目录递归移动', { skip }
     assert.equal(boot.migratedConflicts, 1, '同名 KEY.md 应备份双份')
     // 新 KEY 保留（目标版本不动）
     assert.ok(readFileSync(join(dir, 'KEY.md'), 'utf8').includes('新 KEY'))
-    // 旧 KEY 备份保留（.pre-migrate 后缀）
-    assert.ok(readFileSync(join(dir, 'KEY.md.pre-migrate'), 'utf8').includes('旧 KEY'), '旧 KEY 应备份为 .pre-migrate')
+    // 旧 KEY 备份保留（.pre-migrate.<时间戳> 后缀——二次迁移不覆盖备份）
+    const backups = readdirSync(dir).filter((n) => n.startsWith('KEY.md.pre-migrate'))
+    assert.ok(backups.length === 1, '应有且仅有一份 .pre-migrate 备份')
+    assert.ok(readFileSync(join(dir, backups[0]), 'utf8').includes('旧 KEY'), '旧 KEY 应备份为 .pre-migrate')
     // logs/ 子目录递归移动
     assert.ok(readFileSync(join(dir, 'logs', '2026-08-09.md'), 'utf8').includes('旧日志'), 'logs/ 子目录应递归迁移')
     // TODOS.md 也在（白名单外文件原样移动）

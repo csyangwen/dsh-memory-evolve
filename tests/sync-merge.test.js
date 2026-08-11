@@ -90,7 +90,7 @@ test('双侧改不同：content 冲突进人工（不落盘、输出无该条）
   const r = mergeEntries(base, ours, theirs)
   assert.equal(r.conflicts.length, 1)
   const c = r.conflicts[0]
-  assert.equal(c.entryKey, 'a0000000')
+  assert.equal(c.entryKey, 'm:a0000000')
   assert.equal(c.file, KEY)
   assert.equal(c.base, E('a', '旧内容'))
   assert.equal(c.ours, E('a', '本机版本'))

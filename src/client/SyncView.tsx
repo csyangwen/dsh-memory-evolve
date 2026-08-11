@@ -4,7 +4,7 @@
  * 把 /memory_sync 命令组的全部能力 UI 化（2026-08-11 用户拍板：本模块其他
  * 功能都少用指令了，同步也应有独立 Tab）：
  *   - 状态卡片：项目身份 / 远端分支 / 未提交 / 落后 / 冲突数 / 迁移提示
- *   - 操作：启用开关、初始化（模式 A 一键 / 模式 B 填私有仓库地址）、
+ *   - 操作：启用开关、开始同步（用代码仓库一键 / 填共享记忆仓库地址）、
  *     同步、同步并推送（**点击即用户显式同意推送**，需求 #12）、停用
  *   - 冲突列表：每条三版本摘要 + 采用本机 / 采用远端 / 两者都要
  *   - 结果反馈 notice（成功/失败如实呈现）
@@ -75,7 +75,8 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const [conflicts, setConflicts] = useState<ConflictItem[]>([])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
-  const [modeBUrl, setModeBUrl] = useState('')
+  // 共享记忆仓库地址输入（可选；留空 = 用主代码仓库）
+  const [remoteUrl, setRemoteUrl] = useState('')
   const [initialized, setInitialized] = useState(false) // status 首次加载完成标记
 
   /** 拉取状态 + 冲突列表。 */
@@ -180,7 +181,7 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                   {t('syncTab.status.identity', { name: status?.identity?.displayName ?? '?', kind: status?.identity?.kind === 'remote' ? t('syncTab.status.remote') : t('syncTab.status.local') })}
                   <br />
                   {/* 记忆远端：主代码仓库（默认）或共享记忆仓库（用户指定） */}
-                  {t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : t('syncTab.status.remoteKindShared') })}
+                  {t('syncTab.status.remoteKind', { kind: status?.remoteKind === 'main-repo' ? t('syncTab.status.remoteKindMain') : status?.remoteKind === 'shared-repo' ? t('syncTab.status.remoteKindShared') : t('syncTab.status.remoteKindNone') })}
                   <br />
                   {t('syncTab.status.branch', { branch: status?.remoteBranch ?? '?' })}
                   <br />
@@ -224,14 +225,14 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                         type="text"
                         className="me-input"
                         placeholder={t('syncTab.actions.setupShared.placeholder')}
-                        value={modeBUrl}
-                        onChange={(event) => setModeBUrl(event.target.value)}
+                        value={remoteUrl}
+                        onChange={(event) => setRemoteUrl(event.target.value)}
                       />
                       <button
                         type="button"
                         className="me-btn"
-                        disabled={busy || modeBUrl.trim() === ''}
-                        onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: modeBUrl.trim() }) })) }}
+                        disabled={busy || remoteUrl.trim() === ''}
+                        onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
                       >
                         {t('syncTab.actions.setupShared')}
                       </button>
