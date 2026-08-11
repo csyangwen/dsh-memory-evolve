@@ -272,25 +272,6 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                     <button type="button" className="me-btn me-btn-primary" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
                       {t('syncTab.actions.setupDefault')}
                     </button>
-                    {/* 可选：填共享记忆仓库地址（一个仓库装所有项目的记忆） */}
-                    <span className="bb-actions-inline">
-                      <em className="bb-meta">{t('syncTab.actions.setupShared.hint')}</em>
-                      <input
-                        type="text"
-                        className="me-input"
-                        placeholder={t('syncTab.actions.setupShared.placeholder')}
-                        value={remoteUrl}
-                        onChange={(event) => setRemoteUrl(event.target.value)}
-                      />
-                      <button
-                        type="button"
-                        className="me-btn"
-                        disabled={busy || remoteUrl.trim() === ''}
-                        onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
-                      >
-                        {t('syncTab.actions.setupShared')}
-                      </button>
-                    </span>
                   </>
                 )}
                 {status?.initialized === true && (
@@ -306,6 +287,32 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
                 <button type="button" className="me-btn me-btn-danger" disabled={busy} onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/off', { method: 'POST', body: JSON.stringify({ sessionId }) })) }}>
                   {t('syncTab.actions.off')}
                 </button>
+              </div>
+              {/* 共享记忆仓库地址输入（**任何状态下都显示**——未初始化 = 初始化到
+                  指定仓库；已初始化 = 切换记忆远端（换对账对象，本地记忆保留、
+                  旧分支留档）。2026-08-11 用户反馈修复：此前只在未初始化时显示，
+                  已启用 A 模式的项目没有切换入口） */}
+              <div className="bb-actions" style={{ marginTop: '8px' }}>
+                <em className="bb-meta">
+                  {status?.initialized === true ? t('syncTab.actions.switchShared.hint') : t('syncTab.actions.setupShared.hint')}
+                </em>
+                <span className="bb-actions-inline">
+                  <input
+                    type="text"
+                    className="me-input"
+                    placeholder={t('syncTab.actions.setupShared.placeholder')}
+                    value={remoteUrl}
+                    onChange={(event) => setRemoteUrl(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="me-btn"
+                    disabled={busy || remoteUrl.trim() === ''}
+                    onClick={() => { void run(() => api<{ ok: boolean; text: string }>('/setup', { method: 'POST', body: JSON.stringify({ sessionId, url: remoteUrl.trim() }) })) }}
+                  >
+                    {status?.initialized === true ? t('syncTab.actions.switchShared') : t('syncTab.actions.setupShared')}
+                  </button>
+                </span>
               </div>
             </div>
           )}
