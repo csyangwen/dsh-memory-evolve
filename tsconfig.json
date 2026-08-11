@@ -37,9 +37,6 @@
       "@deepseek-ai/dsh-client-ui-primitives": [
         "/Users/edgar/.dsh/source/current/packages/client/ui-primitives/lib/types/index.d.ts"
       ],
-      "@deepseek-ai/dsh-client-ui-workspace/client": [
-        "/Users/edgar/.dsh/source/current/packages/client/ui-workspace/lib/types/client/index.d.ts"
-      ],
       "@deepseek-ai/dsh-client-web-react": [
         "/Users/edgar/.dsh/source/current/packages/client/web-react/lib/types/index.d.ts"
       ],

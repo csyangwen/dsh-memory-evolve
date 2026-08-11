@@ -38,10 +38,6 @@ import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { createContextMeterWarn } from './context-meter-warn.ts'
 import { createMermaidRenderer } from './mermaid-render.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
-// 目录选择器子模块（本机感知二合一 occupant + 官方 DirectoryBrowser 组件本地化）。
-import { SmartDirectoryFlow, type SmartDirectoryFlowInjected } from './directory-picker/DirectoryFlow.tsx'
-// Type-only: the directory-flow SlotMap rows live in ui-workspace's contract.
-import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
 import scratchStyles from './scratch-styles.css'
@@ -52,21 +48,10 @@ import uiSettingsStyles from './ui-settings-styles.css'
 import mermaidStyles from './mermaid-render.css'
 import bookmarkStyles from './bookmark-styles.css'
 import mobileCss from './mobile.css'
-import directoryBrowserStyles from './directory-picker/directory-browser.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
-
-// 目录选择器子模块用到 ctx.workspaces（pickDirectory/listDirectory/
-// createDirectory）。官方 runtime 的类型合并声明在 '@deepseek-ai/cordis'
-// 模块身份下（本项目 import 'cordis' vendor 类型，合并不生效），这里局部
-// 补声明（仅类型层，运行时无物）；slots/locale 的类型缺失是项目既有现状。
-declare module 'cordis' {
-  interface Context {
-    workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
-  }
-}
 
 /** Dictionary key set for the memory-evolve namespace. */
 export type MemoryEvolveKey = keyof typeof zh
@@ -363,22 +348,6 @@ export const zh = {
   'uiSettings.feature.contextWarn.hint': '输入框右下侧的上下文使用量圆环：占用超过 30% 变黄、超过 40% 变红提醒，低于阈值恢复原色',
   'uiSettings.feature.mermaidRender': 'Mermaid 图表渲染',
   'uiSettings.feature.mermaidRender.hint': '把消息里的 mermaid 代码块渲染成图表（DSH 界面本身不渲染 mermaid）；首次见到图时才加载渲染引擎，PC 与手机端同时生效，渲染失败自动退回代码块',
-  'uiSettings.feature.directoryPickerNative': '目录选择器原生框',
-  'uiSettings.feature.directoryPickerNative.hint': '在本机浏览器（localhost/127.x）访问时，「添加工作区」弹出系统原生文件夹选择框（macOS Finder 等）；关闭则一律用网页内文件夹浏览弹窗。手机/其他电脑远程访问不受此开关影响，始终用网页弹窗（远程浏览器看不到本机屏幕上的原生框）',
-  // 目录选择器弹窗文案（DirectoryBrowser 本地化，官方 browse 包同源）。
-  'browser.title': '选择工作区目录',
-  'browser.home': '主目录',
-  'browser.newFolder': '新建文件夹',
-  'browser.folderName': '文件夹名称',
-  'browser.createIn': '在"{name}"中新建文件夹',
-  'browser.untitledFolder': '未命名文件夹',
-  'browser.create': '创建',
-  'browser.cancel': '取消',
-  'browser.open': '打开',
-  'browser.editPath': '编辑路径',
-  'browser.loading': '加载中…',
-  'browser.truncated': '文件夹过多，仅显示开头部分。',
-  'browser.showHidden': '显示隐藏文件',
   // 筛选条按钮文案（session-filter.ts 注入 DOM 用）。
   'uiSettings.filter.on': '仅进行中',
   'uiSettings.filter.off': '全部',
@@ -1103,22 +1072,6 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettings.feature.contextWarn.hint': 'The context-usage ring beside the input box turns yellow above 30% occupancy and red above 40%; back to its default color below the threshold',
   'uiSettings.feature.mermaidRender': 'Mermaid diagram rendering',
   'uiSettings.feature.mermaidRender.hint': 'Render mermaid code blocks in messages as diagrams (DSH itself does not render mermaid); the engine loads lazily on first diagram, works on PC and mobile alike, and falls back to the code block on failure',
-  'uiSettings.feature.directoryPickerNative': 'Native directory picker',
-  'uiSettings.feature.directoryPickerNative.hint': 'Use the OS native folder picker (macOS Finder etc.) for "Add workspace" when browsing on this machine (localhost/127.x); off = always the in-app folder browser dialog. Remote access (phone / other computers) always uses the in-app dialog regardless of this switch (a remote browser cannot see the native dialog on this machine\'s screen)',
-  // Directory-browser dialog copy (DirectoryBrowser localization, same source as the official browse package).
-  'browser.title': 'Select Workspace Directory',
-  'browser.home': 'Home',
-  'browser.newFolder': 'New folder',
-  'browser.folderName': 'Folder name',
-  'browser.createIn': 'New folder in "{name}"',
-  'browser.untitledFolder': 'Untitled folder',
-  'browser.create': 'Create',
-  'browser.cancel': 'Cancel',
-  'browser.open': 'Open',
-  'browser.editPath': 'Edit path',
-  'browser.loading': 'Loading…',
-  'browser.truncated': 'Too many folders to list; only the beginning is shown.',
-  'browser.showHidden': 'Show hidden files',
   // Filter-bar button labels (consumed by session-filter.ts injected DOM).
   'uiSettings.filter.on': 'Running only',
   'uiSettings.filter.off': 'All',
@@ -1606,7 +1559,7 @@ export const dshMobile = {
   enhance: createInputSheetEnhance,
 }
 
-export const inject = ['slots', 'locale', 'conversation', 'workspaces']
+export const inject = ['slots', 'locale', 'conversation']
 
 /**
  * Client plugin body: register the session memory tab when the host switch
@@ -1733,48 +1686,6 @@ export function apply(ctx: Context): void {
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'memory-evolve: bookmark stylesheet')
-
-  // 目录选择器样式（dp- 前缀，独立注入）：官方 DirectoryBrowser 弹窗样式
-  // （本地化副本）。样式常驻无副作用；交互由下方 directoryFlow 槽注册提供。
-  ctx.effect(() => {
-    if (typeof document === 'undefined') return () => {}
-    const existing = document.querySelector('style[data-directory-browser-css]')
-    if (existing !== null) return () => {}
-    const tag = document.createElement('style')
-    tag.dataset.directoryBrowserCss = '1'
-    tag.textContent = directoryBrowserStyles
-    document.head.appendChild(tag)
-    return () => { tag.remove() }
-  }, 'memory-evolve: directory browser stylesheet')
-
-  // 目录选择器（directoryFlow 双槽）：本机感知二合一 occupant。
-  // 前置条件：cordis.patch.yml 里官方 directory-picker（auto）行被 disabled，
-  // 本 occupant 成为这两个 single 槽的唯一 occupant（官方 browse/native 包
-  // 不再 mount）。目录能力（pickDirectory/listDirectory/createDirectory）来自
-  // bundle 自带的 dsh-workspace 服务，与官方 picker 后端包无关，始终可用。
-  // 开关语义：设置 Tab「综合」小开关 directoryPickerNative（localStorage，
-  // occupant 每次 open 实时读取）——开=本机(loopback)弹系统原生框；
-  // 关/远程=网页内浏览弹窗（等价官方 browse 行为）。
-  const directoryPickerInjected = (): SmartDirectoryFlowInjected => ({
-    pick: () => ctx.workspaces.pickDirectory(),
-    listDirectory: (path, signal) => ctx.workspaces.listDirectory(path, signal),
-    createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
-    t: (key) => t(key),
-  })
-  // 两个 hole 的注册是一次事务（照抄官方 browse 包的嵌套 inject 范式：
-  // 任一 hole 未声明则整体等待，避免 single 槽注册进未声明槽抛错）。
-  ctx.effect(() => {
-    const dispose = ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
-      ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
-        yield ctx.slots.register({
-          name: 'conversation.hero.workspace.directoryFlow', inject: directoryPickerInjected,
-        }, SmartDirectoryFlow)
-        yield ctx.slots.register({
-          name: 'sidebar.workspaces.directoryFlow', inject: directoryPickerInjected,
-        }, SmartDirectoryFlow)
-      }))
-    return () => { dispose() }
-  }, 'memory-evolve: directory flow')
 
   // 会话页顶部 Tab 顺序（2026-08-11 用户拍板：记忆 技能 待办 COI调度 会话广播
   // 提示词 临时信息 记忆同步 模型设置 书签 Web UI设置 Memory Evolve设置；order

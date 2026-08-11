@@ -24,13 +24,6 @@ export interface UiSettingsFeatures {
   contextWarn: boolean
   /** Mermaid 图表渲染：消息里的 ```mermaid 代码块渲染为 SVG 图表（关=保持代码块）。 */
   mermaidRender: boolean
-  /**
-   * 目录选择器原生框：本机（localhost/127.x）访问时「添加工作区」弹系统
-   * 原生文件夹选择框（macOS Finder 等）；关=一律网页内浏览弹窗（等价 DSH
-   * 官方 browse 行为）。远程访问（手机/其他电脑经 IP/域名）不受影响，始终
-   * 网页弹窗。详见 src/client/directory-picker/DirectoryFlow.tsx。
-   */
-  directoryPickerNative: boolean
 }
 
 /** localStorage 键。 */
@@ -40,10 +33,7 @@ const FEATURES_KEY = 'dsh-memory-evolve:ui-settings:features'
 export const FEATURES_EVENT = 'dsh-memory-evolve:ui-settings-features'
 
 /** 默认值：全部功能默认关闭（用户拍板：由用户主动开启）。 */
-const DEFAULTS: UiSettingsFeatures = {
-  sessionFilter: false, wideChat: false, wideBubble: false, contextWarn: false,
-  mermaidRender: false, directoryPickerNative: false,
-}
+const DEFAULTS: UiSettingsFeatures = { sessionFilter: false, wideChat: false, wideBubble: false, contextWarn: false, mermaidRender: false }
 
 /** 读取功能开关（localStorage 异常/缺字段时回落默认）。 */
 export function readFeatures(): UiSettingsFeatures {
@@ -57,7 +47,6 @@ export function readFeatures(): UiSettingsFeatures {
         wideBubble: typeof parsed.wideBubble === 'boolean' ? parsed.wideBubble : DEFAULTS.wideBubble,
         contextWarn: typeof parsed.contextWarn === 'boolean' ? parsed.contextWarn : DEFAULTS.contextWarn,
         mermaidRender: typeof parsed.mermaidRender === 'boolean' ? parsed.mermaidRender : DEFAULTS.mermaidRender,
-        directoryPickerNative: typeof parsed.directoryPickerNative === 'boolean' ? parsed.directoryPickerNative : DEFAULTS.directoryPickerNative,
       }
     }
   } catch { /* 回落默认 */ }
