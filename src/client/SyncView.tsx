@@ -113,16 +113,6 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
     }
   }
 
-  /** 启用开关（调 /api/config 持久化，与设置面板同机制）。 */
-  const setEnabled = async (enabled: boolean): Promise<void> => {
-    await fetch('/memory-evolve/api/config', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ patch: { syncEnabled: enabled } }),
-    })
-    void refresh()
-  }
-
   return (
     <div className="mt-panel">
       {!initialized ? (
@@ -135,22 +125,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
             </div>
           )}
 
-          {/* ── 启用开关 ── */}
-          <label className="me-field">
-            <span className="me-field-label">
-              {t('syncTab.enabled')}
-              <em className="me-field-hint">{t('syncTab.enabled.hint')}</em>
-            </span>
-            <input
-              type="checkbox"
-              className="me-switch"
-              checked={status?.enabled === true}
-              onChange={(event) => { void setEnabled(event.target.checked) }}
-            />
-          </label>
-
           {/* ── 项目级同步开关（三层开关第 2 层）：默认关——不启用 = 维持
-              未开发本模块前的纯本地状态（不建仓库、不生成身份证）── */}
+              未开发本模块前的纯本地状态（不建仓库、不生成身份证）。
+              模块开关（第 1 层）在「Memory Evolve 设置 → 配置」里，本 Tab
+              不重复（2026-08-11 用户拍板）── */}
           <label className="me-field">
             <span className="me-field-label">
               {t('syncTab.projectEnabled')}
