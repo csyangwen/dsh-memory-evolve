@@ -51,10 +51,14 @@ async function bootSkillsManager(overrides = {}) {
   // issue #4：记录最近一次 skills.list 收到的 cwd，用于断言服务端把解析出的
   // 会话工作目录真正传给了技能扫描（列表/浏览/读/写共用）。
   let lastListCwd = null
+  // issue #6：记录最近一次 skills.list 收到的 scope（preset 视图 scope），
+  // 用于断言 260810 快照分层后管理界面确实按 preset scope 查询目录。
+  let lastListScope = undefined
 
   const skillsService = {
     list: async (opts) => {
       lastListCwd = opts?.cwd ?? null
+      lastListScope = opts?.scope
       return [...catalog.values()]
     },
     get: async (name) => catalog.get(name),
@@ -84,6 +88,16 @@ async function bootSkillsManager(overrides = {}) {
 
   const ctx = {
     skills: skillsService,
+    // issue #6：agentPresets 服务（260810 快照起 skill-local 按 preset scope
+    // 分层，管理界面查询目录需带默认 preset 的 standing scope key）。
+    // overrides.agentPresets 可传 null 模拟「无该服务的旧环境」。
+    agentPresets: overrides.agentPresets === undefined
+      ? { standingKeyFor: async () => ({ agentPreset: 'standard' }) }
+      : overrides.agentPresets,
+    get(name) {
+      // 受限 ctx 的服务探测：未提供的服务返回 undefined（skills.js 同款模式）
+      return ctx[name]
+    },
     httpServer: {
       register: ({ handler }) => {
         ctx.handler = handler
@@ -122,6 +136,7 @@ async function bootSkillsManager(overrides = {}) {
   return {
     base, catalog, put, bravo, stateFile, changeListeners, providerCtl, request,
     lastListCwd: () => lastListCwd,
+    lastListScope: () => lastListScope,
     close: () => new Promise((resolve) => server.close(resolve)),
     cleanup: () => { rmSync(dir, { recursive: true, force: true }) },
   }
@@ -415,6 +430,49 @@ test('skills-manager: file browse/read stays root-scoped', async () => {
     // Unknown endpoint → 404.
     const unknown = await sm.request('GET', '/skills-manager/api/whatever')
     assert.equal(unknown.status, 404)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #6：260810 快照起 skill-local 注册在 agent preset 的 scope 层，无 scope
+// 的 skills.list() 只读 global 层 → 技能管理列表空白。修复=列表/浏览/读/写/
+// 禁用校验全部带默认 preset 的 standing scope key 查询目录。
+test('skills-manager: catalog queries carry the default preset scope (issue #6)', async () => {
+  const sm = await bootSkillsManager()
+  try {
+    // 1) 列表：list 收到默认 preset 的 scope key
+    const list = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list.status, 200)
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    // 2) browse/read/write 同样带 scope（三个接口共用 collectRoots）
+    await sm.request('GET', '/skills-manager/api/browse?root=%2Fany&path=')
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    await sm.request('GET', '/skills-manager/api/read?path=%2Fany')
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    await sm.request('PUT', '/skills-manager/api/write?path=%2Fany', 'x')
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    // 3) 禁用/启用路径的存在性校验同样带 scope（否则任何技能都 404）
+    const disable = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'alpha' })
+    assert.equal(disable.status, 200)
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// issue #6：无 agentPresets 服务的环境（旧快照/TUI）→ scope 回退 undefined，
+// 查询退化为无 scope（旧行为），接口仍正常返回。
+test('skills-manager: no agentPresets service falls back to scopeless queries', async () => {
+  const sm = await bootSkillsManager({ agentPresets: null })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list.status, 200)
+    assert.equal(sm.lastListScope(), undefined)
+    const disable = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'alpha' })
+    assert.equal(disable.status, 200)
   } finally {
     await sm.close()
     sm.cleanup()
