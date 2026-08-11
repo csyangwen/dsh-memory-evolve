@@ -31,6 +31,7 @@ import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import { BookmarksView } from './BookmarksView.tsx'
+import { SyncView } from './SyncView.tsx'
 import { createBookmarkInjector } from './bookmark-injector.tsx'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
@@ -353,6 +354,35 @@ export const zh = {
   'uiSettings.running.label': '{count} 运行中',
   'uiSettings.ungrouped': '未分组',
   // 会话书签（独立子模块，bookmarkEnabled 默认关）：
+  'syncTab.label': '记忆同步',
+  'syncTab.loading': '加载中…',
+  'syncTab.loadFailed': '状态加载失败：{message}',
+  'syncTab.enabled': '启用项目记忆同步',
+  'syncTab.enabled.hint': '启用后本项目的 KEY + 项目日志 + 归档可跨设备对账（Git）。默认关闭——不开的项目行为零变化；push 永远需你显式触发',
+  'syncTab.status.title': '同步状态',
+  'syncTab.status.disabled': '未启用——打开上方开关开始；或在会话里执行 /memory_sync setup',
+  'syncTab.status.notInit': '已启用，但当前项目尚未初始化——点下方「初始化」',
+  'syncTab.status.identity': '项目身份：{name}（{kind}）',
+  'syncTab.status.remote': '主仓库远端',
+  'syncTab.status.local': '本地回退',
+  'syncTab.status.branch': '远端分支：{branch}',
+  'syncTab.status.counts': '未提交 {uncommitted} 条 · 落后远端 {behind} 个提交 · 冲突 {conflicts} 条',
+  'syncTab.status.migrate': '发现旧记忆目录：{dir}——点「初始化」会自动迁移',
+  'syncTab.actions.title': '操作',
+  'syncTab.actions.setupA': '初始化（模式 A：复用主仓库）',
+  'syncTab.actions.setupB': '初始化私有仓库',
+  'syncTab.actions.setupB.placeholder': '私有记忆仓库地址（模式 B）',
+  'syncTab.actions.sync': '同步（拉取并合并）',
+  'syncTab.actions.push': '同步并推送（需你显式点击）',
+  'syncTab.actions.off': '停用同步',
+  'syncTab.conflicts.title': '待处理冲突（{count} 条——两台设备改了同一条记忆）',
+  'syncTab.conflicts.base': '共同版本',
+  'syncTab.conflicts.ours': '本机版本',
+  'syncTab.conflicts.theirs': '远端版本',
+  'syncTab.conflicts.oursBtn': '采用本机',
+  'syncTab.conflicts.theirsBtn': '采用远端',
+  'syncTab.conflicts.bothBtn': '两者都要',
+  'syncTab.footnote': '写记忆照常实时落盘（完全不碰 Git）；同步是攒一批合一次。冲突标记永不落盘，解决后自动提交。',
   'bookmarkTab.label': '书签',
   'bookmark.tab.list': '列表',
   'bookmark.tab.guide': '指南',
@@ -1017,6 +1047,35 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettings.running.label': '{count} running',
   'uiSettings.ungrouped': 'Ungrouped',
   // Session bookmarks (independent submodule, bookmarkEnabled off by default):
+  'syncTab.label': 'Memory Sync',
+  'syncTab.loading': 'Loading…',
+  'syncTab.loadFailed': 'Failed to load status: {message}',
+  'syncTab.enabled': 'Enable project memory sync',
+  'syncTab.enabled.hint': 'When enabled, this project\'s KEY + project log + archive can sync across devices via Git. Off by default — off projects behave byte-identical; push always requires your explicit trigger',
+  'syncTab.status.title': 'Sync status',
+  'syncTab.status.disabled': 'Disabled — flip the switch above, or run /memory_sync setup in a session',
+  'syncTab.status.notInit': 'Enabled, but this project is not initialized yet — click "Initialize" below',
+  'syncTab.status.identity': 'Project: {name} ({kind})',
+  'syncTab.status.remote': 'main-repo remote',
+  'syncTab.status.local': 'local fallback',
+  'syncTab.status.branch': 'Remote branch: {branch}',
+  'syncTab.status.counts': '{uncommitted} uncommitted · {behind} behind · {conflicts} conflicts',
+  'syncTab.status.migrate': 'Legacy memory dir found: {dir} — "Initialize" will migrate it',
+  'syncTab.actions.title': 'Actions',
+  'syncTab.actions.setupA': 'Initialize (mode A: reuse main repo)',
+  'syncTab.actions.setupB': 'Initialize private repo',
+  'syncTab.actions.setupB.placeholder': 'Private memory repo URL (mode B)',
+  'syncTab.actions.sync': 'Sync (fetch & merge)',
+  'syncTab.actions.push': 'Sync & push (explicit click = consent)',
+  'syncTab.actions.off': 'Disable sync',
+  'syncTab.conflicts.title': 'Conflicts ({count} — both devices edited the same entry)',
+  'syncTab.conflicts.base': 'Base',
+  'syncTab.conflicts.ours': 'Ours',
+  'syncTab.conflicts.theirs': 'Theirs',
+  'syncTab.conflicts.oursBtn': 'Use ours',
+  'syncTab.conflicts.theirsBtn': 'Use theirs',
+  'syncTab.conflicts.bothBtn': 'Keep both',
+  'syncTab.footnote': 'Writing memory stays real-time local (no Git touched); sync batches up. Conflict markers never hit disk; resolving auto-commits.',
   'bookmarkTab.label': 'Bookmarks',
   'bookmark.tab.list': 'List',
   'bookmark.tab.guide': 'Guide',
@@ -1636,6 +1695,19 @@ export function apply(ctx: Context): void {
         label: () => t('modelsTab.label'),
       }, (props) => ModelsTabView({ ...props, t })))
   }
+  // 记忆同步 Tab（order 24，模型配置之后）：跟随 syncEnabled 运行时开关
+  // （与 models/scratch 同款：开启后刷新页面出现，关闭时完全不可见）。
+  let disposeSyncTab: (() => void) | undefined
+  const registerSyncTab = (): void => {
+    disposeSyncTab?.()
+    disposeSyncTab = ctx.slots.inject('conversation.view', () =>
+      ctx.slots.register({
+        name: 'conversation.view',
+        id: 'memory-sync-hub',
+        order: 24,
+        label: () => t('syncTab.label'),
+      }, (props) => SyncView({ ...props, t })))
+  }
   const pollBadge = (): void => {
     // 三个 tab 未注册前不轮询（registerMemoryTab 是探测成功的标志）。
     if (tabCancelled || disposeMemoryTab === undefined) return
@@ -1668,6 +1740,11 @@ export function apply(ctx: Context): void {
       // 同款独立开关，在「设置」Tab 的「配置」里切换；开启后刷新页面出现）。
       if (!tabCancelled && data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
         registerModelsTab()
+      }
+      // 记忆同步 tab：跟随 syncEnabled 运行时开关（默认关，设置面板/命令
+      // setup 打开后刷新页面出现）
+      if (!tabCancelled && data.config?.syncEnabled === true && disposeSyncTab === undefined) {
+        registerSyncTab()
       }
       // 临时信息 tab：受 scratchEnabled 运行时开关控制（默认关闭，与
       // COI/提示词一致）。开关在「Memory Evolve 设置」Tab 的「配置」里切换，
