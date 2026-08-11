@@ -556,3 +556,124 @@
   font-size: 12px;
   color: var(--dsw-alias-label-dimmed, #999);
 }
+
+/* ---- 记忆同步 Tab（SyncView）专属样式（sv- 前缀，2026-08-11 用户拍板
+     布局与观感：三分区卡片化、开关与单选行清晰、状态信息易读）---- */
+.sv-section {
+  background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.04));
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.sv-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sv-section-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--dsw-alias-brand-primary, #4a90d9);
+  flex-shrink: 0;
+}
+
+/* 开关行（本项目同步 / 全局轨）：与 me-field 结合，卡片内间距统一 */
+.sv-section .me-field {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--dsw-alias-border-l2);
+}
+
+.sv-section .me-field:last-child {
+  border-bottom: none;
+}
+
+/* 单选行（A/B 模式） */
+.sv-radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.sv-radio-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.06));
+}
+
+.sv-radio-row.sv-radio-active {
+  border-color: var(--dsw-alias-brand-primary, #4a90d9);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(74, 144, 217, 0.08));
+}
+
+.sv-radio-row input[type='radio'] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.sv-radio-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  display: block;
+}
+
+.sv-radio-desc {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-dimmed);
+  display: block;
+  margin-top: 2px;
+}
+
+/* 状态信息行 */
+.sv-status {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--dsw-alias-label-secondary);
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-base, rgba(0, 0, 0, 0.02));
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.sv-status strong {
+  color: var(--dsw-alias-label-primary);
+}
+
+.sv-status .sv-status-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* 当前模式徽标 */
+.sv-current-badge {
+  font-size: 11px;
+  color: var(--dsw-alias-brand-primary, #4a90d9);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+/* 操作按钮行 */
+.sv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
