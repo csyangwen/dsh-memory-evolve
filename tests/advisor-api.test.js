@@ -481,6 +481,38 @@ test('2026-08-12 用户反馈：角色分离——固定前缀不可被自定义
   assert.equal(rig.agents.get('session-1').injects.length, 0)
 })
 
+test('2026-08-13 用户反馈：新建评审会话清空实时流（live ring），旧记录保留在记录 Tab', async (t) => {
+  const rig = rigFor(t)
+  const { agent } = setupSession(rig)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  // 第一轮评审已产生 live 事件（started + finished）
+  const before = rig.ctrl.queryEvents('session-1', undefined, 0)
+  assert.ok(before.events.length >= 2)
+  // reset（runtime 存在）
+  const result = rig.ctrl.resetConversation('session-1')
+  assert.ok(result !== null)
+  assert.ok(result.epoch >= 2)
+  // 实时流已清空：after=0 全量查询无事件（旧事件不再出现在实时列表）
+  const after = rig.ctrl.queryEvents('session-1', undefined, 0)
+  assert.equal(after.events.length, 0)
+  // 旧评审记录保留在 records.jsonl（「记录」Tab 可查，不丢）
+  const records = rig.ctrl.queryRecords({ sessionId: 'session-1' })
+  assert.equal(records.records.length, 1)
+  assert.equal(records.records[0].outcome, 'delivered')
+  // reset 后新评审事件照常进 ring（会话仍活跃）
+  rig.llm.replies = ['{"note":"第二轮建议","severity":"nit"}']
+  const session = rig.agents.get('session-1').session
+  const event = (type, data, surfaceOp) => ({ type, seq: nextSeq(), data, surfaceOp })
+  feed(rig, session, event('user/message', { id: 'm3', role: 'user', content: [{ type: 'text', text: '再来一轮' }], source: { kind: 'user' } }, 'append'))
+  feed(rig, session, event('step/start', { turn: 2 }))
+  feed(rig, session, event('assistant/message', { message: { id: 'm4', role: 'assistant', content: [{ type: 'text', text: '好的' }], source: { kind: 'model' } } }, 'append'))
+  feed(rig, session, event('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const after2 = rig.ctrl.queryEvents('session-1', undefined, 0)
+  assert.ok(after2.events.length >= 2, 'reset 后的新评审事件重新出现在实时流')
+  assert.ok(agent.steers.length >= 2)
+})
+
 test('四层级约束：GET/PUT /scopes + 拼接注入 + 评审会话约束随 reset 清空', async (t) => {
   const rig = rigFor(t)
   setupSession(rig)

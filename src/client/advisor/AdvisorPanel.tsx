@@ -118,7 +118,10 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const [expanded, setExpanded] = useState(() => (
     typeof window === 'undefined' ? false : !window.matchMedia('(max-width: 767px)').matches
   ))
-  const userToggled = useRef(false)
+  // 2026-08-13 用户反馈：用户是否手动操作过面板（打开/收起）——未启用
+  // 评审的会话刷新后默认不主动显示（面板收起、无悬浮胶囊）；用户手动
+  // 点头部 toggle 后视为"点出来"，胶囊恢复显示
+  const [userToggled, setUserToggled] = useState(false)
   const preferredExpanded = useRef(true)
   const manuallyExpanded = useRef(false)
 
@@ -126,18 +129,28 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     ?? snapshot.status?.panelEnabled
     ?? true
 
+  const enabled = snapshot.status?.effectiveEnabled ?? false
+
   // 配置明确关闭面板时，首次加载自动收起；用户从 header 主动打开后仍可进入
   // 设置区恢复开关，避免“关闭后再也打不开”的死路。
   useEffect(() => {
-    if (!panelEnabled && !userToggled.current) setExpanded(false)
-  }, [panelEnabled])
+    if (!panelEnabled && !userToggled) setExpanded(false)
+  }, [panelEnabled, userToggled])
+
+  // 2026-08-13 用户反馈：**本会话未启用评审时刷新页面不主动显示**——
+  // status 同步后若 effectiveEnabled=false 且用户未手动操作过，自动收起
+  // 面板（悬浮胶囊同样隐藏，见下方 portal 渲染条件）；用户手动点开后
+  // 尊重用户选择，不再自动收起
+  useEffect(() => {
+    if (!enabled && !userToggled) setExpanded(false)
+  }, [enabled, userToggled])
 
   // 窄屏自动收起仅是临时布局覆盖；返回桌面时恢复用户最后一次明确偏好。
   // 用户当前明确偏好展开时，后续进入窄屏不再强制折叠。
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 767px)')
     const onMediaChange = (event: MediaQueryListEvent): void => {
-      if (!panelEnabled && !userToggled.current) {
+      if (!panelEnabled && !userToggled) {
         setExpanded(false)
         return
       }
@@ -158,7 +171,7 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   }, [expanded, store])
 
   const toggle = (): void => {
-    userToggled.current = true
+    setUserToggled(true)
     setExpanded((value) => {
       const next = !value
       preferredExpanded.current = next
@@ -169,7 +182,6 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
 
   // 2026-08-12 用户反馈：悬浮按钮图标颜色反映评审状态——
   // disabled（灰）/ idle（绿）/ reviewing（蓝呼吸）/ quota·halted（橙红）
-  const enabled = snapshot.status?.effectiveEnabled ?? false
   const runtimeStatus = snapshot.status?.runtimeStatus ?? 'disabled'
   const capsuleStateClass = !enabled ? 'advisor-capsule-disabled'
     : runtimeStatus === 'reviewing' ? 'advisor-capsule-reviewing'
@@ -183,7 +195,10 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const portal = typeof document === 'undefined' ? null : createPortal(
     expanded ? (
       <AdvisorPanel store={store} snapshot={snapshot} onCollapse={toggle} />
-    ) : panelEnabled ? (
+    ) : panelEnabled && (enabled || userToggled) ? (
+      // 2026-08-13 用户反馈：悬浮胶囊默认不主动显示——本会话未启用评审
+      // 且用户未手动操作过时隐藏（页面干净）；用户点头部 toggle 点开过
+      // 面板（userToggled）或会话启用评审后，胶囊正常显示便于快速重开
       <button
         type="button"
         className={`advisor-capsule ${capsuleStateClass}`}

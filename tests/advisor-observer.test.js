@@ -329,7 +329,7 @@ test('Q3 重构：entries 携带角色成对标签（<用户对Agent说>/<Agent�
   for (const event of events) feed('s1', event)
   const d0 = calls.deltas[0].delta
   assert.ok(d0.entries.some((e) => e.text.includes('<用户对Agent说>\n第一题\n</用户对Agent说>')))
-  assert.ok(d0.entries.some((e) => e.text.includes('<Agent对用户说>\n第一答\n</Agent对用户说>')))
+  assert.ok(d0.entries.some((e) => e.text.includes('<Agent对用户说>\n第一答\n[tool: read]\n</Agent对用户说>')), 'tool-call 一行按序插入')
   assert.ok(!d0.entries.some((e) => e.text.includes('tool result')))
 })
 

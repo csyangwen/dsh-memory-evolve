@@ -618,6 +618,11 @@ export class AdvisorSessionStore {
         instructionMutating: false,
         notice: { kind: 'ok', text: `已新建评审会话（#${data.epoch}）——可在第一条指令中告知评审员背景信息` },
       })
+      // 2026-08-13 用户反馈：新建评审会话后实时流应清空（旧评审活动属于
+      // 上一评审会话，已落盘 records.jsonl 在「记录」Tab 可查）——重置
+      // 游标从 after=0 重新同步，后端已清该会话 live ring，只会拉到新
+      // 评审会话的事件
+      this.resetCursorAndLive()
     } catch (error) {
       this.patch({
         instructionMutating: false,

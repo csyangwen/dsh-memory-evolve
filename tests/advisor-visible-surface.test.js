@@ -47,14 +47,15 @@ test('messageVisibleText：user 文本原样', () => {
   assert.deepEqual(r, { text: '帮我修这个 bug', imageCount: 0 })
 })
 
-test('messageVisibleText：assistant 只取 text，排除 reasoning/tool-call', () => {
+test('messageVisibleText：assistant 取 text，排除 reasoning，tool-call 按序插入', () => {
   const r = messageVisibleText(agentMsg('我先看看', [
     { type: 'reasoning', text: '思考过程不可见' },
     { type: 'tool-call', name: 'read', arguments: '{"path":"a"}' },
   ]))
-  assert.equal(r.text, '我先看看')
+  assert.equal(r.text, '我先看看\n[tool: read]')
   assert.equal(r.text.includes('思考过程'), false)
   assert.equal(r.text.includes('tool-call'), false)
+  assert.ok(!r.text.includes('{"path":"a"}'), '折叠参数内容不显示')
 })
 
 test('messageVisibleText：image 块 → 占位标记', () => {
@@ -68,8 +69,32 @@ test('messageVisibleText：image 块 → 占位标记', () => {
 
 test('messageVisibleText：无可见内容返回 null', () => {
   assert.equal(messageVisibleText(msg('assistant', [{ type: 'reasoning', text: 'x' }], { kind: 'model' })), null)
-  assert.equal(messageVisibleText(msg('assistant', [{ type: 'tool-call', name: 'x', arguments: '{}' }], { kind: 'model' })), null)
   assert.equal(messageVisibleText(msg('user', [text('x')], { kind: 'tool' })), null)
+})
+
+test('2026-08-13 用户反馈：tool-call 每个一行、按消息块原始顺序插入（不统一追加末尾）', () => {
+  // 只有 tool-call 没有文本 → 一行占位
+  const only = messageVisibleText(msg('assistant', [{ type: 'tool-call', name: 'read', arguments: '{"path":"x"}' }], { kind: 'model' }))
+  assert.equal(only.text, '[tool: read]')
+  // 连续多个 tool-call → 每个一行；arguments 内容不进表面
+  const mixed = messageVisibleText(msg('assistant', [
+    text('我查一下'),
+    { type: 'tool-call', name: 'grep', arguments: '{"pattern":"secret"}' },
+    { type: 'tool-call', name: 'read', arguments: '{}' },
+  ], { kind: 'model' }))
+  assert.equal(mixed.text, '我查一下\n[tool: grep]\n[tool: read]')
+  assert.ok(!mixed.text.includes('secret'), '折叠参数内容不显示')
+  // 交错顺序：文本 → tool → 文本 → tool，占位按块顺序插入（不是末尾追加）
+  const interleaved = messageVisibleText(msg('assistant', [
+    text('先查一下'),
+    { type: 'tool-call', name: 'memory', arguments: '{"action":"add"}' },
+    text('查到了，再算一下'),
+    { type: 'tool-call', name: 'bash', arguments: '{}' },
+    text('完成'),
+  ], { kind: 'model' }))
+  assert.equal(interleaved.text, '先查一下\n[tool: memory]\n查到了，再算一下\n[tool: bash]\n完成')
+  // tool-result 仍不可见
+  assert.equal(messageVisibleText(msg('assistant', [{ type: 'tool-result', text: 'x' }], { kind: 'model' })), null)
 })
 
 test('renderVisibleSurface：角色标注 markdown + 计数', () => {
@@ -89,6 +114,7 @@ test('renderVisibleSurface：过滤不可见消息（工具结果/思考/自消�
     msg('user', [text('[advisor:concern] x')], { kind: ADVISOR_SOURCE_KIND }),
   ])
   assert.equal(r.messageCount, 2)
+  assert.ok(r.markdown.includes('[tool: read]'), 'Agent 用过的工具显示一行占位')
   assert.ok(!r.markdown.includes('tool result'))
   assert.ok(!r.markdown.includes('[advisor:'))
 })
