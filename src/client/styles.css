@@ -72,7 +72,7 @@
   border: 1px solid color-mix(in srgb, #b8860b 40%, transparent);
 }
 .me-notice-warn::before {
-  background: #b8860b;
+  background: var(--dsw-alias-state-warning-primary, #b8860b);
 }
 
 /* ---------- Section cards ---------- */
@@ -2101,4 +2101,10 @@
 .mt-models-editor-hint {
   font-size: 11px;
   color: var(--dsw-alias-label-dimmed);
+}
+
+/* 版本检测「发布说明」：保留换行（tag 附注多行展示，CodeX 复审 P1-8）。 */
+.me-notes-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
 }

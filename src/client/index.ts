@@ -254,8 +254,46 @@ export const zh = {
   'promptTab.label': '提示词',
   'promptTab.label.active': '🔴 提示词 ({count})',
   'settingsTab.label': 'Memory Evolve 设置',
+  'settingsTab.label.pending': '🔴 Memory Evolve 设置',
   'settingsTab.feature.guide': '指南',
   'settingsTab.feature.config': '配置',
+  'settingsTab.feature.version': '版本',
+  // —— 版本检测与更新（一期）——
+  'version.current': '当前版本',
+  'version.latest': '最新版本',
+  'version.statusLabel': '状态',
+  'version.status.latest': '已是最新',
+  'version.status.outdated': '有新版本',
+  'version.status.no-release': '暂无发布版本',
+  'version.status.unsupported': '不支持自动检测',
+  'version.status.unknown': '未知',
+  'version.loading': '检查中…',
+  'version.lastError': '上次检测失败',
+  'version.checkTime': '上次检查',
+  'version.checking': '检查中…',
+  'version.checkNow': '检查更新',
+  'version.updating': '更新中…',
+  'version.updateNow': '更新到 {tag}',
+  'version.restart.title': '等待重启',
+  'version.restart.hint': '新版本代码已写入磁盘，请先重启 dsh web，再刷新浏览器（仅刷新页面不会加载新代码）。',
+  'version.releaseNotes': '发布说明',
+  'version.unsupported.hint': '当前安装方式不支持自动检测（需要 git clone 安装）。请用 `git clone git@github.com:dsh-external/dsh-memory-evolve.git` 重新安装后使用。',
+  // 状态说明码（服务端只下发 noteCode，文案在前端映射，CodeX 复审 P2-4）。
+  'version.note.no-release': '远端仓库暂无发布版本（v0.x.y tag）。',
+  'version.note.outdated': '检测到新版本，可在下方点击更新（更新需重启 dsh web 生效）。',
+  'version.note.latest-exact': '本地已是最新发布版本。',
+  'version.note.latest-contained': '本地已包含发布版本（开发轨领先或已同步）。',
+  'version.note.unsupported': '插件目录不是 git 仓库或 git 不可用。',
+  // 更新/检测错误码文案（CodeX 复审 P1-5/P2-4：错误统一字典映射）。
+  'version.error.bad-request': '请求参数错误：{message}',
+  'version.error.dirty': '更新被拒绝：{message}',
+  'version.error.busy': '更新被拒绝：{message}',
+  'version.error.target-changed': '目标版本已变化：{message}',
+  'version.error.untrusted': '更新被拒绝：{message}',
+  'version.error.unsupported': '不支持自动检测：{message}',
+  'version.error.error': '更新失败：{message}',
+  'version.error.network': '网络请求失败：{message}',
+  'version.error.unknown': '未知错误',
   'memoryTab.feature.guide': '指南',
   'memoryTab.feature.suggestions': '待确认记忆建议',
   'skillsTab.feature.guide': '指南',
@@ -980,8 +1018,46 @@ export const en: Record<MemoryEvolveKey, string> = {
   'promptTab.label': 'Prompts',
   'promptTab.label.active': '🔴 Prompts ({count})',
   'settingsTab.label': 'Memory Evolve Settings',
+  'settingsTab.label.pending': '🔴 Memory Evolve Settings',
   'settingsTab.feature.guide': 'Guide',
   'settingsTab.feature.config': 'Config',
+  'settingsTab.feature.version': 'Version',
+  // —— version check & update (phase 1) ——
+  'version.current': 'Current version',
+  'version.latest': 'Latest version',
+  'version.statusLabel': 'Status',
+  'version.status.latest': 'Up to date',
+  'version.status.outdated': 'Update available',
+  'version.status.no-release': 'No releases yet',
+  'version.status.unsupported': 'Auto-check unsupported',
+  'version.status.unknown': 'Unknown',
+  'version.loading': 'Checking…',
+  'version.lastError': 'Last check failed',
+  'version.checkTime': 'Last checked',
+  'version.checking': 'Checking…',
+  'version.checkNow': 'Check for updates',
+  'version.updating': 'Updating…',
+  'version.updateNow': 'Update to {tag}',
+  'version.restart.title': 'Restart required',
+  'version.restart.hint': 'New code is on disk. Restart dsh web first, then refresh the browser (a page refresh alone will not load the new code).',
+  'version.releaseNotes': 'Release notes',
+  'version.unsupported.hint': 'Auto-check requires a git clone install. Reinstall with `git clone git@github.com:dsh-external/dsh-memory-evolve.git` to enable it.',
+  // status note codes (server sends codes only; text lives here).
+  'version.note.no-release': 'No release tags (v0.x.y) on the remote yet.',
+  'version.note.outdated': 'A new version is available — update below (restart dsh web afterwards).',
+  'version.note.latest-exact': 'You are on the latest release.',
+  'version.note.latest-contained': 'Your checkout already contains the latest release (dev-track ahead or synced).',
+  'version.note.unsupported': 'Plugin dir is not a git repository or git is unavailable.',
+  // error codes (P1-5 / P2-4: dictionary-mapped errors).
+  'version.error.bad-request': 'Bad request: {message}',
+  'version.error.dirty': 'Update rejected: {message}',
+  'version.error.busy': 'Update rejected: {message}',
+  'version.error.target-changed': 'Target version changed: {message}',
+  'version.error.untrusted': 'Update rejected: {message}',
+  'version.error.unsupported': 'Auto-check unsupported: {message}',
+  'version.error.error': 'Update failed: {message}',
+  'version.error.network': 'Network request failed: {message}',
+  'version.error.unknown': 'Unknown error',
   'memoryTab.feature.guide': 'Guide',
   'memoryTab.feature.suggestions': 'Memory suggestions',
   'skillsTab.feature.guide': 'Guide',
@@ -1697,6 +1773,9 @@ export function apply(ctx: Context): void {
   // 待办=待办建议数），badge 变化时重新注册触发 label 重求值。
   let tabCancelled = false
   let memoryBadgeCount = 0
+  // 版本检测红点（0/1）：有新发布版本时设置 Tab label 显示 🔴。
+  // 与 count 类 badge 独立——由 /api/badge 的 update 字段驱动。
+  let updateBadgeCount = 0
   let skillsBadgeCount = 0
   let todosBadgeCount = 0
   let disposeMemoryTab: (() => void) | undefined
@@ -1733,8 +1812,9 @@ export function apply(ctx: Context): void {
         label: () => (todosBadgeCount > 0 ? t('todosTab.label.pending', { count: todosBadgeCount }) : t('todosTab.label')),
       }, (props) => TodosTabView({ ...props, t })))
   }
-  // 设置 Tab（Memory Evolve 设置，order 120 放最后）：整体指南 + 配置。
-  // 无红点计数，注册一次即可；跟随 memoryTabEnabled 开关（与核心三 tab 一致）。
+  // 设置 Tab（Memory Evolve 设置，order 120 放最后）：整体指南 + 配置 + 版本。
+  // 红点：检测到新发布版本时 label 变 🔴 变体（updateBadgeCount 驱动，重注册
+  // 生效；无红点时注册一次即可，badge 变化才重注册）。
   let disposeSettingsTab: (() => void) | undefined
   const registerSettingsTab = (): void => {
     disposeSettingsTab?.()
@@ -1743,7 +1823,7 @@ export function apply(ctx: Context): void {
         name: 'conversation.view',
         id: 'settings-hub',
         order: 120,
-        label: () => t('settingsTab.label'),
+        label: () => (updateBadgeCount > 0 ? t('settingsTab.label.pending') : t('settingsTab.label')),
       }, (props) => SettingsTabView({ ...props, t })))
   }
   // 模型设置 Tab（order 90，书签之后）：表格展示 DSH 供应商/模型 +
@@ -1780,10 +1860,16 @@ export function apply(ctx: Context): void {
     if (tabCancelled || disposeMemoryTab === undefined) return
     void fetch('/memory-evolve/api/badge')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data: { suggestions?: number; skills?: number; todoSuggestions?: number }) => {
+      .then((data: { suggestions?: number; skills?: number; todoSuggestions?: number; update?: number }) => {
         const suggestions = data.suggestions ?? 0
         const skills = data.skills ?? 0
         const todoSuggestions = data.todoSuggestions ?? 0
+        // 版本红点独立处理（不参与 count 语义；badge 只读缓存，绝不触发 git）。
+        const update = data.update ?? 0
+        if (update !== updateBadgeCount) {
+          updateBadgeCount = update
+          registerSettingsTab()
+        }
         if (suggestions !== memoryBadgeCount) {
           memoryBadgeCount = suggestions
           registerMemoryTab()
@@ -1838,6 +1924,20 @@ export function apply(ctx: Context): void {
       pollBadge()
       const timer = setInterval(pollBadge, BADGE_POLL_MS)
       ctx.effect(() => () => clearInterval(timer), 'memory-evolve: memory tab badge poller')
+      // 版本检测：进入 Web UI 时触发一次惰性检测（24h 缓存内不跑 git）。
+      // 完成后直接同步 updateBadgeCount + 重注册（等 30s 轮询太慢）；
+      // badge-change 监听也已注册，后续 VersionTabView 的操作会走事件通道。
+      void fetch('/memory-evolve/api/update/status')
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((data: { ok?: boolean; status?: string }) => {
+          if (tabCancelled) return
+          const hasUpdate = data?.status === 'outdated' ? 1 : 0
+          if (hasUpdate !== updateBadgeCount) {
+            updateBadgeCount = hasUpdate
+            registerSettingsTab()
+          }
+        })
+        .catch(() => { /* best-effort：检测失败保持无红点，版本子 Tab 可手动重试 */ })
       // The tab's own queue actions (approve/archive/reject skills too) fire
       // this event after a mutation — re-poll immediately so the red-dot
       // label updates without waiting for the next 30s poll.
