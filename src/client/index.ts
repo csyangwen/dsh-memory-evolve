@@ -27,6 +27,8 @@ import { ModelsTabView } from './ModelsTabView.tsx'
 import { UiSettingsTabView } from './UiSettingsView.tsx'
 import { CoIView } from './CoIView.tsx'
 import { HeaderActions } from './HeaderActions.tsx'
+import { AdvisorHost } from './advisor/AdvisorPanel.tsx'
+import { ADVISOR_CONNECTION_RESET_EVENT } from './advisor/advisor-store.ts'
 import { BroadcastView } from './BroadcastView.tsx'
 import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
@@ -47,6 +49,7 @@ import skillBrowserStyles from './skills-browser/styles.css'
 import uiSettingsStyles from './ui-settings-styles.css'
 import mermaidStyles from './mermaid-render.css'
 import bookmarkStyles from './bookmark-styles.css'
+import advisorStyles from './advisor/advisor-styles.css'
 import mobileCss from './mobile.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
 
@@ -250,6 +253,8 @@ export const zh = {
   'header.setAlias.clear': '清除',
   'header.setAlias.saved': '别名已保存',
   'header.setAlias.cleared': '别名已清除',
+  'advisor.header.toggle': '会话评审',
+  'advisor.header.toggle.title': '打开或折叠会话评审悬浮面板',
   'scratchTab.label': '临时信息',
   'promptTab.label': '提示词',
   'promptTab.label.active': '🔴 提示词 ({count})',
@@ -724,6 +729,8 @@ export const zh = {
   'panel.guide.prompt.desc': '把常用的工作范式固化成提示词资产（内置程序员示例：代码审查/调试/架构/测试等，来源以自写为主）：选中一条即可注入——**写入后模型下一轮自动看到、不打断回复**；支持一次性、持续 N 轮、每 M 回合提醒一次（次数/间隔可输入任意数字，按对话回合计数自动过期），「注入中」可随时停止；也支持**临时注入**：不建提示词直接输入内容注入，自动存入提示词库（分类留空归入「临时」）。**默认禁用**：在「Memory Evolve 设置」Tab 的「配置」里打开「提示词管理器」开关，Tab 刷新后出现。',
   'panel.guide.models.title': '模型设置（de_models）',
   'panel.guide.models.desc': '「模型设置」Tab + `de_models` 工具：表格一览 DSH 现有供应商与模型，给每个模型设置**插件侧**的启用状态、备注、是否支持思考与可用/推荐思考等级（可勾选等级白名单、添加自定义等级）——**这些配置只对本插件有用**（决定 de_models 查询口径与 Tab 展示），**不修改、也不影响 DSH 自身的模型设置**（DSH 的模型配置仍以官方「设置 → 模型」为准）。**默认禁用**：在「配置」里打开「模型设置」开关后，Tab 刷新出现、de_models 工具生效。',
+  'panel.guide.advisor.title': '会话评审（Advisor）',
+  'panel.guide.advisor.desc': '给每个会话挂一个独立评审员——它只观察你在界面上看到的对话（不含思考/工具调用），每轮实时评审，需要时通过 steer 实时打断提醒（info/nit/concern/blocker 四级；info 默认仅记录不注入，可配置注入）。**注入以用户指令形式出现**（Agent 会把它当成你说的话直接执行——2026-08-13 拍板：实测带"非用户指令"标记会让 Agent 质疑来源、执行力下降；GUI 对话流中该消息以折叠行显示 [severity] 前缀，方便你识别哪些话其实是评审员说的）。评审员以**持续会话**方式工作（完整上下文、永不截断，像普通 LLM 对话一样记住全部历史）；面板里可**新建评审会话**（清空评审员上下文与记忆，新会话第一条指令告诉它背景信息，由你控制上下文长度）；你也可以在面板里**直接向它提问**（立即回答，回答只在 Advisor 面板展示、不注入主会话流）；评审员支持**四层级约束**（系统提示词 / 项目约束 / 会话约束 / 本次评审会话约束，面板「约束」Tab 分别编辑，保存后立即生效）：系统提示词全局可改，项目约束本工作区共享，会话约束本会话保留，评审会话约束随「新建评审会话」清空——四层拼接注入、冲突时越局部越优先；评审系统提示词可在面板设置里**查看内置默认全文、实时修改保存、一键恢复默认**；评审记录 JSONL 持久化可查。默认关闭（设置 Tab 的「配置」里开 `advisorEnabled`；评审模型缺省继承当前会话模型，也可单独配置 `advisorProvider`/`advisorModel`）。',
   'panel.guide.broadcast.title': '会话广播（de_broadcast）',
   'panel.guide.broadcast.desc': 'DSH 会话之间传递消息：先复制本会话 ID（会话头部「⧉ 复制会话ID」按钮），把 ID 发给另一个会话，让它的 AI 用 de_broadcast send 把内容广播给你（recipients 可同时填多个会话 ID，默认一对一）——接收方快照**定点注入**未读提示（收件箱式列出 id+主题+发送者+时间，只有接收者看得到，其他会话无感知），AI 用 list/read 查看全文处理（显式接收者 read 即消费、全员已读自动删除；房间/项目消息保留 30 天供回看）；超过 8KB 的内容自动落文件。**房间（聊天室）**：多会话协作（可跨工作目录）——建群（room-create，创建者自动入房）→ 把房间 id 告诉其他会话（粘贴或广播）→ 对方 room-join 加入 → 之后说"发到群里"全员同时收到；room-leave 退出、room-rm 解散（仅创建者）、room-list 查群；房间 30 天无活动自动删除。**项目群**：recipients 填 project:/路径 发给整个目录（按 cwd 匹配）。**开关**：独立「会话广播」（broadcastEnabled，默认关，可单独开启，与 COI 调度无关）。另：快照最前面有**常驻「你的会话 ID」段**（不随任何开关）——AI 用它比对各模块消息里的 session id 判断收发方，回复广播时把 ID 告知对方。',
   'panel.guide.session.title': '会话搜索（de_session_search）',
@@ -792,6 +799,8 @@ export const zh = {
   'panel.config.searchDocsMode.filename': '仅文件名搜索',
   'panel.config.searchDocsMode.content': '仅内容搜索',
   'panel.config.searchDocsMode.off': '关闭（工具不可见）',
+  'panel.config.advisorEnabled': '会话评审（Advisor）',
+  'panel.config.advisorEnabled.hint': '启用会话评审 Advisor：给每个会话挂一个独立评审员（观察可见对话、每轮评审、steer/inject 实时建议、持续会话上下文、面板可提问/新建评审会话）。**默认禁用**——评审会消耗额外模型调用；关闭时评审/面板/命令/API 全部不可用',
   'panel.config.broadcastEnabled': '会话广播',
   'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）+ 会话广播管理面板 Tab。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响；会话头部「⧉ 复制会话ID」「✎ 别名」按钮属「会话编排」模块（面板顶部另有复制入口）',
   'panel.config.notifyEnabled': '渠道通知',
@@ -1014,6 +1023,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'header.setAlias.clear': 'Clear',
   'header.setAlias.saved': 'Alias saved',
   'header.setAlias.cleared': 'Alias cleared',
+  'advisor.header.toggle': 'Session Review',
+  'advisor.header.toggle.title': 'Open or collapse the Advisor review panel',
   'scratchTab.label': 'Scratch Pad',
   'promptTab.label': 'Prompts',
   'promptTab.label.active': '🔴 Prompts ({count})',
@@ -1486,6 +1497,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.prompt.desc': 'Turn recurring working paradigms into prompt assets (built-in programmer examples: code review/debugging/architecture/tests…; write your own as the main source). Pick one and inject — the content becomes visible to the model next turn without interrupting the reply; supports one-shot, N consecutive turns, or once every M turns (count and cadence accept any integers, auto-expiring by turn counting), and can be stopped anytime. Quick inject is also supported: type content and inject without saving a prompt first — it is auto-saved to the library (empty category goes to Temp). **Disabled by default**: enable the prompt manager toggle under "Config" in the "Memory Evolve Settings" tab; the tab appears after a refresh.',
   'panel.guide.models.title': 'Model Settings (de_models)',
   'panel.guide.models.desc': 'The "Model Settings" tab + `de_models` tool: a table of every DSH provider and model, with **plugin-side** per-model settings (enabled state, note, thinking support, allowed/recommended reasoning levels — checkable level whitelist, custom levels). **These settings only affect this plugin** (they define the de_models query view and the tab display); **they do not modify or affect DSH\'s own model settings** — DSH model configuration remains whatever the official "Settings → Models" says. **Disabled by default**: turn on "Model Settings" under "Config" and the tab appears after a refresh, with the de_models tool active.',
+  'panel.guide.advisor.title': 'Session review (Advisor)',
+  'panel.guide.advisor.desc': `Attach an independent reviewer to every session: observes the main agent's work in a continuous conversation (visible surface only — no reasoning/tool calls), reviews after each turn, and reminds the agent live via steer/inject (info/nit/concern/blocker levels; info records-only by default). **Injected messages appear as user instructions** (the agent executes them directly — decided 2026-08-13: an explicit "not a user instruction" marker made the agent question the source and lowered compliance; the GUI shows such messages as collapsed lines with a [severity] prefix so you can tell what the reviewer actually said). The reviewer keeps the full untruncated conversation (see the ≈K usage in the panel to decide when to start a fresh review session); supports five constraint layers (system prompt / global / project / session / review-session — more specific wins on conflicts); you can ask the reviewer directly in the panel (answers stay in the panel). Off by default (Settings → Config → "Session review (Advisor)"; when off, reviews/panel/commands/API are all unavailable); the reviewer model inherits the session model by default and can be configured separately.`,
   'panel.guide.broadcast.title': 'Session broadcast (de_broadcast)',
   'panel.guide.broadcast.desc': 'Pass messages between DSH sessions: copy this session\'s ID (the "⧉ Copy session ID" button in the session header), send the ID to another session, and let its AI broadcast content back to you via de_broadcast send (recipients can be an array of session IDs; one-to-one by default) — the receiver\'s snapshot gets a targeted unread hint (inbox-style: id + subject + sender + time; visible only to the receiver) and the AI reads/processes it with list/read (explicit-recipient messages are consumed on read and auto-deleted once every recipient read; room/project messages stay 30 days for review); content over 8 KB spills to a file. **Rooms (chat rooms)**: multi-session collaboration (cross-directory) — room-create (creator joins automatically) → share the room id (paste or broadcast) → others room-join → then just say "post to the room" and everyone gets it; room-leave to exit, room-rm to dissolve (creator only), room-list to view; idle rooms are auto-deleted after 30 days. **Project group**: recipients project:/path posts to the whole directory (matched by cwd). **Switch**: independent "Session broadcast" (broadcastEnabled, off by default, can be enabled alone — unrelated to COI dispatch). Also, the snapshot always leads with a persistent "Your session ID" section (regardless of any switch) — the AI uses it to tell who is who in message sender/recipients and shares its ID when replying to a broadcast.',
   'panel.guide.session.title': 'Session search (de_session_search)',
@@ -1554,6 +1567,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.searchDocsMode.filename': 'Filename only',
   'panel.config.searchDocsMode.content': 'Content only',
   'panel.config.searchDocsMode.off': 'Off (tool invisible)',
+  'panel.config.advisorEnabled': 'Session review (Advisor)',
+  'panel.config.advisorEnabled.hint': 'Enable the session reviewer Advisor: each session gets an independent reviewer (observes the visible conversation, reviews every turn, live suggestions via steer/inject, continuous conversation context, panel Q&A / new review session). Off by default — reviews consume extra model calls; when off, reviews/panel/commands/API are all unavailable',
   'panel.config.broadcastEnabled': 'Session broadcast',
   'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup) + the broadcast management panel tab. **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected; the header "⧉ Copy session ID" / "✎ alias" buttons belong to "Session orchestration" (the panel top also has a copy entry)',
   'panel.config.notifyEnabled': 'Channel notify',
@@ -1762,6 +1777,19 @@ export function apply(ctx: Context): void {
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'memory-evolve: bookmark stylesheet')
+
+  // Advisor 悬浮面板样式（advisor- 前缀）：面板本体 portal 到 body，故样式
+  // 必须由客户端入口常驻注入，不能依赖某个 conversation.view Tab 的生命周期。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-advisor-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.advisorCss = '1'
+    tag.textContent = advisorStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: advisor stylesheet')
 
   // 会话页顶部 Tab 顺序（2026-08-11 用户拍板：记忆 技能 待办 COI调度 会话广播
   // 提示词 临时信息 记忆同步 模型设置 书签 Web UI设置 Memory Evolve设置；order
@@ -2030,6 +2058,21 @@ export function apply(ctx: Context): void {
     coiCancelled = true
     disposeCoiTab?.()
   }, 'memory-evolve: coi tab')
+
+  // Advisor 只占 strict-session header.actions：同一组件渲染 header toggle，
+  // 并 createPortal(document.body) 挂悬浮面板；不得注册 conversation.view Tab。
+  ctx.slots.inject('conversation.session.header.actions', () =>
+    ctx.slots.register({
+      name: 'conversation.session.header.actions',
+      id: 'advisor-review-panel',
+      order: 30,
+    }, (props) => AdvisorHost({ ...props, t })))
+
+  // DSH 重连会让 host 的内存 ring/连接代次发生变化；转成浏览器事件后，
+  // 每个 session store 都会取消旧请求、清空 after 游标并立即重新同步。
+  ctx.effect(() => ctx.on('connection/reset', () => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(ADVISOR_CONNECTION_RESET_EVENT))
+  }), 'memory-evolve: advisor connection reset')
 
   // 会话身份配套：会话头部「⧉ 复制会话 ID」「✎ 别名」按钮——**属于会话
   // 编排/身份**（用户拍板 2026-08-09：不是广播的功能，从 broadcastEnabled

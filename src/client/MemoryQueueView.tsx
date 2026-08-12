@@ -94,6 +94,8 @@ interface RuntimeConfig {
   notifyEnabled: boolean
   /** 项目记忆跨设备同步（/memory_sync，独立子模块，默认关）：Git 对账。 */
   syncEnabled: boolean
+  /** 会话评审 Advisor（独立子模块，默认关）：评审员挂每个会话实时评审。 */
+  advisorEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -223,6 +225,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       searchDocsMode: draft.searchDocsMode,
       coiEnabled: draft.coiEnabled,
       broadcastEnabled: draft.broadcastEnabled,
+      advisorEnabled: draft.advisorEnabled,
       sessionSearchEnabled: draft.sessionSearchEnabled,
       sessionEnabled: draft.sessionEnabled,
       scratchEnabled: draft.scratchEnabled,
@@ -324,6 +327,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               <span className="me-guide-body">
                 <strong>{t('panel.guide.models.title')}</strong>
                 <span>{t('panel.guide.models.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
+              <span className="me-guide-icon">🧐</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.advisor.title')}</strong>
+                <span>{t('panel.guide.advisor.desc')}</span>
               </span>
             </div>
             <div className="me-guide-row">
@@ -675,6 +685,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.broadcastEnabled}
                     onChange={(event) => patchDraft({ broadcastEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.advisorEnabled')}
+                    <em className="me-field-hint">{t('panel.config.advisorEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.advisorEnabled}
+                    onChange={(event) => patchDraft({ advisorEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">
