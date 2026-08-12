@@ -83,7 +83,7 @@ test('aliases api: GET 全量 / PUT 设置（校验）/ DELETE 清除', async ()
   const todoStore = new (await import('../lib/todo.js')).TodoStore(dir)
   const state = { reviewEnabled: true }
   const { installApi } = await import('../lib/api.js')
-  const ctx = { httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } } }
+  const ctx = { webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } } }
   installApi(ctx, {
     store, archive, queue, todoStore,
     config: { memoryDir: dir },

@@ -572,7 +572,7 @@ async function bootTodoApi() {
   const archive = new ArchiveStore(dir)
   const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
   const ctx = {
-    httpServer: {
+    webServer: {
       register: ({ handler }) => {
         ctx.handler = handler
         return () => {}

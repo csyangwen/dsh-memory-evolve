@@ -313,9 +313,9 @@ async function bootApi() {
   const ctx = {
     on: (event, listener) => { if (event === 'agent/turn-stopping') turnListener = listener; return () => {} },
     inject: (services, cb) => {
-      // 模拟 web-only 分支：httpServer 存在 → 立即回调
+      // 模拟 web-only 分支：webServer 存在 → 立即回调
       cb({
-        httpServer: {
+        webServer: {
           register: ({ handler }) => { ctx.handler = handler; return () => {} },
         },
         effect: (fn) => { fn(); return () => {} },
@@ -470,7 +470,7 @@ test('installPrompts: dispose 可安全调用（开关卸载路径）', async ()
       on: () => () => {},
       inject: (services, cb) => {
         cb({
-          httpServer: { register: () => () => {} },
+          webServer: { register: () => () => {} },
           effect: (fn) => { fn(); return () => {} },
         })
         return () => {}

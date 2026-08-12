@@ -28,7 +28,7 @@ async function bootApi(overrides = {}) {
     return { ...state }
   }
   const ctx = {
-    httpServer: {
+    webServer: {
       register: ({ handler }) => {
         ctx.handler = handler
         return () => {}

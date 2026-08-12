@@ -35,7 +35,7 @@ function makeCtx() {
     on: (e, fn) => { (listeners[e] ??= []).push(fn); return () => {} },
     inject: (keys, cb) => cb({
       commands: { register: (def) => { commands.push(def); return () => {} } },
-      httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+      webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
       effect: (fn) => { fn(); return () => {} },
     }),
     sessionTitle: { get: () => ({ title: '测试会话' }) },

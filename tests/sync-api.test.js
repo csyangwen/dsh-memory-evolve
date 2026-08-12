@@ -51,7 +51,7 @@ async function bootSyncApi(overrides = {}) {
         identity: { displayName: 'github.com/acme/alpha', kind: 'remote' },
       })
   const ctx = {
-    httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+    webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
   }
   installApi(ctx, {
     store, archive, queue, todoStore, getRuntime, updateRuntime,

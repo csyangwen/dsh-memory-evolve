@@ -61,7 +61,7 @@ function fakeCtx() {
     effect: (fn) => { const disposer = fn(); effects.push({ fn, disposer }); return disposer ?? (() => {}) },
     inject: (_names, cb) => cb({
       commands: { register: (cmd) => { registered.commands.push(cmd); return () => {} } },
-      httpServer: { register: ({ handler }) => { registered.handlers.push(handler); return () => {} } },
+      webServer: { register: ({ handler }) => { registered.handlers.push(handler); return () => {} } },
       effect: (fn) => { const disposer = fn(); effects.push({ fn, disposer }); return disposer ?? (() => {}) },
     }),
     emit: (name, data) => {
@@ -1111,7 +1111,7 @@ async function bootApi(dir, overrides = {}) {
     resolveCwd: overrides.resolveCwd ?? (() => undefined),
   }
   const ctx = {
-    httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+    webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
   }
   installCoiApi(ctx, svc)
   const server = createServer((req, res) => ctx.handler(req, res))
@@ -2207,7 +2207,7 @@ test('broadcast api: 消息列表/全文/删除 + 房间列表/在线/踢人/解
     get: (sid) => ({ sessionId: sid, status: sid === 'sB' ? 'running' : 'idle', online: sid === 'sB', lastActiveAt: Date.now() }),
     roomStatus: (room) => (room.members ?? []).map((sid) => presence.get(sid)),
   }
-  const ctx = { httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } } }
+  const ctx = { webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } } }
   installBroadcastApi(ctx, { broadcast, presence })
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))

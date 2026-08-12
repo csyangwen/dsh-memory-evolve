@@ -45,7 +45,7 @@ function fakeCtx(overrides = {}) {
     },
     systemPrompt: { context: (def) => { state.contexts.push(def); return () => {} } },
     commands: { register: (def) => { state.commands.push(def); return () => {} } },
-    httpServer: { register: (route) => { state.routes.push(route); return () => {} } },
+    webServer: { register: (route) => { state.routes.push(route); return () => {} } },
     ...(overrides.services ?? {}),
   }
   const ctx = {
@@ -53,7 +53,7 @@ function fakeCtx(overrides = {}) {
     tools: services.tools,
     systemPrompt: services.systemPrompt,
     commands: services.commands,
-    httpServer: services.httpServer,
+    webServer: services.webServer,
     on: (name, listener) => {
       ;(state.listeners[name] ??= []).push(listener)
       return () => {}

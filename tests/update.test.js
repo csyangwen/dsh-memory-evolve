@@ -644,7 +644,7 @@ async function bootUpdateApi(repoDir) {
   const dir = tempRoot()
   const checker = createUpdateChecker({ repoDir, fallbackDir: dir, now: advancingClock() })
   const ctx = {
-    httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+    webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
   }
   const queue = { read: () => [] }
   installApi(ctx, {

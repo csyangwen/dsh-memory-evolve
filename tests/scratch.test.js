@@ -28,7 +28,7 @@ async function bootApi(dir) {
   const getRuntime = () => ({ ...state })
   const updateRuntime = (patch) => Object.assign(state, patch) && { ...state }
   const ctx = {
-    httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+    webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
   }
   installApi(ctx, {
     store, archive, queue, todoStore, getRuntime, updateRuntime,

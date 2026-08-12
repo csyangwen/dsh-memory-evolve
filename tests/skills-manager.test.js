@@ -106,13 +106,13 @@ async function bootSkillsManager(overrides = {}) {
       // 受限 ctx 的服务探测：未提供的服务返回 undefined（skills.js 同款模式）
       return ctx[name]
     },
-    httpServer: {
+    webServer: {
       register: ({ handler }) => {
         ctx.handler = handler
         return () => {}
       },
     },
-    workspace: overrides.workspace ?? { list: () => [] },
+    workspaceRegistry: overrides.workspaceRegistry ?? { list: () => [] },
     logger: { warn: () => {} },
     inject(deps, cb) {
       for (const dep of deps) assert.ok(ctx[dep] !== undefined, `missing fake service ${dep}`)
@@ -256,12 +256,12 @@ test('skills-manager: skills list marks protected and non-invocable skills', asy
   }
 })
 
-// issue #4：cwd 解析顺序 = 显式 cwd 参数 → sessionId + resolveCwd → workspace[0] 兜底。
+// issue #4：cwd 解析顺序 = 显式 cwd 参数 → sessionId + resolveCwd → workspaceRegistry[0] 兜底。
 // 列表/浏览/读/写四个接口共用同一解析，且解析结果真正传给技能扫描。
 test('skills-manager: cwd resolves from sessionId via resolveCwd (issue #4)', async () => {
   const sm = await bootSkillsManager({
     resolveCwd: (sessionId) => (sessionId === 'sess-1' ? '/proj/alpha' : undefined),
-    workspace: { list: () => [{ path: '/ws/fallback' }] },
+    workspaceRegistry: { list: () => [{ path: '/ws/fallback' }] },
   })
   try {
     // 1) sessionId 命中 → 会话 cwd 生效，且真正传给 collectRoots 的技能扫描
@@ -298,7 +298,7 @@ test('skills-manager: cwd resolves from sessionId via resolveCwd (issue #4)', as
 // 行为与修复前完全一致（回退首个工作区）。
 test('skills-manager: sessionId ignored when resolveCwd is not installed', async () => {
   const sm = await bootSkillsManager({
-    workspace: { list: () => [{ path: '/ws/fallback' }] },
+    workspaceRegistry: { list: () => [{ path: '/ws/fallback' }] },
   })
   try {
     const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=whatever')
@@ -314,7 +314,7 @@ test('skills-manager: sessionId ignored when resolveCwd is not installed', async
 test('skills-manager: empty workspace still resolves cwd from sessionId', async () => {
   const sm = await bootSkillsManager({
     resolveCwd: () => '/proj/alpha',
-    workspace: { list: () => [] },
+    workspaceRegistry: { list: () => [] },
   })
   try {
     const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=sess-1')
@@ -333,7 +333,7 @@ test('skills-manager: empty workspace still resolves cwd from sessionId', async 
 test('skills-manager: resolveCwd throwing falls back to workspace instead of failing', async () => {
   const sm = await bootSkillsManager({
     resolveCwd: () => { throw new Error('boom') },
-    workspace: { list: () => [{ path: '/ws/fallback' }] },
+    workspaceRegistry: { list: () => [{ path: '/ws/fallback' }] },
   })
   try {
     const list = await sm.request('GET', '/skills-manager/api/skills?sessionId=sess-1')

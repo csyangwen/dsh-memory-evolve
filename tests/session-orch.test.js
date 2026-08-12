@@ -85,7 +85,7 @@ function makeCtx(agents, persistence, llm) {
         },
       }
       : undefined,
-    workspace: {
+    workspaceRegistry: {
       list: () => [{ id: 'ws-1', path: '/project/blog', title: '五', sessionIds: ['session-me'] }],
       // 模拟 attach 竞态失败次数（剩余；>0 时 attachSession 抛错并递减）
       attachFailures: 0,
@@ -94,7 +94,7 @@ function makeCtx(agents, persistence, llm) {
       // 模拟 cwd 目录不存在（工作区被删除/磁盘未挂载）：确定性失败
       missingPaths: [],
       resolveByPath: async (path) => {
-        if (ctx.workspace.missingPaths.includes(path)) {
+        if (ctx.workspaceRegistry.missingPaths.includes(path)) {
           const e = new Error(`ENOENT: no such file or directory, realpath '${path}'`)
           e.code = 'ENOENT'
           throw e
@@ -105,8 +105,8 @@ function makeCtx(agents, persistence, llm) {
           path,
           title: '五',
           attachSession: async (sid) => {
-            if (ctx.workspace.attachFailures > 0) {
-              ctx.workspace.attachFailures -= 1
+            if (ctx.workspaceRegistry.attachFailures > 0) {
+              ctx.workspaceRegistry.attachFailures -= 1
               throw new Error('simulated attach race failure')
             }
             attached.push(sid)
@@ -115,7 +115,7 @@ function makeCtx(agents, persistence, llm) {
       },
       // create 兜底：workspace 记录不存在时（显式 cwd 新目录）先建再 attach
       create: async (path) => {
-        ctx.workspace.created.push(path)
+        ctx.workspaceRegistry.created.push(path)
         return {
           id: 'ws-2',
           path,
@@ -385,7 +385,7 @@ test('spawn attach：失败自动重试成功 / 一直失败如实报告不阻�
   const tool = sessionToolDefinition(orch)
   const requester = { session: { id: 's-pm', header: { cwd: '/project/blog' } }, options: {} }
   // ① 首次 attach 失败（模拟 readSessionHeader 竞态）→ 自动重试成功
-  ctx.workspace.attachFailures = 1
+  ctx.workspaceRegistry.attachFailures = 1
   const res = await tool.execute({ action: 'spawn', prompt: '任务' }, { agent: requester })
   assert.equal(res.ok, true)
   assert.equal(res.attach.ok, true, '重试后成功')
@@ -394,7 +394,7 @@ test('spawn attach：失败自动重试成功 / 一直失败如实报告不阻�
   assert.equal(ctx.attached.includes(res.sessionId), true)
   assert.match(res.message, /已挂接工作区「五」/)
   // ② 一直失败：spawn 仍成功（attach 不阻断创建），attach.ok=false + message 警告
-  ctx.workspace.attachFailures = 99
+  ctx.workspaceRegistry.attachFailures = 99
   const res2 = await tool.execute({ action: 'spawn', prompt: '任务2' }, { agent: requester })
   assert.equal(res2.ok, true, 'attach 失败不阻断 spawn')
   assert.equal(res2.attach.ok, false)
@@ -404,7 +404,7 @@ test('spawn attach：失败自动重试成功 / 一直失败如实报告不阻�
   // ③ 显式 cwd 的新目录（workspace 记录不存在）→ create 兜底后 attach 成功
   const res3 = await tool.execute({ action: 'spawn', prompt: '任务3', cwd: '/brand/new-dir' }, { agent: requester })
   assert.equal(res3.attach.ok, true, 'create 兜底后挂接成功')
-  assert.deepEqual(ctx.workspace.created, ['/brand/new-dir'], 'create 被调用（与 GUI 创建会话同款）')
+  assert.deepEqual(ctx.workspaceRegistry.created, ['/brand/new-dir'], 'create 被调用（与 GUI 创建会话同款）')
   assert.equal(res3.attach.workspaceId, 'ws-2')
   assert.equal(ctx.attached.includes(res3.sessionId), true)
   rmSync(dir, { recursive: true, force: true })
@@ -421,7 +421,7 @@ test('spawn attach：cwd 目录不存在（工作区被删/磁盘未挂载）→
   // cwd 目录不存在（如 /Volumes/data/260808/7 工作区被删除）：确定性失败
   // ⚠️ 2026-08-12 用户反馈：之前每个会话重试 4 次 + warn 刷屏——目录不存在
   // 等多久都不会恢复，直接 skipped 返回，不重试
-  ctx.workspace.missingPaths.push('/Volumes/gone-project')
+  ctx.workspaceRegistry.missingPaths.push('/Volumes/gone-project')
   const res = await tool.execute({ action: 'spawn', prompt: '任务', cwd: '/Volumes/gone-project' }, { agent: requester })
   assert.equal(res.ok, true, 'spawn 本身不受影响')
   assert.equal(res.attach.ok, false)

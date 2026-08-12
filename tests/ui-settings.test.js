@@ -12,7 +12,7 @@ import { installUiSettings } from '../lib/ui-settings.js'
 function fakeCtx() {
   const state = { routes: [] }
   const services = {
-    httpServer: {
+    webServer: {
       register: (route) => {
         state.routes.push(route)
         // 返回 disposer：记录调用以便断言 dispose 清理。
@@ -22,7 +22,7 @@ function fakeCtx() {
   }
   const ctx = {
     state,
-    httpServer: services.httpServer, // inject 回调收到的 ctx 上服务可达
+    webServer: services.webServer, // inject 回调收到的 ctx 上服务可达
     inject: (deps, callback) => {
       if (!deps.every((dep) => services[dep] !== undefined)) return { dispose: () => {} }
       const disposer = callback(ctx)
@@ -72,8 +72,8 @@ test('installUiSettings registers the state endpoint and answers correctly', asy
   assert.equal(ctx.state.routes.length, 0, 'route removed after dispose')
 })
 
-test('installUiSettings tolerates surfaces without httpServer', () => {
-  // TUI 面：无 httpServer 服务 → inject 不回调，dispose 无副作用。
+test('installUiSettings tolerates surfaces without webServer', () => {
+  // TUI 面：无 webServer 服务 → inject 不回调，dispose 无副作用。
   const ctx = { inject: () => ({ dispose: () => {} }), effect: () => () => {} }
   const installed = installUiSettings(ctx, { getRunningSnapshot: () => ({ total: 0, groups: [] }) })
   installed.dispose()

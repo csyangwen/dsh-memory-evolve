@@ -110,10 +110,10 @@ function makeCtx() {
       }
     },
     inject: (keys, cb) => {
-      // 测试直接执行（commands/httpServer 都可用）
+      // 测试直接执行（commands/webServer 都可用）
       const sub = {
         commands: { register: (def) => { ctx.commands.push(def); return () => {} } },
-        httpServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
+        webServer: { register: ({ handler }) => { ctx.handler = handler; return () => {} } },
         effect: (fn, label) => {
           const disposers = fn()
           if (typeof disposers === 'function') ctx.effectDisposers.push(disposers)

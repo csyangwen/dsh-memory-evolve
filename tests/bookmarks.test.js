@@ -32,7 +32,7 @@ function tempDir() {
 function fakeCtx() {
   const state = { routes: [] }
   const services = {
-    httpServer: {
+    webServer: {
       register: (route) => {
         state.routes.push(route)
         return () => { state.routes = state.routes.filter((r) => r !== route) }
@@ -41,7 +41,7 @@ function fakeCtx() {
   }
   const ctx = {
     state,
-    httpServer: services.httpServer,
+    webServer: services.webServer,
     inject: (deps, callback) => {
       if (!deps.every((dep) => services[dep] !== undefined)) return { dispose: () => {} }
       const disposer = callback(ctx)
@@ -321,7 +321,7 @@ test('installBookmarks: 状态探测 + CRUD 端点 + dispose', async () => {
   }
 })
 
-test('installBookmarks: 无 httpServer 的面可安全 dispose', () => {
+test('installBookmarks: 无 webServer 的面可安全 dispose', () => {
   const ctx = { inject: () => ({ dispose: () => {} }), effect: () => () => {} }
   const installed = installBookmarks(ctx, { memoryDir: tempDir() })
   installed.dispose()
@@ -411,7 +411,7 @@ test('forkSession: agents.create 收到 seed/meta，workspace attach 被调用',
       get: () => ({ session: { events, header: { cwd: '/tmp/proj' } } }),
       create: async (opts) => { created = opts },
     },
-    workspace: {
+    workspaceRegistry: {
       resolveByPath: async () => ({ id: 'ws-1', attachSession: async (sid) => { attached = sid } }),
     },
   }
@@ -434,7 +434,7 @@ test('forkSession: 会话不存在 / 目标轮未完成 → 抛业务错误', as
       get: (sid) => (sid === 'missing' ? undefined : { session: { events, header: {} } }),
       create: async () => {},
     },
-    workspace: undefined,
+    workspaceRegistry: undefined,
   }
   await assert.rejects(() => forkSession(ctx, 'missing', undefined), /不存在/)
   await assert.rejects(() => forkSession(ctx, 'session-x', 9), /尚未完成/)
@@ -449,8 +449,8 @@ test('installBookmarks: POST /fork 端点走 forkSession 并回 201', async () =
       get: () => ({ session: { events, header: { cwd: undefined } } }),
       create: async (opts) => { state.created = opts },
     },
-    workspace: undefined,
-    httpServer: {
+    workspaceRegistry: undefined,
+    webServer: {
       register: (route) => { state.routes.push(route); return () => {} },
     },
     inject: (deps, callback) => { callback(ctx); return { dispose: () => {} } },
