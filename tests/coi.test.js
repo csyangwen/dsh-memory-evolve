@@ -870,6 +870,35 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('coi tools: status/wait render 输出开头给出完整日志路径（省去 AI 自行搜索）', async () => {
+  // 回归：de_coi_status 摘要截断（前 N 字符省略），AI 曾自行 bash 搜索日志
+  // 位置走弯路——现在 render 文本第一行必须带完整日志文件绝对路径 + 提醒
+  // 用 read 读取；日志文件存在与否的提示分支都要覆盖。
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const tools = coiToolDefinitions(scheduler)
+  const dispatchTool = tools[0]
+  const statusTool = tools[2]
+  const waitTool = tools[3]
+  // 运行中（日志文件尚未创建）：提示「暂无输出文件」
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const running = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId })).task })
+  assert.match(running[0].text, /完整日志：/, 'status render 必须包含完整日志路径')
+  assert.match(running[0].text, /暂无输出文件/)
+  assert.ok(running[0].text.indexOf('完整日志') < running[0].text.indexOf('任务 '), '日志路径必须位于输出开头')
+  // 完成后（先有输出、日志文件已落盘）：提示用 read 读取，路径与 tasks.logPath 一致
+  harness.children[0].stdout.emit('data', '第一行输出\n')
+  harness.children[0].emit('close', 0)
+  const done = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId })).task })
+  assert.match(done[0].text, /完整日志：.*logs\/.+\.log（输出为尾部摘要；需要完整输出请用 read 工具读取该文件，不要自行搜索）/s)
+  assert.ok(done[0].text.includes(scheduler.tasks.logPath(result.taskId)), '路径必须与留档文件一致')
+  // wait 同款
+  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 })
+  const waitedText = waitTool.output.render({}, { ok: true, message: 'm', task: waited.task })[0].text
+  assert.match(waitedText, /^📄 完整日志：/, 'wait render 输出开头同样给出日志路径')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 // ------------------------------------------------------------------ snapshot
 
 test('memory context: key branch filtering uses declared task branch', () => {
