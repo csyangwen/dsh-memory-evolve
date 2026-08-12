@@ -88,25 +88,37 @@ function advancingClock() {
 // 纯函数
 // ---------------------------------------------------------------------------
 
-test('parseVersion 接受严格格式，拒绝 prerelease/build/compat', () => {
-  // 数值段断言核心字段（parseVersion 另返回去前导零字符串字段用于比较）。
+test('parseVersion 接受语义化与日期戳格式，拒绝 prerelease/build/compat', () => {
+  // 语义化格式：数值段断言核心字段。
   const v = parseVersion('v1.2.3')
   assert.equal(v.major, 1); assert.equal(v.minor, 2); assert.equal(v.patch, 3)
   assert.equal(v.majorStr, '1'); assert.equal(v.patchStr, '3')
+  assert.deepEqual(v.segments, ['1', '2', '3'])
   const z = parseVersion('v0.0.0')
   assert.equal(z.major, 0); assert.equal(z.minor, 0); assert.equal(z.patch, 0)
+  // 日期戳格式（用户拍板：v26081201 这类）。
+  const d = parseVersion('v26081201')
+  assert.equal(d.kind, 'numeric')
+  assert.deepEqual(d.segments, ['26081201'])
   assert.equal(parseVersion('v1.2.3-beta'), null)
   assert.equal(parseVersion('v1.2.3+build.1'), null)
   assert.equal(parseVersion('compat-260805'), null)
   assert.equal(parseVersion('1.2.3'), null) // 缺 v 前缀
   assert.equal(parseVersion('v01.2.3'), null) // 前导零
+  assert.equal(parseVersion('v026081201'), null) // 日期戳前导零也拒绝
   assert.equal(parseVersion(''), null)
 })
 
-test('compareVersions 按 major/minor/patch 真比较', () => {
+test('compareVersions 按段数组真比较（语义化 + 日期戳）', () => {
   assert.equal(compareVersions(parseVersion('v0.9.0'), parseVersion('v0.10.0')), -1)
   assert.equal(compareVersions(parseVersion('v1.0.0'), parseVersion('v1.0.0')), 0)
   assert.equal(compareVersions(parseVersion('v2.0.0'), parseVersion('v1.99.99')), 1)
+  // 日期戳：按数值大小。
+  assert.equal(compareVersions(parseVersion('v26081200'), parseVersion('v26081201')), -1)
+  assert.equal(compareVersions(parseVersion('v26081202'), parseVersion('v26081201')), 1)
+  assert.equal(compareVersions(parseVersion('v26081201'), parseVersion('v26081201')), 0)
+  // 跨格式：单段数值 vs 三段语义化（用户实际不会混用，排序确定即可）。
+  assert.equal(compareVersions(parseVersion('v26081201'), parseVersion('v1.2.3')), 1)
 })
 
 test('parseTagRefs 过滤非严格格式、关联 peeled sha、升序排序', () => {
