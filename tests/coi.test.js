@@ -644,19 +644,11 @@ function makeFakeAgent(status = 'idle') {
   }
 }
 
-/** 启动带 agentsService 的调度器（复刻 bootScheduler，仅多注入假 agents；
- *  eventCtx 带 on/effect，测试可手动触发 agent/inbox/claimed 重置预算）。 */
+/** 启动带 agentsService 的调度器（复刻 bootScheduler，仅多注入假 agents）。 */
 function bootSchedulerWithAgents(dir, agent, agentsService) {
   const stores = bootStores(dir)
   const harness = makeSpawnHarness()
-  const listeners = {}
-  const eventCtx = {
-    emit: (name, data) => { for (const fn of listeners[name] ?? []) fn(data) },
-    on: (name, fn) => { ;(listeners[name] ??= []).push(fn); return () => {} },
-    off: () => {},
-    effect: (fn) => fn(),
-  }
-  const scheduler = new CoiScheduler(eventCtx, {
+  const scheduler = new CoiScheduler({ emit: () => {} }, {
     adapters: stores.adapters,
     sessions: stores.sessions,
     tasks: stores.tasks,
@@ -665,7 +657,7 @@ function bootSchedulerWithAgents(dir, agent, agentsService) {
   }, { spawn: harness.spawn })
   schedulers.push(scheduler)
   scheduler.recover()
-  return { ...stores, scheduler, harness, listeners }
+  return { ...stores, scheduler, harness }
 }
 
 test('wakeOnComplete: idle owner gets followup (wakeup delivery, message shape)', () => {
@@ -709,28 +701,18 @@ test('wakeOnComplete: default (unset) does not deliver anything', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('wakeOnComplete: wake budget capped at 3; user input resets, plugin notice does not', () => {
+test('wakeOnComplete: no wake cap — every idle completion wakes (2026-08-12 user decision)', () => {
   const dir = tempDir()
   const agent = makeFakeAgent('idle')
-  const { scheduler, harness, listeners } = bootSchedulerWithAgents(dir, agent)
-  const claim = (source) => { for (const fn of listeners['agent/inbox/claimed'] ?? []) fn({ agent, message: { source } }) }
-  // 连续 3 次完成：耗尽预算（3 次 followup）
-  for (let i = 0; i < 3; i += 1) {
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  // 连续 5 次完成全部 followup（无次数限制：用户显式要求的唤醒每次生效，
+  // 与 de_session wake 同语义；官方 maxConsecutiveWakes 兜底不适用）
+  for (let i = 0; i < 5; i += 1) {
     scheduler.dispatch({ adapterId: 'grok', prompt: `唤醒 ${i}`, ownerSessionId: 'sess-1', wakeOnComplete: true })
     harness.children[i].emit('close', 0)
   }
-  assert.equal(agent.calls.filter((c) => c[0] === 'followup').length, 3)
+  assert.equal(agent.calls.filter((c) => c[0] === 'followup').length, 5)
   assert.equal(agent.calls.filter((c) => c[0] === 'inject').length, 0)
-  // 插件 notice（source.kind 非 user）claimed 不重置预算 → 第 4 次降级 inject
-  claim({ kind: 'plugin', plugin: 'dsh-memory-evolve' })
-  scheduler.dispatch({ adapterId: 'grok', prompt: 'notice 不重置', ownerSessionId: 'sess-1', wakeOnComplete: true })
-  harness.children[3].emit('close', 0)
-  assert.equal(agent.calls.at(-1)[0], 'inject')
-  // 用户输入 claimed → 预算重置（对齐官方语义）→ 第 5 次恢复 followup
-  claim({ kind: 'user' })
-  scheduler.dispatch({ adapterId: 'grok', prompt: '重置后', ownerSessionId: 'sess-1', wakeOnComplete: true })
-  harness.children[4].emit('close', 0)
-  assert.equal(agent.calls.at(-1)[0], 'followup')
   rmSync(dir, { recursive: true, force: true })
 })
 
