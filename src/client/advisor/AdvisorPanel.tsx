@@ -129,7 +129,10 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     ?? snapshot.status?.panelEnabled
     ?? true
 
-  const enabled = snapshot.status?.effectiveEnabled ?? false
+  // 2026-08-13 用户反馈：advisorEnabled 是模块**总闸**。status 尚未同步
+  // 完成时用全局 config 兜底（全局开着先显示，status 返回后以
+  // effectiveEnabled 为准；全局关着则从一开始就不渲染，避免刷新闪一下）。
+  const enabled = snapshot.status?.effectiveEnabled ?? (snapshot.config?.advisorEnabled === true)
 
   // 配置明确关闭面板时，首次加载自动收起；用户从 header 主动打开后仍可进入
   // 设置区恢复开关，避免“关闭后再也打不开”的死路。
@@ -191,6 +194,12 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const headerTitle = panelEnabled
     ? (props.t?.('advisor.header.toggle.title') ?? '打开或折叠会话评审面板')
     : 'Advisor 面板显示已关闭；点击可打开设置'
+
+  // 2026-08-13 用户反馈：设置 Tab 的「会话评审（Advisor）」是模块总闸——
+  // 本会话未启用（全局关闭且无会话级 override）时，评审入口（头部按钮、
+  // 悬浮胶囊、面板）整体不渲染，模块在界面上彻底消失；开启总闸后恢复。
+  // ⚠️ React 规则：本 early-return 位于所有 hooks 之后，不影响 hooks 顺序。
+  if (!enabled) return null
 
   const portal = typeof document === 'undefined' ? null : createPortal(
     expanded ? (
