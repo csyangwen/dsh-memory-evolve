@@ -1,21 +1,35 @@
 /**
  * web 站内通知铃铛样式（me-notify-* 前缀，与其他模块 me- 前缀一致）。
- * 铃铛固定右上角（z-index 高，跨会话常驻）；弹窗为右下/右上浮层。
+ *
+ * 颜色一律走 DSH 设计 token（--dsw-alias-* / --dsw-static-*），深浅色自动适配。
+ * 不要给 .me-notify-host 加 transform / filter / backdrop-filter——
+ * 大弹窗 backdrop 是 position:fixed，祖先一旦形成 containing block 就会缩在 40px 铃铛里。
  */
 
-/* 宿主容器：固定定位，不随滚动，跨会话常驻。 */
+/* ================================================================
+ * 宿主：只包住 40×40 铃铛，弹窗用 absolute 往外伸。
+ * left / top 由 JS 写入；始终用 left（不用 right）才能做左右吸附过渡。
+ * ================================================================ */
 .me-notify-host {
   position: fixed;
-  /* 用户反馈：铃铛太靠上，累计下移 85px（50 + 35，避开顶部标题栏/其他悬浮元素）。 */
-  top: 97px;
-  right: 16px;
   z-index: 2147483000;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  font-family: var(--dsw-font-family, inherit);
+  transition:
+    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 铃铛按钮。 */
+/* 拖拽中关掉过渡，否则指针会「拖着弹簧」。 */
+.me-notify-host.me-notify-dragging {
+  transition: none;
+}
+
+/* ================================================================
+ * 铃铛按钮
+ * ================================================================ */
 .me-notify-bell {
   position: relative;
   display: inline-flex;
@@ -23,210 +37,365 @@
   justify-content: center;
   width: 40px;
   height: 40px;
-  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-6, #d0d5dd));
   border-radius: 50%;
-  background: var(--dsw-static-white, #ffffff);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  transition: transform 0.1s ease;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #ffffff));
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+  cursor: grab;
+  touch-action: none; /* 触摸拖时不要把页面跟着滚 */
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 6%, transparent),
+    0 6px 16px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 8%, transparent);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
+
 .me-notify-bell:hover {
   transform: scale(1.05);
+  border-color: var(--dsw-alias-border-l3, var(--dsw-static-gray-6, #d0d5dd));
+  box-shadow:
+    0 2px 4px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 8%, transparent),
+    0 10px 22px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 10%, transparent);
 }
+
+.me-notify-bell:active,
+.me-notify-dragging .me-notify-bell {
+  cursor: grabbing;
+  transform: scale(1.04);
+}
+
+/* 有未读时给一圈很淡的品牌描边，不靠刺眼纯色喊人。 */
+.me-notify-bell-unread {
+  border-color: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 45%, var(--dsw-alias-border-l2, #d0d5dd));
+}
+
 .me-notify-bell-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 铃铛线框颜色：跟随按钮文字色（DSH 主题灰，svg stroke=currentColor 继承）。 */
-  color: var(--dsw-static-gray-11, #111827);
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
 }
 
 /* 未读数字徽标。 */
 .me-notify-badge {
   position: absolute;
   top: -4px;
-  right: -6px;
+  right: -5px;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: 9px;
-  background: #e5484d;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
+  background: var(--dsw-alias-state-error-primary, var(--dsw-static-red-5, #e5484d));
+  color: var(--dsw-alias-label-primary-inverted, #fff);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   line-height: 18px;
   text-align: center;
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #fff));
+  pointer-events: none;
 }
 
-/* 通知弹窗。 */
+/* ================================================================
+ * 通知弹窗（相对 40px host 向外展开）
+ * ================================================================ */
 .me-notify-pop {
-  margin-top: 8px;
+  position: absolute;
+  top: calc(100% + 8px);
   width: 380px;
   max-width: calc(100vw - 32px);
   max-height: 70vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
-  border-radius: 12px;
-  background: var(--dsw-static-white, #ffffff);
-  /* 弹窗内文字颜色：显式声明深色，避免继承父级白色（深色主题下白字白底不可见）。 */
-  color: var(--dsw-static-gray-11, #111827);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-6, #d0d5dd));
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #ffffff));
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 10%, transparent),
+    0 2px 6px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 6%, transparent);
   overflow: hidden;
+  animation: me-notify-pop-in 0.18s ease-out;
 }
 
-/* 弹窗头部（标题 + 全部已读）。 */
+/* 右吸附：弹窗右缘对齐铃铛；左吸附：左缘对齐。 */
+.me-notify-side-right .me-notify-pop {
+  right: 0;
+  left: auto;
+  transform-origin: top right;
+}
+
+.me-notify-side-left .me-notify-pop {
+  left: 0;
+  right: auto;
+  transform-origin: top left;
+}
+
+/* 铃铛在下半屏时往上弹出，避免列表被裁。 */
+.me-notify-pop.me-notify-pop-up {
+  top: auto;
+  bottom: calc(100% + 8px);
+  animation-name: me-notify-pop-in-up;
+}
+
+.me-notify-side-right .me-notify-pop-up { transform-origin: bottom right; }
+.me-notify-side-left .me-notify-pop-up { transform-origin: bottom left; }
+
+@keyframes me-notify-pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes me-notify-pop-in-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 弹窗头部（标题 + 未读数 + 全部已读）。 */
 .me-notify-pop-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-5, #e5e7eb));
 }
+
 .me-notify-pop-title {
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
+
+.me-notify-pop-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 12%, transparent);
+  color: var(--dsw-static-blue-9, #2563eb);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 18px;
+  text-align: center;
+}
+
 .me-notify-readall {
+  margin-left: auto;
   border: none;
   background: none;
   color: var(--dsw-static-blue-9, #2563eb);
   font-size: 12px;
   cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
 }
+
 .me-notify-readall:hover {
-  text-decoration: underline;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, 0.06));
 }
 
 /* 列表容器（滚动）。 */
 .me-notify-list {
   overflow-y: auto;
   max-height: 60vh;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overscroll-behavior: contain;
 }
 
 /* 空态 / 加载态。 */
 .me-notify-empty {
-  padding: 24px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 14px;
   text-align: center;
-  color: var(--dsw-static-gray-9, #6b7280);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-static-gray-9, #6b7280));
   font-size: 13px;
 }
 
-/* 单条通知（分行：发送人+时间 / 主题 / 内容 / 操作）。 */
-.me-notify-item {
-  border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
-  padding: 10px 14px;
+.me-notify-empty-icon {
+  display: inline-flex;
+  opacity: 0.45;
 }
-.me-notify-item:last-child {
-  border-bottom: none;
+
+/* ================================================================
+ * 单条通知（卡片：发送人+时间 / 主题 / 去重后的简介 / 操作）
+ * ================================================================ */
+.me-notify-item {
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-5, #e5e7eb));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #fff));
+  /* 左侧细强调条：列表全是未读，用品牌色点一下即可，不要大红块。 */
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 70%, transparent);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.me-notify-item:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, 0.04));
+  border-color: var(--dsw-alias-border-l3, var(--dsw-static-gray-6, #d0d5dd));
 }
 
 /* 第一行：发送人（左）+ 时间（右）。 */
-.me-notify-item-head {
+.me-notify-item-head,
+.me-notify-modal-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 6px;
 }
+
 .me-notify-sender {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+/* notify=普通通知（蓝），direct=直发（绿）；用 color-mix 压饱和，跟主题走。 */
+.me-notify-sender.me-notify-notify {
+  background: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 12%, transparent);
+  color: var(--dsw-static-blue-9, #2563eb);
+}
+
+.me-notify-sender.me-notify-direct {
+  background: color-mix(in srgb, var(--dsw-static-green-5, #16a34a) 14%, transparent);
+  color: var(--dsw-static-green-5, #16a34a);
+}
+
+.me-notify-coi-chip {
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--dsw-alias-label-tertiary, var(--dsw-static-gray-9, #6b7280));
+  background: var(--dsw-alias-bg-module-platform, var(--dsw-static-gray-2, #f3f4f6));
 }
-.me-notify-sender.me-notify-notify {
-  background: #eef2ff;
-  color: #4338ca;
-}
-.me-notify-sender.me-notify-direct {
-  background: #ecfdf5;
-  color: #047857;
-}
+
 .me-notify-time {
   flex-shrink: 0;
+  margin-left: auto;
   font-size: 11px;
-  color: var(--dsw-static-gray-9, #6b7280);
+  color: var(--dsw-alias-label-tertiary, var(--dsw-static-gray-9, #6b7280));
+  font-variant-numeric: tabular-nums;
 }
 
 /* 第二行：主题（可点击跳转到发送会话；system 通知 disabled）。 */
 .me-notify-subject {
   display: block;
   width: 100%;
-  margin-bottom: 6px;
+  margin: 0 0 4px;
   padding: 0;
   border: none;
   background: none;
   text-align: left;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
+  line-height: 1.4;
   color: inherit;
   cursor: pointer;
   word-break: break-word;
 }
+
 .me-notify-subject:disabled {
   cursor: default;
 }
+
 .me-notify-subject:not(:disabled):hover {
   color: var(--dsw-static-blue-9, #2563eb);
-  text-decoration: underline;
 }
 
-/* 内容：短内容完整显示（pre-wrap 保留换行），长文截断。 */
+/* 内容：JS 已折叠空行；pre-wrap 只保留有意义的换行。 */
 .me-notify-content {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--dsw-static-gray-10, #374151);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary, var(--dsw-static-gray-10, #374151));
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* 长文截断：约 6 行 + 底部渐隐遮罩，点「查看详情」看全文。 */
+
+/* 长文截断：约 5 行 + 底部渐隐，点「查看详情」看全文。 */
 .me-notify-content-clamped {
   position: relative;
-  max-height: 115px; /* 约 6 行 × 19px */
+  max-height: 97px; /* ≈ 5 行 × 19.4px */
   overflow: hidden;
 }
+
 .me-notify-content-clamped::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 36px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-static-white, #ffffff));
+  height: 28px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #ffffff))
+  );
+  pointer-events: none;
+}
+
+.me-notify-item:hover .me-notify-content-clamped::after {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-1, #fff))
+  );
 }
 
 /* 底部操作：已读按钮 + 长文「查看详情」。 */
 .me-notify-item-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
 }
+
 .me-notify-markread {
-  padding: 4px 12px;
-  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-6, #d0d5dd));
   border-radius: 6px;
-  background: #fff;
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-1, #fff));
   font-size: 12px;
-  color: var(--dsw-static-gray-11, #111827);
+  color: var(--dsw-alias-label-secondary, var(--dsw-static-gray-11, #111827));
   cursor: pointer;
 }
+
 .me-notify-markread:hover {
-  background: var(--dsw-static-gray-2, #f9fafb);
+  background: var(--dsw-alias-interactive-bg-hover, var(--dsw-static-gray-2, #f9fafb));
+  border-color: var(--dsw-alias-border-l3, var(--dsw-static-gray-6, #d0d5dd));
 }
+
 .me-notify-more {
-  padding: 4px 10px;
+  height: 26px;
+  padding: 0 8px;
   border: none;
   background: none;
   color: var(--dsw-static-blue-9, #2563eb);
   font-size: 12px;
   cursor: pointer;
+  border-radius: 6px;
 }
+
 .me-notify-more:hover {
-  text-decoration: underline;
+  background: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 8%, transparent);
 }
 
 /* 附件（图片缩略图 / 文件链接）。 */
@@ -236,22 +405,29 @@
   gap: 6px;
   margin-top: 8px;
 }
+
 .me-notify-att-img {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-5, #e5e7eb));
 }
+
 .me-notify-att-file {
   display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 4px 8px;
   border-radius: 6px;
-  background: var(--dsw-static-gray-2, #f9fafb);
+  background: var(--dsw-alias-bg-module-platform, var(--dsw-static-gray-2, #f9fafb));
   font-size: 12px;
   color: var(--dsw-static-blue-9, #2563eb);
   text-decoration: none;
 }
+
 .me-notify-att-file:hover {
   text-decoration: underline;
 }
@@ -260,63 +436,86 @@
 .me-notify-detail-actions {
   display: flex;
   gap: 8px;
+  margin-top: 4px;
 }
+
 .me-notify-jump,
 .me-notify-delete {
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
-  background: #fff;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-6, #d0d5dd));
+  background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-1, #fff));
   font-size: 12px;
   cursor: pointer;
 }
+
 .me-notify-jump {
-  border-color: var(--dsw-static-blue-9, #2563eb);
+  border-color: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 45%, var(--dsw-alias-border-l2, #d0d5dd));
   color: var(--dsw-static-blue-9, #2563eb);
 }
+
 .me-notify-delete {
-  color: #e5484d;
+  color: var(--dsw-alias-state-error-primary, #e5484d);
 }
+
 .me-notify-jump:hover {
-  background: #eef2ff;
+  background: color-mix(in srgb, var(--dsw-static-blue-9, #2563eb) 8%, transparent);
 }
+
 .me-notify-delete:hover {
-  background: #fef2f2;
+  background: var(--dsw-alias-interactive-bg-hover-danger, rgba(236, 19, 19, 0.05));
 }
 
 /* ================================================================
- * 「查看详情」大弹窗（长通知全文展示，几千字可滚动）。
+ * 「查看详情」大弹窗（长通知全文，720px × 85vh，可滚动）。
  * ================================================================ */
 .me-notify-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 2147483100;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.4));
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  animation: me-notify-fade-in 0.16s ease-out;
 }
+
+@keyframes me-notify-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 .me-notify-modal {
   width: 720px;
   max-width: 100%;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
-  background: var(--dsw-static-white, #ffffff);
-  color: var(--dsw-static-gray-11, #111827);
-  box-shadow: 0 16px 60px rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-static-white, #ffffff));
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 18%, transparent);
   overflow: hidden;
+  animation: me-notify-modal-in 0.2s ease-out;
 }
+
+@keyframes me-notify-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
 .me-notify-modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, var(--dsw-static-gray-5, #e5e7eb));
 }
+
 .me-notify-modal-title {
   font-size: 15px;
   font-weight: 600;
@@ -324,57 +523,97 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .me-notify-modal-close {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: none;
+  border-radius: 8px;
   background: none;
-  color: var(--dsw-static-gray-9, #6b7280);
-  font-size: 16px;
-  line-height: 1;
+  color: var(--dsw-alias-label-tertiary, var(--dsw-static-gray-9, #6b7280));
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 0;
 }
+
+.me-notify-modal-close:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, 0.06));
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+}
+
 .me-notify-modal-body {
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 16px;
+  overscroll-behavior: contain;
 }
+
 .me-notify-modal-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
+
+.me-notify-mail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.me-notify-mail-headline {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary, var(--dsw-static-gray-9, #6b7280));
+}
+
+.me-notify-mail-intro {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+}
+
 .me-notify-modal-content {
   margin: 0 0 12px;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--dsw-static-gray-2, #f9fafb);
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-module-platform, var(--dsw-static-gray-2, #f9fafb));
   font-family: inherit;
   font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--dsw-alias-label-primary, var(--dsw-static-gray-11, #111827));
+}
+
+.me-notify-mail .me-notify-modal-content {
+  margin-bottom: 0;
 }
 
 /* ================================================================
- * 移动端适配（≤767px）：铃铛位置/尺寸收紧，弹窗全宽不越界。
+ * 移动端适配（≤767px）：铃铛略缩，弹窗全宽贴边，拖拽仍可用。
  * 兼容纯 web 移动端浏览器 + dsh-android-edapp（其挂 html[data-dsh-mobile]，
  * 此处用 @media 宽度判断，两条路径都覆盖）。
  * ================================================================ */
 @media (max-width: 767px) {
-  /* 铃铛：移动端顶部栏较矮，位置回调到顶部栏下方；触区略缩、贴右不越界。 */
-  .me-notify-host {
-    top: 56px;
-    right: 10px;
-  }
+  .me-notify-host,
   .me-notify-bell {
     width: 36px;
     height: 36px;
   }
+
   /* 弹窗：全宽贴边（左右各 10px），不超出屏幕宽度。 */
   .me-notify-pop {
     width: calc(100vw - 20px);
     max-width: none;
-    margin-top: 6px;
+  }
+
+  .me-notify-modal {
+    width: 100%;
+    max-height: 85vh;
+    border-radius: 14px;
+  }
+
+  .me-notify-modal-backdrop {
+    padding: 12px;
   }
 }
