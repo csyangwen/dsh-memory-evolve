@@ -255,14 +255,14 @@ test('allowlist：白名单外文件不入库（git ls-files 验证）；TODOS.m
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'KEY.md'), '[id:aaaa0000] [2026-08-10] 记忆\n')
     writeFileSync(join(dir, 'TODOS.md'), '- [ ] 待办（2026-08-11 起并入项目记忆轨同步）\n')
-    writeFileSync(join(dir, 'scratch.md'), '便签（不该入库）\n')
+    writeFileSync(join(dir, 'notes.md'), '临时笔记（不该入库）\n')
     const boot = await ensureMemoryRepo({ dir, memoryDir, cwd, projectId: identity.id, displayName: identity.displayName, remoteUrl: identity.remoteUrl, remoteBranch: 'dsh-shared/memory' })
     assert.equal(boot.ok, true)
     const tracked = git(dir, ['ls-files'])
     assert.ok(tracked.includes('KEY.md'), 'KEY.md 应入库')
     assert.ok(tracked.includes('PROVENANCE'), 'PROVENANCE 应入库')
     assert.ok(tracked.includes('TODOS.md'), 'TODOS.md 应入库（2026-08-11 统一模式并入项目记忆轨）')
-    assert.ok(!tracked.includes('scratch.md'), '便签不应入库')
+    assert.ok(!tracked.includes('notes.md'), '白名单外的临时文件不应入库')
   } finally {
     clean(root)
   }

@@ -1,0 +1,663 @@
+/**
+ * 无限画板（canvas-grok）样式。类名前缀 cg-。
+ * 颜色只用 --dsw-alias-* / --dsw-static-* token，深浅色自动适配。
+ */
+
+.cg-root {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, inherit);
+  font-size: 13px;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* ---------- 顶栏 ---------- */
+
+.cg-toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base));
+  z-index: 3;
+}
+
+.cg-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cg-toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-seg {
+  display: inline-flex;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cg-seg button,
+.cg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 5px 9px;
+  cursor: pointer;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.cg-seg button {
+  border-radius: 0;
+}
+
+.cg-seg button + button {
+  border-left: 1px solid var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-seg button:hover,
+.cg-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.cg-seg button.cg-on,
+.cg-btn.cg-primary {
+  /* 完全对齐 DSH 官方主按钮（ui-primitives/Button.module.css .primary）：
+     background=button-primary-fill + color=label-primary-foreground。
+     ⚠️ 踩坑记录（用户反馈 2026-08-13 两轮）：曾用
+     var(--dsw-alias-on-brand,#fff) fallback 白字（该 token 不存在）与
+     brand-primary-invert（两主题下与 brand-primary 同值，名不副实），
+     都导致深色主题浅底浅字看不见。 */
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.cg-seg button.cg-on:hover,
+.cg-btn.cg-primary:hover {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.cg-btn.cg-ghost {
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cg-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 160px;
+  flex: 1 1 180px;
+  max-width: 280px;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.cg-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.cg-search input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cg-meta {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.cg-scale {
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ---------- 画布视口 ---------- */
+
+.cg-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  /* 点阵网格：背景尺寸/位移由 JS 按视口写入，走合成层不重排 */
+  background-color: var(--dsw-alias-bg-base);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--dsw-alias-interactive-bg-hover) 1px,
+    transparent 0
+  );
+}
+
+.cg-stage.cg-panning {
+  cursor: grabbing;
+}
+
+.cg-stage.cg-space {
+  cursor: grab;
+}
+
+.cg-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* AI 投放区：世界坐标里的固定虚线框 */
+.cg-ai-zone {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 6%, transparent);
+  pointer-events: none;
+}
+
+.cg-ai-zone-label {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--dsw-alias-brand-primary);
+  opacity: 0.85;
+}
+
+/* ---------- 卡片 ---------- */
+
+.cg-card {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+  overflow: hidden;
+  /* 卡片自身也是合成层，拖动时不带动整板重排 */
+  will-change: transform;
+  contain: layout paint;
+}
+
+.cg-card.cg-selected {
+  border-color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-brand-primary);
+}
+
+.cg-card.cg-dimmed {
+  opacity: 0.28;
+}
+
+.cg-card.cg-flash {
+  animation: cg-flash 1.4s ease;
+}
+
+.cg-card.cg-fresh {
+  animation: cg-fresh 1.8s ease;
+}
+
+.cg-card.cg-ai {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 50%, var(--dsw-alias-interactive-bg-hover));
+}
+
+/* 右下角缩放手柄：hover 卡片时显示；拖动改变卡片宽高。 */
+.cg-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background:
+    linear-gradient(135deg, transparent 42%, var(--dsw-alias-label-secondary) 46%, var(--dsw-alias-label-secondary) 54%, transparent 58%),
+    linear-gradient(135deg, transparent 62%, var(--dsw-alias-label-secondary) 66%, var(--dsw-alias-label-secondary) 74%, transparent 78%);
+  opacity: 0;
+  cursor: nwse-resize;
+  transition: opacity 0.15s ease;
+}
+.cg-card:hover .cg-resize-handle,
+.cg-resize-handle:active {
+  opacity: 0.85;
+}
+
+@keyframes cg-flash {
+  0%, 100% { box-shadow: none; }
+  20%, 60% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, transparent);
+  }
+}
+
+@keyframes cg-fresh {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 50%, transparent); }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: none; }
+}
+
+.cg-card-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
+  cursor: grab;
+  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover) 35%, transparent);
+}
+
+.cg-card.cg-dragging .cg-card-head {
+  cursor: grabbing;
+}
+
+.cg-drag {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  letter-spacing: -1px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.cg-type-glyph {
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.cg-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.cg-badges {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cg-badge {
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-badge-ai {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.cg-badge-warn {
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #b8860b) 16%, transparent);
+  color: var(--dsw-alias-state-warning-primary, #b8860b);
+}
+
+.cg-card-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cg-card-path {
+  font-family: var(--dsw-font-family-mono, ui-monospace, Menlo, monospace);
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-card-meta {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cg-editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  padding: 6px 8px;
+  font: inherit;
+  font-family: var(--dsw-font-family-mono, ui-monospace, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.55;
+  outline: none;
+}
+
+.cg-editor:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+/* 图片 / 音视频占位预览 */
+.cg-ph {
+  flex: 1;
+  min-height: 64px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 22px;
+  overflow: hidden;
+}
+
+.cg-ph small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.cg-file-ext {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  text-transform: uppercase;
+}
+
+/* LOD：整卡变成大图标 + 标题 */
+.cg-lod {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 28px;
+  pointer-events: none;
+}
+
+.cg-lod span {
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-card-foot {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-card-foot button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.cg-card-foot button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.cg-card-foot button.cg-danger:hover {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ---------- 对话框 / 预览 ---------- */
+
+.cg-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 28%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.cg-dialog {
+  width: min(480px, 100%);
+  max-height: min(72vh, 640px);
+  overflow: auto;
+  box-sizing: border-box;
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cg-dialog.cg-dialog-wide {
+  width: min(640px, 100%);
+}
+
+.cg-dialog h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.cg-dialog p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 1.55;
+}
+
+.cg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cg-field label {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cg-field input,
+.cg-field textarea,
+.cg-field select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  padding: 7px 9px;
+  outline: none;
+}
+
+.cg-field textarea {
+  min-height: 96px;
+  resize: vertical;
+  font-family: var(--dsw-font-family-mono, ui-monospace, Menlo, monospace);
+}
+
+.cg-field input:focus,
+.cg-field textarea:focus,
+.cg-field select:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.cg-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cg-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cg-catalog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  width: 100%;
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.cg-catalog-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-catalog-row strong {
+  display: block;
+  font-size: 13px;
+}
+
+.cg-catalog-row small {
+  display: block;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--dsw-font-family-mono, ui-monospace, Menlo, monospace);
+}
+
+.cg-preview-body {
+  max-height: 48vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--dsw-font-family-mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-hint {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ---------- Toast ---------- */
+
+.cg-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 9;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-elevated, var(--dsw-alias-bg-base));
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
+  pointer-events: none;
+}
+
+/* ---------- 空状态提示（画布角落） ---------- */
+
+.cg-hint-bar {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 80%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+}

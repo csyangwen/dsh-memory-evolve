@@ -7,7 +7,7 @@
  *   - 记忆 tab（memory-files）：记忆文件 + 记忆专属指南 + 待确认记忆建议
  *   - 技能 tab（skills-hub）：待确认技能建议 + 技能管理（SkillsBrowser）
  *   - 待办 tab（todos-hub）：待确认待办建议 + 四轨待办（TodoView）
- * plus the optional COI 调度 / 提示词 / 临时信息 tabs, all backed by
+ * plus the optional COI 调度 / 提示词 / 无限画板 tabs, all backed by
  * the node half's /memory-evolve/api routes. Each tab label carries a
  * red-dot pending count (🔴 记忆 (N) / 🔴 技能 (N) / 🔴 待办 (N)) while
  * suggestions/skills/todos await confirmation, refreshed by polling the
@@ -30,11 +30,11 @@ import { HeaderActions } from './HeaderActions.tsx'
 import { AdvisorHost } from './advisor/AdvisorPanel.tsx'
 import { ADVISOR_CONNECTION_RESET_EVENT } from './advisor/advisor-store.ts'
 import { BroadcastView } from './BroadcastView.tsx'
-import { ScratchView } from './ScratchView.tsx'
 import { PromptView } from './PromptView.tsx'
 import { BookmarksView } from './BookmarksView.tsx'
 import { SyncView } from './SyncView.tsx'
 import { createBookmarkInjector } from './bookmark-injector.tsx'
+import { registerCanvasTab } from './canvas-grok/index.ts'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { createContextMeterWarn } from './context-meter-warn.ts'
@@ -42,7 +42,6 @@ import { createMermaidRenderer } from './mermaid-render.ts'
 import { FEATURES_EVENT, readFeatures } from './ui-settings-features.ts'
 import styles from './styles.css'
 import coiStyles from './coi-styles.css'
-import scratchStyles from './scratch-styles.css'
 import promptStyles from './prompt-styles.css'
 import broadcastStyles from './broadcast-styles.css'
 import skillBrowserStyles from './skills-browser/styles.css'
@@ -257,7 +256,6 @@ export const zh = {
   'header.setAlias.cleared': '别名已清除',
   'advisor.header.toggle': '会话评审',
   'advisor.header.toggle.title': '打开或折叠会话评审悬浮面板',
-  'scratchTab.label': '临时信息',
   'promptTab.label': '提示词',
   'promptTab.label.active': '🔴 提示词 ({count})',
   'settingsTab.label': 'Memory Evolve 设置',
@@ -794,8 +792,6 @@ export const zh = {
   'panel.config.perTurnKeyWrites.hint': '要求模型每个回合结束前判断是否出现重要项目事实（长期约定/决策/架构/踩坑），有则写入 target=key（自动注入上下文），没有就跳过；关闭后 key 仅保留手动添加与读取。⚠️ 依赖 LLM 指令遵循',
   'panel.config.coiEnabled': 'COI 调度',
   'panel.config.coiEnabled.hint': '启用 de_coi_* 工具与「COI 调度」Tab：统一调度 kimi/codex/grok/hermes 等 CLI 代理（默认禁用——本插件的本职是记忆/待办/技能，调度是按需增强；关闭时工具与 Tab 完全不可见）',
-  'panel.config.scratchEnabled': '临时信息 Tab',
-  'panel.config.scratchEnabled.hint': '启用「临时信息」Tab：持久化 Markdown 便签，临时想法随手记（自动保存到 ~/.dsh/memories/scratch.md，重启不丢，可随时迁移或删除）。默认关闭；关闭时 Tab 完全不可见',
   'panel.config.searchDocsEnabled': '本地文件搜索工具',
   'panel.config.searchDocsEnabled.hint': '让模型在本机所有磁盘/目录中搜索文件。**四档模式**：都启用 = 文件名 + 内容检索都可用；仅文件名 = content/contentQuery 参数被忽略（不读任何文件内容，适合内容检索用别的实现的人）；仅内容 = 每次调用都做内容匹配（query 视为内容关键词）；关闭 = 工具对模型完全不可见。内容检索：contentQuery="关键词" 即搜"哪个文档里提过 XX"（rg 全文匹配，返回命中片段）。默认关闭',
   'panel.config.searchDocsMode.all': '都启用（文件名 + 内容）',
@@ -823,6 +819,8 @@ export const zh = {
   'panel.config.syncEnabled.hint': '**模块开关**：启用「记忆同步」模块——对话页出现「记忆同步」Tab、/memory_sync 命令可用。**注意：这只是模块启用，不等于任何项目开始同步**——每个项目由「记忆同步」Tab 里的「本项目同步」开关单独启用（默认关；未启用的项目保持纯本地状态，不建 Git 仓库、不生成身份证）。同步机制：项目记忆（KEY + 项目日志 + 归档 + 项目待办）经 Git 对账到记忆远端——不填地址默认用你的主代码仓库（专属分支，零配置）；填共享记忆仓库地址 = 一个私有仓库装所有项目的记忆（全局记忆二期也只能用它同步）。push 永远需你显式触发',
   'panel.config.sessionSearchEnabled': '会话搜索',
   'panel.config.sessionSearchEnabled.hint': '启用 de_session_search：让模型搜索本机其他 AI 工具的历史会话（当前支持 Codex：~/.codex/sessions 与 archived_sessions 的明文 JSONL——rg 预筛后毫秒级；DSH 会话暂不支持）。大小写不敏感的字面匹配，只搜用户/助手消息；支持 cwd 项目过滤、relevance/newest/oldest 排序、limit/window 控制规模。**独立子模块**（默认关闭，可单独开启，与 COI 调度/广播无关）；零常驻状态：无索引、无缓存，每次调用实时只读扫描，不修改任何会话文件；关闭时工具对模型完全不可见',
+  'panel.config.canvasEnabled': '无限画板',
+  'panel.config.canvasEnabled.hint': '**模块开关**：启用「无限画板」——对话页出现「画板」Tab + de_canvas 工具（AI 可查画板、按 id 读内容、往画板中央区放便签）。本地路径引用、单板+视角筛选（会话/项目/全局 + 归属徽标）、AI 双向拉取式（画板内容不注入上下文，需要时主动查）。**独立子模块**（默认关闭）：存储 <memoryDir>/canvas/boards.json（整板原子写 + rev 乐观锁防多会话覆盖）；关闭时 Tab 与工具完全不可见，数据文件保留',
   'panel.config.sessionEnabled': '会话编排',
   'panel.config.sessionEnabled.hint': '启用会话编排（de_session）：让 AI **程序化创建/唤醒 DSH 会话**——spawn 新建标准会话（与手动打开完全同构：系统提示词/工具/记忆快照/持久化，出现在左侧会话列表可接管），prompt=完整提示词（角色/任务自由组合的长文本），创建后立即自动开跑，可选 cwd/加入广播房间/覆盖模型；wake 唤醒已有会话（等价替用户发消息，对方 AI 自动醒来处理，进程重启后自动恢复）；status/list 查状态；**会话头部「⧉ 复制会话ID」「✎ 别名」按钮随本开关**（会话身份功能，曾误挂在广播下）。**独立子模块**（默认关闭；依赖 DSH agents 服务，仅同进程会话可唤醒；关闭时工具对模型不可见）',
   'panel.config.promptsEnabled': '提示词管理器',
@@ -1039,7 +1037,6 @@ export const en: Record<MemoryEvolveKey, string> = {
   'header.setAlias.cleared': 'Alias cleared',
   'advisor.header.toggle': 'Session Review',
   'advisor.header.toggle.title': 'Open or collapse the Advisor review panel',
-  'scratchTab.label': 'Scratch Pad',
   'promptTab.label': 'Prompts',
   'promptTab.label.active': '🔴 Prompts ({count})',
   'settingsTab.label': 'Memory Evolve Settings',
@@ -1574,8 +1571,6 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.perTurnKeyWrites.hint': 'Require the model to judge at the end of every turn whether an important project fact emerged (long-lived convention/decision/architecture/pitfall); if so, write it to target=key (injected into the context), otherwise skip. When off, key facts are only added manually or read. ⚠️ Relies on LLM instruction following',
   'panel.config.coiEnabled': 'COI dispatch',
   'panel.config.coiEnabled.hint': 'Enable the de_coi_* tools and the CLI Dispatch tab: unified dispatch of CLI agents (kimi/codex/grok/hermes…). Off by default — this plugin\'s core is memory/todos/skills, dispatch is an on-demand add-on; when off, the tools and the tab are completely invisible',
-  'panel.config.scratchEnabled': 'Scratch pad tab',
-  'panel.config.scratchEnabled.hint': 'Enable the Scratch Pad tab: a persistent Markdown note for temporary thoughts (auto-saves to ~/.dsh/memories/scratch.md, survives restarts, ready to migrate or delete anytime). Off by default; when off the tab is completely invisible',
   'panel.config.searchDocsEnabled': 'Local file search tool',
   'panel.config.searchDocsEnabled.hint': 'Lets the model search files across all local disks/directories. **Four modes**: all = name + content search; filename only = content/contentQuery parameters are ignored (never reads file contents — for people who use their own content-search implementation); content only = every call does content matching (query acts as the content keyword); off = the tool is completely invisible to the model. Content search: contentQuery="keyword" answers "which document mentions XX" (rg full-text match, returns hit snippets). Off by default',
   'panel.config.searchDocsMode.all': 'All (name + content)',
@@ -1603,6 +1598,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.syncEnabled.hint': '**Module switch**: enables the Memory Sync module — the Memory Sync tab appears in conversations and /memory_sync works. **Note: this does NOT start syncing any project** — each project is opted in separately via the "Sync this project" switch in the Memory Sync tab (off by default; never-opted-in projects keep their pure-local state: no Git repo, no entry IDs). Sync moves project memory (KEY + project log + archive + project todos) over Git to one memory remote — leave the URL empty to use your main code repo by default (dedicated branch, zero config); paste a shared memory repo URL to use one private repo for all projects (global memory, phase 2, can only sync through it). Push always requires your explicit trigger',
   'panel.config.sessionSearchEnabled': 'Session search',
   'panel.config.sessionSearchEnabled.hint': 'Enable de_session_search: lets the model search historical sessions of other local AI tools (Codex for now: plain JSONL under ~/.codex/sessions and archived_sessions — rg prefilter keeps it millisecond-fast; DSH sessions not supported yet). Case-insensitive literal matching over user/assistant messages only; supports cwd project filter, relevance/newest/oldest sorting, and limit/window result control. **Independent submodule** (off by default, can be enabled alone — unrelated to COI dispatch/broadcast); zero resident state: no index, no cache, every call scans read-only in real time and never modifies session files; when off the tool is completely invisible to the model',
+  'panel.config.canvasEnabled': 'Infinite canvas',
+  'panel.config.canvasEnabled.hint': '**Module switch**: enables the Infinite Canvas — a Canvas tab in conversations + the de_canvas tool (the model can list the board, read nodes by id, and drop notes into the board\'s center zone). Local path references, single-board with perspective filters (session/project/global + ownership badges), pull-based AI access (board content is never injected into context; query it on demand). **Independent submodule** (off by default): stored at <memoryDir>/canvas/boards.json (whole-board atomic writes + rev optimistic lock to prevent cross-session overwrites); when off the tab and tool are completely invisible, data files are kept',
   'panel.config.sessionEnabled': 'Session orchestration',
   'panel.config.sessionEnabled.hint': 'Enable session orchestration (de_session): lets AI **programmatically create/wake DSH sessions** — spawn creates a standard session (identical to one opened manually: system prompt/tools/memory snapshot/persistence, appears in the left session list and can be taken over), prompt = the full instruction text (role/task freely composed), it starts running immediately; optional cwd / join a broadcast room / model override; wake wakes an existing session (equivalent to sending a message on its behalf — its AI wakes up and processes it, auto-resumed after process restart); status/list inspect state; the header **"⧉ Copy session ID" / "✎ alias" buttons follow this switch** (session-identity features, previously mis-housed under broadcast). **Independent submodule** (off by default; depends on the DSH agents service, only same-process sessions can be woken; when off the tool is invisible to the model)',
   'panel.config.promptsEnabled': 'Prompt manager',
@@ -1737,18 +1734,6 @@ export function apply(ctx: Context): void {
     return () => { tag.remove() }
   }, 'memory-evolve: broadcast stylesheet')
 
-  // 临时信息样式（sp- 前缀，独立注入）。
-  ctx.effect(() => {
-    if (typeof document === 'undefined') return () => {}
-    const existing = document.querySelector('style[data-scratch-css]')
-    if (existing !== null) return () => {}
-    const tag = document.createElement('style')
-    tag.dataset.scratchCss = '1'
-    tag.textContent = scratchStyles
-    document.head.appendChild(tag)
-    return () => { tag.remove() }
-  }, 'memory-evolve: scratch stylesheet')
-
   // 提示词样式（pm- 前缀，独立注入）。
   ctx.effect(() => {
     if (typeof document === 'undefined') return () => {}
@@ -1852,10 +1837,10 @@ export function apply(ctx: Context): void {
   }, 'memory-evolve: notification bell')
 
   // 会话页顶部 Tab 顺序（2026-08-11 用户拍板：记忆 技能 待办 COI调度 会话广播
-  // 提示词 临时信息 记忆同步 模型设置 书签 Web UI设置 Memory Evolve设置；order
+  // 提示词 无限画板 记忆同步 模型设置 书签 Web UI设置 Memory Evolve设置；order
   // 按 10 步进，留插入余量）：
   //   10 记忆 / 20 技能 / 30 待办 / 40 COI调度 / 50 会话广播 / 60 提示词 /
-  //   70 临时信息 / 80 记忆同步 / 90 模型设置 / 100 书签 / 110 Web UI设置 /
+  //   80 无限画板 / 80 记忆同步 / 90 模型设置 / 100 书签 / 110 Web UI设置 /
   //   120 Memory Evolve 设置
   // 每个 label 携带各自的待确认红点计数（记忆=记忆建议数、技能=技能建议数、
   // 待办=待办建议数），badge 变化时重新注册触发 label 重求值。
@@ -1930,8 +1915,8 @@ export function apply(ctx: Context): void {
         label: () => t('modelsTab.label'),
       }, (props) => ModelsTabView({ ...props, t })))
   }
-  // 记忆同步 Tab（order 80，临时信息之后）：跟随 syncEnabled 运行时开关
-  // （与 models/scratch 同款：开启后刷新页面出现，关闭时完全不可见）。
+  // 记忆同步 Tab（order 80）：跟随 syncEnabled 运行时开关
+  // （开启后刷新页面出现，关闭时完全不可见）。
   let disposeSyncTab: (() => void) | undefined
   const registerSyncTab = (): void => {
     disposeSyncTab?.()
@@ -1976,7 +1961,7 @@ export function apply(ctx: Context): void {
 
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-    .then((data: { config?: { memoryTabEnabled?: boolean; scratchEnabled?: boolean; modelsEnabled?: boolean } }) => {
+    .then((data: { config?: { memoryTabEnabled?: boolean; modelsEnabled?: boolean } }) => {
       // 模型设置 tab：跟随 modelsEnabled 运行时开关（默认开，与其他模块
       // 同款独立开关，在「设置」Tab 的「配置」里切换；开启后刷新页面出现）。
       if (!tabCancelled && data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
@@ -1986,19 +1971,6 @@ export function apply(ctx: Context): void {
       // setup 打开后刷新页面出现）
       if (!tabCancelled && data.config?.syncEnabled === true && disposeSyncTab === undefined) {
         registerSyncTab()
-      }
-      // 临时信息 tab：受 scratchEnabled 运行时开关控制（默认关闭，与
-      // COI/提示词一致）。开关在「Memory Evolve 设置」Tab 的「配置」里切换，
-      // 开启后刷新页面即出现；关闭时 Tab 完全不可见（host 的
-      // /api/scratch 路由仍常驻——纯文件读写、零副作用，不随开关卸载）。
-      if (!scratchCancelled && data.config?.scratchEnabled === true && disposeScratchTab === undefined) {
-        disposeScratchTab = ctx.slots.inject('conversation.view', () =>
-          ctx.slots.register({
-            name: 'conversation.view',
-            id: 'scratch-pad',
-            order: 70,
-            label: () => t('scratchTab.label'),
-          }, (props) => ScratchView({ ...props, t })))
       }
       // memoryTabEnabled is a read-only field of /api/config (default true;
       // only config.yaml can turn it off — deliberately NOT a runtime key,
@@ -2048,14 +2020,6 @@ export function apply(ctx: Context): void {
   ctx.effect(() => () => {
     disposeSyncTab?.()
   }, 'memory-evolve: sync tab')
-
-  // 临时信息 Tab 的清理（注册本身在 /api/config 探测成功后进行）。
-  let scratchCancelled = false
-  let disposeScratchTab: (() => void) | undefined
-  ctx.effect(() => () => {
-    scratchCancelled = true
-    disposeScratchTab?.()
-  }, 'memory-evolve: scratch tab')
 
   // 模型设置 Tab 的清理（注册本身在 /api/config 探测成功后进行——
   // 与其他模块同款独立开关 modelsEnabled）。
@@ -2380,4 +2344,17 @@ export function apply(ctx: Context): void {
     disposeBookmarkCapture?.()
     disposeBookmarkTab?.()
   }, 'memory-evolve: bookmarks')
+
+  // 无限画板（canvas-hub）：前端一期 Grok 实现（2026-08-13 用户拍板选版）。
+  // cg- 前缀；纯前端阶段数据走 localStorage，后端接入后改调宿主 API。
+  // 注册参数 id: canvas-hub / label: 画板 / order: 80（正式值）。
+  // ctx 断言为 CanvasTabHost：cordis Context 类型缺 slots（项目既有类型
+  // 环境问题，全部 slots 调用同源），运行时由客户端运行时注入。
+  const disposeCanvasTab = registerCanvasTab(
+    ctx as unknown as import('./canvas-grok/index.ts').CanvasTabHost,
+    { t },
+  )
+  ctx.effect(() => () => {
+    disposeCanvasTab?.()
+  }, 'memory-evolve: canvas-tab')
 }

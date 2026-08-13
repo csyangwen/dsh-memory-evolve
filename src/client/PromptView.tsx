@@ -10,7 +10,7 @@
  *
  * 数据来自 host 的 /memory-evolve/api/prompts 路由；样式在
  * prompt-styles.css（pm- 前缀，由 index.ts 注入）。组件内部自带中英文案
- * （默认中文，与 CoIView/ScratchView 一致），不接全局 locale。
+ * （默认中文，与 CoIView 一致），不接全局 locale。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
