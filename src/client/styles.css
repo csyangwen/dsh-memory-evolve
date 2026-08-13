@@ -227,6 +227,15 @@
   border-color: color-mix(in srgb, var(--dsw-static-purple-5, #9333ea) 45%, transparent);
 }
 
+/* 项目级建议的来源项目徽标（key / todo-project）：中性色 + 虚线边框，
+   视觉上区别于"写入哪类记忆"的彩色目标徽标——它标注的是"哪个项目"。 */
+.me-badge-project {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px dashed var(--dsw-alias-border-l3);
+  max-width: 40%;
+}
+
 /* 采纳目标选择下拉（默认=AI 推荐轨，可改分类） */
 .me-pick-target {
   border: 1px solid var(--dsw-alias-border-l2);

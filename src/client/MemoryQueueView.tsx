@@ -55,11 +55,22 @@ const SUGGEST_TARGETS = ['memory', 'user', 'key'] as const
 interface SuggestionEntry {
   time: string
   sessionId?: string | null
+  /** 建议产生时的会话工作目录（项目级条目定位用；可能为 null=无 cwd 的老条目）。 */
+  cwd?: string | null
   target: string
   content: string
   reason?: string
   /** How many times this fact resurfaced in reviews (deduped queue). */
   hits?: number
+}
+
+/**
+ * 项目级建议（target=key / todo-project）显示项目标识：取 cwd 的最后一段
+ * 作为项目名（兼容 / 与 \ 分隔的路径），完整路径放 title 悬浮提示。
+ */
+function projectName(cwd: string): string {
+  const parts = cwd.split(/[\\/]/).filter((part) => part.length > 0)
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : cwd
 }
 
 /** One pending skill awaiting user confirmation. */
@@ -421,6 +432,16 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                       >
                         {suggestTargetLabel(t, entry.target)}
                       </span>
+                      {/* 项目级建议（项目关键记忆/项目待办）：标注来源项目，
+                          否则多条 key 建议看不出属于哪个项目的工作区间 */}
+                      {entry.cwd && (entry.target === 'key' || entry.target === 'todo-project') && (
+                        <span
+                          className="me-badge me-badge-project"
+                          title={t('panel.suggestions.projectHint', { path: entry.cwd })}
+                        >
+                          📁 {projectName(entry.cwd)}
+                        </span>
+                      )}
                       {(entry.hits ?? 1) > 1 && (
                         <span className="me-badge me-badge-hits" title={t('panel.suggestions.hitsHint')}>
                           {t('panel.suggestions.hits', { count: entry.hits ?? 1 })}
