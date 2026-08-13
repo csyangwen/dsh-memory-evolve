@@ -114,19 +114,24 @@ test('/advisor 命令：注册 + status/on/off/tell 全流程', async (t) => {
   setup(rig)
   await new Promise((r) => setTimeout(r, 20))
 
-  // status
+  // status（2026-08-13 opt-in：总闸开后每个会话默认关闭，需手动开启）
   const st = invoke(rig, 'status')
   assert.equal(st.kind, 'success')
-  assert.ok(st.text.includes('Advisor: enabled'))
+  assert.ok(st.text.includes('Advisor: disabled'))
+
+  // on（手动启用本会话）
+  const on = invoke(rig, 'on')
+  assert.ok(on.text.includes('Advisor on'))
+  assert.equal(rig.ctrl.status('s1').effectiveEnabled, true)
 
   // off
   const off = invoke(rig, 'off')
   assert.equal(off.text, 'Advisor off for this session.')
   assert.equal(rig.ctrl.status('s1').effectiveEnabled, false)
 
-  // on（恢复）
-  const on = invoke(rig, 'on')
-  assert.ok(on.text.includes('Advisor on'))
+  // on（恢复，供后续 tell 问答测试）
+  const onAgain = invoke(rig, 'on')
+  assert.ok(onAgain.text.includes('Advisor on'))
 
   // tell（发指令）→ Q4：入队后立即触发问答评审并消费（异步，稍候）
   const tell = invoke(rig, 'tell 重点检查安全')
@@ -144,13 +149,14 @@ test('/advisor 命令：注册 + status/on/off/tell 全流程', async (t) => {
   assert.ok(usage.text.includes('Usage'))
 })
 
-test('/advisor toggle：翻转生效', (t) => {
+test('/advisor toggle：翻转生效（默认关 → 开 → 关）', (t) => {
   const rig = makeRig()
   t.after(() => { rig.installed.dispose(); rmSync(rig.dir, { recursive: true, force: true }) })
   setup(rig)
-  assert.ok(rig.ctrl.status('s1').effectiveEnabled)
-  invoke(rig, 'toggle')
+  // 2026-08-13 opt-in：默认关闭
   assert.equal(rig.ctrl.status('s1').effectiveEnabled, false)
   invoke(rig, 'toggle')
   assert.ok(rig.ctrl.status('s1').effectiveEnabled)
+  invoke(rig, 'toggle')
+  assert.equal(rig.ctrl.status('s1').effectiveEnabled, false)
 })

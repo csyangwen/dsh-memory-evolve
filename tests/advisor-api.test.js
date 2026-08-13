@@ -197,6 +197,10 @@ function setupSession(rig, sessionId = 'session-1', userText = '帮我写个函�
   // agent/created
   const created = rig.listeners['agent/created']?.[0]
   created?.({ agent })
+  // 2026-08-13 opt-in：总闸开后每个会话默认关闭——依赖评审运行的用例
+  // 统一在此显式开会话级开关（override=true）；需要默认关的用例请用
+  // 原始 stubAgent/feed 组合或调用 setSessionOverride(sessionId, false)。
+  rig.ctrl.setSessionOverride(sessionId, true)
   // 喂一轮事件（user → step → assistant → turn/end；逐个 feed）
   const event = (type, data, surfaceOp) => ({ type, seq: nextSeq(), data, surfaceOp })
   feed(rig, session, event('user/message', { id: 'm1', role: 'user', content: [{ type: 'text', text: userText }], source: { kind: 'user' } }, 'append'))
@@ -387,15 +391,21 @@ test('多 fiber：single-reviewer 只装一个评审者', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('生命周期：agent/disposed 对称清理（runtime 释放、override 清除）', (t) => {
+test('生命周期：agent/disposed 后 override 保留（刷新/重建不丢会话级开关）', (t) => {
   const rig = rigFor(t)
   setupSession(rig)
+  // 用户在本会话关闭评审（override=false，持久化落盘）
   rig.ctrl.setSessionOverride('session-1', false)
   const disposed = rig.listeners['agent/disposed']?.[0]
   disposed?.({ agent: { id: 'session-1' } })
-  // 重建 agent 后运行时重新创建
-  const { agent } = setupSession(rig)
-  assert.equal(rig.ctrl.status('session-1').effectiveEnabled, true)
+  // 2026-08-13：disposed 不再删除 override——模拟页面刷新（agent 重建），
+  // 会话级开关必须保持关闭，不得自动开启评审
+  const { agent } = stubAgent('session-1')
+  rig.agents.set('session-1', agent)
+  rig.listeners['agent/created']?.[0]?.({ agent })
+  const status = rig.ctrl.status('session-1')
+  assert.equal(status.override, false)
+  assert.equal(status.effectiveEnabled, false)
 })
 
 // ---------------------------------------------------------------------------
