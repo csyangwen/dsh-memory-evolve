@@ -235,6 +235,46 @@ test('task store: lifecycle, log, filters, prune', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('task store: listPaged slices with total (page/pageSize, bounds)', () => {
+  const dir = tempDir()
+  const store = new TaskStore(dir, {})
+  try {
+    // 造 12 条任务（显式递增 createdAt，保证倒序可预测；i 越大越新）
+    for (let i = 0; i < 12; i += 1) {
+      const t = store.add({ adapterId: i % 2 === 0 ? 'kimi' : 'codex', prompt: `task-${i}`, scope: 'global' })
+      t.createdAt = 1000 + i * 1000
+    }
+    // 第 1 页 pageSize=5：取最新的 5 条，total=12
+    const p1 = store.listPaged({ page: 1, pageSize: 5 })
+    assert.equal(p1.total, 12)
+    assert.equal(p1.items.length, 5)
+    assert.match(p1.items[0].prompt, /task-11$/)
+    // 第 3 页：10 条之后剩 2 条
+    const p3 = store.listPaged({ page: 3, pageSize: 5 })
+    assert.equal(p3.items.length, 2)
+    assert.match(p3.items[1].prompt, /task-0$/)
+    // 越界页：空 items，total 仍为真实总数（前端据此钳回最后一页）
+    const p9 = store.listPaged({ page: 9, pageSize: 5 })
+    assert.equal(p9.items.length, 0)
+    assert.equal(p9.total, 12)
+    // 参数兜底：page<1 按 1；pageSize 上限 500；缺省 pageSize=200
+    assert.equal(store.listPaged({ page: 0 }).page, 1)
+    assert.equal(store.listPaged({ pageSize: 9999 }).pageSize, 500)
+    assert.equal(store.listPaged({}).pageSize, 200)
+    // 过滤 + 分页：q 过滤后 total 是过滤后的数（task-1 / task-10 / task-11）
+    const filtered = store.listPaged({ q: 'task-1', page: 1, pageSize: 5 })
+    assert.equal(filtered.total, 3)
+    assert.equal(filtered.items.length, 3)
+    // 与旧 list(limit) 语义一致：listPaged 第 1 页 = list(limit) 前 pageSize 条
+    assert.deepEqual(
+      store.listPaged({ page: 1, pageSize: 5 }).items.map((t) => t.id),
+      store.list({ limit: 5 }).map((t) => t.id),
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // ----------------------------------------------------------- visibility
 
 test('visibility: scope-tier filtering for tasks and sessions', () => {
@@ -1170,6 +1210,50 @@ test('coi api: adapters, tasks dispatch + status + cancel flow', async () => {
     assert.equal(del.data.ok, true)
     const afterDel = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p')
     assert.equal(afterDel.data.tasks.length, 0)
+  } finally {
+    await api.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('coi api: tasks list pagination (page/pageSize + total; old limit call unchanged)', async () => {
+  const dir = tempDir()
+  const api = await bootApi(dir)
+  try {
+    // 直接往 store 塞 7 条任务（不经过调度器，避免真实 spawn；显式递增
+    // createdAt 保证倒序可预测——同毫秒创建时稳定排序会保持插入序）
+    for (let i = 0; i < 7; i += 1) {
+      const t = api.stores.tasks.add({ adapterId: 'kimi', prompt: `page-task-${i}`, scope: 'global' })
+      t.createdAt = 1000 + i * 1000
+    }
+    // 分页查询：第 1 页 5 条 + total + 页码回显
+    const p1 = await api.request('GET', '/memory-evolve/api/coi/tasks?page=1&pageSize=5')
+    assert.equal(p1.status, 200)
+    assert.equal(p1.data.tasks.length, 5)
+    assert.equal(p1.data.total, 7)
+    assert.equal(p1.data.page, 1)
+    assert.equal(p1.data.pageSize, 5)
+    assert.match(p1.data.tasks[0].prompt, /page-task-6$/)
+    // 第 2 页：剩 2 条
+    const p2 = await api.request('GET', '/memory-evolve/api/coi/tasks?page=2&pageSize=5')
+    assert.equal(p2.data.tasks.length, 2)
+    assert.equal(p2.data.total, 7)
+    // 越界页：空数组 + 真实 total
+    const p9 = await api.request('GET', '/memory-evolve/api/coi/tasks?page=9&pageSize=5')
+    assert.equal(p9.data.tasks.length, 0)
+    assert.equal(p9.data.total, 7)
+    // 过滤 + 分页：q 只命中 page-task-1 一条 → total 是过滤后的计数
+    const q = await api.request('GET', '/memory-evolve/api/coi/tasks?page=1&pageSize=5&q=page-task-1')
+    assert.equal(q.data.total, 1)
+    assert.equal(q.data.tasks.length, 1)
+    // 旧调用方（只传 limit，接力下拉等）：响应形状保持 { tasks }，无 total/页码字段
+    const legacy = await api.request('GET', '/memory-evolve/api/coi/tasks?limit=3')
+    assert.equal(legacy.data.tasks.length, 3)
+    assert.equal(legacy.data.total, undefined)
+    // 只传 pageSize（无 page）：按第 1 页处理
+    const ps = await api.request('GET', '/memory-evolve/api/coi/tasks?pageSize=3')
+    assert.equal(ps.data.page, 1)
+    assert.equal(ps.data.tasks.length, 3)
   } finally {
     await api.close()
     rmSync(dir, { recursive: true, force: true })

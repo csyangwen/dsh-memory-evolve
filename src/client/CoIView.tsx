@@ -181,6 +181,9 @@ const DICT = {
     'tasks.logFull': '放大',
     'tasks.prompt': '任务内容',
     'tasks.searchPh': '搜索任务（内容/任务 id）…',
+    'tasks.pager.prev': '上一页',
+    'tasks.pager.next': '下一页',
+    'tasks.pager.total': '共',
     'tasks.delete': '删除',
     'tasks.confirmDelete': '删除该任务？将移除任务记录与输出留档（已沉淀到记忆的摘要不受影响；被接力引用的任务删除后，新接力会提示任务不存在）。\n\n{id}',
     'tasks.status': '状态',
@@ -360,6 +363,9 @@ const DICT = {
     'tasks.logFull': 'Expand',
     'tasks.prompt': 'Task prompt',
     'tasks.searchPh': 'Search tasks (content / task id)…',
+    'tasks.pager.prev': 'Prev',
+    'tasks.pager.next': 'Next',
+    'tasks.pager.total': 'of',
     'tasks.delete': 'Delete',
     'tasks.confirmDelete': 'Delete this task? Its record and output archive will be removed (memory summaries are unaffected; relay references to it will fail afterwards).\n\n{id}',
     'tasks.status': 'Status',
@@ -582,8 +588,8 @@ const BUILTIN_TEMPLATE_IDS = new Set(['review-code', 'fix-tests', 'summarize-log
 const TASKS_POLL_MS = 3000
 /** 日志轮询间隔（仅运行中）。 */
 const LOG_POLL_MS = 2000
-/** 列表只显示最近 50 条。 */
-const TASK_LIMIT = 50
+/** 任务列表每页条数（分页：任务多时翻页查看历史，不再只显示最近 20 条）。 */
+const TASK_LIMIT = 20
 
 /* ------------------------------------------------------------------ */
 /* 通用小件                                                             */
@@ -712,6 +718,10 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   const [sessions, setSessions] = useState<CoiSession[]>([])
   const [refTasks, setRefTasks] = useState<CoiTask[]>([])
   const [tasks, setTasks] = useState<CoiTask[] | null>(null)
+  // 分页（任务列表）：page 从 1 起；total=后端返回的过滤后总数（算总页数）。
+  // 搜索/翻页都会触发重新拉取；轮询刷新保持当前页。
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
 
@@ -750,13 +760,19 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   const loadTasks = useCallback(async (): Promise<void> => {
     try {
       const q = searchQ.trim()
-      const data = await fetchJson<{ tasks: CoiTask[] }>(`/tasks?limit=${TASK_LIMIT}${visQs}${q !== '' ? `&q=${encodeURIComponent(q)}` : ''}`)
+      const data = await fetchJson<{ tasks: CoiTask[]; total: number }>(`/tasks?page=${page}&pageSize=${TASK_LIMIT}${visQs}${q !== '' ? `&q=${encodeURIComponent(q)}` : ''}`)
+      // 页码越界保护：当前页已无数据但总数 > 0（如删除了本页任务）→ 自动跳回最后一页
+      if (data.tasks.length === 0 && data.total > 0 && page > 1) {
+        setPage(Math.max(1, Math.ceil(data.total / TASK_LIMIT)))
+        return
+      }
       setTasks(data.tasks)
+      setTotal(data.total)
       setError(null)
     } catch (err) {
       setError(errText(err))
     }
-  }, [searchQ])
+  }, [searchQ, page])
 
   const loadDetail = useCallback(async (id: string): Promise<void> => {
     try {
@@ -1088,7 +1104,11 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
           className="coi-input"
           placeholder={t('tasks.searchPh')}
           value={searchQ}
-          onChange={(e) => setSearchQ(e.target.value)}
+          onChange={(e) => {
+            setSearchQ(e.target.value)
+            // 搜索条件变化 → 回到第一页（否则可能落在过滤后的空页上）
+            setPage(1)
+          }}
         />
       </div>
 
@@ -1115,6 +1135,31 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
               </button>
             )
           })}
+          {/* 分页控件：任务超过一页时显示（上一页 / 当前页-总页数 · 共 N 条 / 下一页）。
+              放列表容器内末尾：列表是滚动容器，控件随内容滚动到底可见。 */}
+          {tasks !== null && total > TASK_LIMIT && (
+            <div className="coi-pager">
+              <button
+                type="button"
+                className="coi-btn coi-btn-mini"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹ {t('tasks.pager.prev')}
+              </button>
+              <span className="coi-pager-info">
+                {page} / {Math.max(1, Math.ceil(total / TASK_LIMIT))} · {t('tasks.pager.total')} {total}
+              </span>
+              <button
+                type="button"
+                className="coi-btn coi-btn-mini"
+                disabled={page >= Math.max(1, Math.ceil(total / TASK_LIMIT))}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                {t('tasks.pager.next')} ›
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="coi-detail">

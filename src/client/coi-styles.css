@@ -609,6 +609,27 @@
   width: 100%;
 }
 
+/* ---- 任务列表分页 ---- */
+.coi-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+}
+
+.coi-pager .coi-btn-mini:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.coi-pager-info {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  white-space: nowrap;
+}
+
 /* ---- 详情：任务内容（只读，小区域，可滚动） ---- */
 .coi-prompt-view {
   max-height: 120px;
