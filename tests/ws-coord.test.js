@@ -445,3 +445,70 @@ test('renderSnapshot 集成：wsCoord 活动段注入不抛错（防 2026-08-09 
   assert.ok(!out2.includes('【工作区活动】'))
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ----------------------------------------------------------------- 2026-08-13 防频繁注入回归（用户实测：3 会话并行正常运行，公告板一轮内反复更新）
+
+test('activeFor：锁过期/重登记不改变成员顺序（排序稳定化，防文本抖动注入）', async () => {
+  const dir = tempDir()
+  const store = new WsCoordStore(dir)
+  const meta = new Map([
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+    ['A', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+    ['C', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+  ])
+  // A 先写文件、C 后写 → 锁按登记顺序 [A, C]
+  store.observe('A', '/w', 'a.js')
+  store.observe('C', '/w', 'c.js')
+  const first = store.activeFor('/w', meta).map((a) => a.sessionId)
+  assert.deepEqual(first, ['A', 'B', 'C'], '按会话 ID 升序（不再随锁登记顺序）')
+  // 30s TTL 到期：A 的锁过期消失；A 重新写文件 → 锁重登记到数组末尾
+  for (const l of store.locks) if (l.sessionId === 'A') l.expiresAt = Date.now() - 1
+  const mid = store.activeFor('/w', meta).map((a) => a.sessionId)
+  assert.deepEqual(mid, ['A', 'B', 'C'], '锁过期（A 变 running 无锁）后顺序仍稳定')
+  store.observe('A', '/w', 'a.js')
+  const second = store.activeFor('/w', meta).map((a) => a.sessionId)
+  assert.deepEqual(second, ['A', 'B', 'C'], '锁重登记后顺序仍稳定——旧实现会变成 [C,A,B] 导致文本抖动')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('buildWsCoordBlock：lastActiveAt 刷新（跨分钟）不改变文本（firstSeenAt 稳定锚点）', () => {
+  const dir = tempDir()
+  const store = new WsCoordStore(dir)
+  store.declare({ sessionId: 'A', cwd: '/w', targets: [{ path: 'a.js', note: '重构' }] })
+  const meta = new Map([
+    ['A', { cwd: '/w', status: 'running', lastActiveAt: 1000, firstSeenAt: 1000 }],
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: 2000, firstSeenAt: 2000 }],
+  ])
+  const config = { wsCoordEnabled: true, wsCoordSnapshot: true }
+  const name = (sid) => sid
+  const block1 = buildWsCoordBlock(config, 'S', '/w', store, meta, name)
+  assert.ok(block1 !== null)
+  // B 完成一轮：lastActiveAt 刷新到 30 分钟后（跨分钟）——旧实现 running
+  // 无锁会话的 since=lastActiveAt，HH:MM 起始时刻变化 → 文本变 → 重复注入
+  meta.set('B', { cwd: '/w', status: 'running', lastActiveAt: 2000 + 30 * 60000, firstSeenAt: 2000 })
+  const block2 = buildWsCoordBlock(config, 'S', '/w', store, meta, name)
+  assert.equal(block1, block2, 'lastActiveAt 刷新不得改变公告板文本（firstSeenAt 是稳定锚点）')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('buildWsCoordBlock：observed 锁 30s 过期/重登记不改变文本（note 空 + 排序稳定）', () => {
+  const dir = tempDir()
+  const store = new WsCoordStore(dir)
+  const meta = new Map([
+    ['A', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+    ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
+  ])
+  store.observe('A', '/w', 'a.js')
+  const config = { wsCoordEnabled: true, wsCoordSnapshot: true }
+  const block1 = buildWsCoordBlock(config, 'S', '/w', store, meta, (s) => s)
+  assert.ok(block1 !== null)
+  // A 的 observed 锁 30s 过期（无写入续期）→ A 变 running 无锁
+  for (const l of store.locks) l.expiresAt = Date.now() - 1
+  const block2 = buildWsCoordBlock(config, 'S', '/w', store, meta, (s) => s)
+  assert.equal(block1, block2, 'observed 锁过期（note 为空）不得改变文本——旧实现顺序抖动导致重复注入')
+  // A 重新写文件 → 锁重登记 → 文本仍不变
+  store.observe('A', '/w', 'a.js')
+  const block3 = buildWsCoordBlock(config, 'S', '/w', store, meta, (s) => s)
+  assert.equal(block1, block3, '锁重登记不得改变文本')
+  rmSync(dir, { recursive: true, force: true })
+})
