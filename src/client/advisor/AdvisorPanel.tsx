@@ -129,10 +129,14 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     ?? snapshot.status?.panelEnabled
     ?? true
 
-  // 2026-08-13 用户反馈：advisorEnabled 是模块**总闸**。status 尚未同步
-  // 完成时用全局 config 兜底（全局开着先显示，status 返回后以
-  // effectiveEnabled 为准；全局关着则从一开始就不渲染，避免刷新闪一下）。
-  const enabled = snapshot.status?.effectiveEnabled ?? (snapshot.config?.advisorEnabled === true)
+  // 2026-08-13 用户反馈（两轮迭代）：
+  // 1. advisorEnabled 是模块**总闸**——总闸关闭时评审入口整体不渲染；
+  //    status 未同步完成时用全局 config 兜底，避免刷新闪一下。
+  // 2. 会话级开关只控制本会话是否评审，**不影响入口渲染**——会话级关闭
+  //    后入口必须保留（否则用户无法再从面板把本会话开关打开；上一版把
+  //    effectiveEnabled 当渲染条件引入了此回归）。
+  const globalEnabled = snapshot.status?.defaultEnabled ?? (snapshot.config?.advisorEnabled === true)
+  const enabled = snapshot.status?.effectiveEnabled ?? globalEnabled
 
   // 配置明确关闭面板时，首次加载自动收起；用户从 header 主动打开后仍可进入
   // 设置区恢复开关，避免“关闭后再也打不开”的死路。
@@ -196,10 +200,11 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     : 'Advisor 面板显示已关闭；点击可打开设置'
 
   // 2026-08-13 用户反馈：设置 Tab 的「会话评审（Advisor）」是模块总闸——
-  // 本会话未启用（全局关闭且无会话级 override）时，评审入口（头部按钮、
-  // 悬浮胶囊、面板）整体不渲染，模块在界面上彻底消失；开启总闸后恢复。
+  // **总闸关闭**时评审入口（头部按钮、悬浮胶囊、面板）整体不渲染，模块
+  // 在界面上彻底消失；开启总闸后恢复。会话级关闭（override=false）只停
+  // 本会话评审，入口照常保留（面板里可重新打开本会话开关）。
   // ⚠️ React 规则：本 early-return 位于所有 hooks 之后，不影响 hooks 顺序。
-  if (!enabled) return null
+  if (!globalEnabled) return null
 
   const portal = typeof document === 'undefined' ? null : createPortal(
     expanded ? (
