@@ -138,9 +138,10 @@ export function SyncView(props: ConvViewProps & { t: Translate }): JSX.Element {
       ])
       const nextStatus = 'status' in s && s.status !== undefined ? s.status : (s as SyncStatus)
       setStatus(nextStatus)
-      // 记忆远端输入框回显已配置的共享仓库地址（设备级 global.url；项目
-      // 也可能已初始化到共享仓库——用项目 originUrl 更贴近当前引用）
-      if (!remoteUrlEdited.current) setRemoteUrl(nextStatus.originUrl ?? '')
+      // 记忆远端输入框回显已配置的共享仓库地址（设备级 global.url）。
+      // 不能回显项目 originUrl——A 模式下 originUrl 是主代码仓库地址，
+      // 回显它会把「共享记忆库」配置误改成主代码仓（稳定版复审 P0-8）
+      if (!remoteUrlEdited.current) setRemoteUrl(nextStatus.global?.url ?? '')
       // 启用意向回显：跟随服务端 enabled（停用后刷新回"不启用"）
       setRemoteOn(nextStatus.global?.enabled === true)
       setConflicts(c.conflicts ?? [])

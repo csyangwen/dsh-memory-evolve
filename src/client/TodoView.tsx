@@ -335,8 +335,11 @@ export function TodoView(props: TodoViewProps): JSX.Element {
     }).finally(() => setBusy(false))
   }
 
-  /** 今天（本地），用于逾期标红。 */
-  const today = new Date().toISOString().slice(0, 10)
+  /** 今天（本地时区），用于逾期标红。不能 toISOString——那是 UTC 日期，
+   *  东八区晚上本地已过零点时 UTC 仍是前一天，「今天」的截止会被误标成
+   *  逾期（稳定版复审 P0-9）。 */
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   /** 前端筛选：状态（active=未完成全部状态）+ 象限 + 过往视图只看过往条目。 */
   const visible = (items ?? []).filter((item) => {

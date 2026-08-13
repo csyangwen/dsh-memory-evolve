@@ -168,8 +168,12 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** 跨重挂持久化的 tab 选择（模块级：badge 刷新导致的组件重挂后恢复）。 */
-let persistedFeature: TabFeature | null = null
-let persistedFileKey: string | null = null
+// 跨会话隔离（稳定版复审 P1-4）：模块级单值变量会在会话间串台——切换
+// 会话时子 Tab/文件页签选择沿用上一会话的。改为按 sessionId 分桶，
+// 每个会话各自记住自己的选择；组件实例被复用（跨会话重挂）时恢复对应
+// 会话的历史选择，无历史则回落默认。
+const persistedFeatures = new Map<string, TabFeature | null>()
+const persistedFileKeys = new Map<string, string | null>()
 
 /**
  * 记忆 Tab 专属指南内容（「指南」子 Tab）：
@@ -252,8 +256,8 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   const [query, setQuery] = useState('')
   // 美观视图分页（大文件如项目日志按条目分页渲染，每页 PAGE_SIZE 条）
   const [page, setPage] = useState(0)
-  /** 当前激活的文件 key（tab 切换）。 */
-  const [activeKey, setActiveKey] = useState<string | null>(persistedFileKey)
+  /** 当前激活的文件 key（tab 切换；按会话分桶恢复，见 P1-4 注释）。 */
+  const [activeKey, setActiveKey] = useState<string | null>(persistedFileKeys.get(sessionId) ?? null)
   /** 手动添加项目关键记忆的草稿与保存状态。 */
   const [keyDraft, setKeyDraft] = useState('')
   const [keySaving, setKeySaving] = useState(false)
@@ -272,7 +276,7 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   /** 删除条目进行中（防止连点并发删除）。 */
   const [deleting, setDeleting] = useState(false)
   /** 功能子 tab：null = 文件视图；否则显示待确认记忆/技能/运行时配置/技能管理面板。 */
-  const [feature, setFeature] = useState<TabFeature | null>(persistedFeature)
+  const [feature, setFeature] = useState<TabFeature | null>(persistedFeatures.get(sessionId) ?? null)
   /** 待确认记忆建议计数（来自 /api/badge，用于功能 tab 的徽标文本）。 */
   const [badge, setBadge] = useState<{ suggestions: number }>({ suggestions: 0 })
 
@@ -289,10 +293,17 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     return () => window.clearInterval(timer)
   }, [pollBadge])
 
-  // 同步 tab 选择到模块级：badge 刷新导致的组件重挂（deferral.refresh()）
-  // 后恢复，避免处理完一条建议视图跳回文件页。
-  useEffect(() => { persistedFeature = feature }, [feature])
-  useEffect(() => { persistedFileKey = activeKey }, [activeKey])
+  // 会话切换（组件实例跨会话复用）时恢复该会话的历史选择；无历史回落
+  // 默认（activeKey=null 由下方 fallback effect 选第一个可用文件）。
+  useEffect(() => {
+    setActiveKey(persistedFileKeys.get(sessionId) ?? null)
+    setFeature(persistedFeatures.get(sessionId) ?? null)
+  }, [sessionId])
+
+  // 同步 tab 选择到模块级（按会话分桶）：badge 刷新导致的组件重挂
+  // （deferral.refresh()）后恢复，避免处理完一条建议视图跳回文件页。
+  useEffect(() => { persistedFeatures.set(sessionId, feature) }, [feature, sessionId])
+  useEffect(() => { persistedFileKeys.set(sessionId, activeKey) }, [activeKey, sessionId])
 
   const load = useCallback((): void => {
     setFiles(null)
@@ -309,10 +320,12 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     })
   }, [sessionId])
 
+  // load 随 sessionId 变化重建 → 会话切换时重新拉取该会话的文件列表
+  // （稳定版复审 P1-4：旧代码空依赖只拉一次，跨会话复用实例时文件列表
+  // 停留在上一会话）。
   useEffect(() => {
     load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [load])
 
   // 默认选中第一个可用文件；激活 key 失效时自动回退到可用文件
   useEffect(() => {

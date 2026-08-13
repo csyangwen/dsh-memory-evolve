@@ -794,9 +794,16 @@ export function useAdvisorSessionStore(sessionId: string): {
 } {
   const store = useMemo(() => new AdvisorSessionStore(sessionId), [sessionId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  // 轮询启停（稳定版复审 P1-1）：config 明确关闭总闸（advisorEnabled=false）
+  // 时停掉 1s 事件轮询——status 恒不可用，空转浪费请求；config 未知时先
+  // 轮询（总闸可能开着，且 status.defaultEnabled 才是权威值），config 到位
+  // 后若总闸关则 stop（stop 幂等；started=false 后 start 可重入，用户重开
+  // 总闸时 config 变化触发本 effect，轮询自动恢复）。
   useEffect(() => {
-    store.start()
+    const totalOff = snapshot.config !== null && snapshot.config.advisorEnabled !== true
+    if (totalOff) store.stop()
+    else store.start()
     return () => store.stop()
-  }, [store])
+  }, [store, snapshot.config])
   return { store, snapshot }
 }

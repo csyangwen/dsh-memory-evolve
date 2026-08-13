@@ -784,7 +784,9 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   }, [])
 
   const removeTask = async (id: string): Promise<void> => {
-    if (!window.confirm(t('tasks.confirmDelete'))) return
+    // 稳定版复审 P1-6：文案里的 {id} 占位符必须替换成真实任务 id，
+    // 否则对话框显示字面量 {id}（旧版未替换，用户不知道删的是哪个任务）
+    if (!window.confirm(t('tasks.confirmDelete').replace('{id}', id))) return
     try {
       const res = await deleteJson<{ ok: boolean; message?: string }>(`/tasks/${encodeURIComponent(id)}`)
       if (res.ok !== true) {
@@ -918,7 +920,10 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
     if (detail === null) return
     if (!window.confirm(t('tasks.confirmKill'))) return
     try {
-      await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: true })
+      // 稳定版复审 P1-6：先发 force:false——host 对「正在写文件」等任务
+      // 会返回确认提示而不是直接终止（跳过它会绕过安全检查）；被拒时
+      // 把服务端提示原样给用户二次确认后再带 force 重发（catch 分支）。
+      await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: false })
       setNotice({ kind: 'ok', text: t('tasks.killed') })
       void loadTasks()
       void loadDetail(detail.id)

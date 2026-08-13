@@ -560,12 +560,15 @@ html[data-dsh-mobile] [data-conversation-scroll] {
    的透明 fixed 层叠在右侧（pointer-events 只开自身），看起来像同一条底栏。
    bottom 用 --dsh-composer-height（ConversationRoot 实时高度，152px 兜底）。 */
 
-/* ---- 默认隐藏：.tools + 模型选择 ---- */
-html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div > div:first-child {
+/* ---- 默认隐藏：.tools + 模型选择 ----
+   只在 enhance 已注入「⋯」按钮的行生效（:has(.dsh-mobile-more-btn)）：
+   enhance 未运行/探测失败/官方改了 composer DOM 时，加号与模型保持可见，
+   不会出现「工具栏永久消失、又无处找回」的死路（稳定版复审 P1-5）。 */
+html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div:has(> .dsh-mobile-more-btn) > div:first-child {
   display: none;
 }
 /* 模型：.trailing 内「直接子 button 带 aria-haspopup=menu 的 div」= ModelSelect */
-html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
+html[data-dsh-mobile] [data-composer-card] > [data-input-scroll] + div:has(> .dsh-mobile-more-btn) > div:last-of-type > div:has(> button[aria-haspopup="menu"]) {
   display: none;
 }
 

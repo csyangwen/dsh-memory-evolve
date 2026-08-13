@@ -2042,6 +2042,13 @@ export function apply(ctx: Context): void {
     disposeSettingsTab?.()
   }, 'memory-evolve: memory tabs')
 
+  // 记忆同步 Tab 的清理（注册本身在 /api/config 探测成功后进行；
+  // registerSyncTab 重注册时已先卸旧槽，这里补上插件卸载路径——
+  // 稳定版复审 P1-2：缺它会导致插件卸载/热重载后同步 Tab 槽位残留）。
+  ctx.effect(() => () => {
+    disposeSyncTab?.()
+  }, 'memory-evolve: sync tab')
+
   // 临时信息 Tab 的清理（注册本身在 /api/config 探测成功后进行）。
   let scratchCancelled = false
   let disposeScratchTab: (() => void) | undefined
@@ -2121,12 +2128,18 @@ export function apply(ctx: Context): void {
 
   // Advisor 只占 strict-session header.actions：同一组件渲染 header toggle，
   // 并 createPortal(document.body) 挂悬浮面板；不得注册 conversation.view Tab。
-  ctx.slots.inject('conversation.session.header.actions', () =>
+  // dispose 注册（稳定版复审 P1-1）：插件卸载/热重载时必须移除槽位，
+  // 否则 AdvisorHost 卸载后 store 的轮询失去 UI 但仍持续打 /events。
+  let disposeAdvisor: (() => void) | undefined
+  disposeAdvisor = ctx.slots.inject('conversation.session.header.actions', () =>
     ctx.slots.register({
       name: 'conversation.session.header.actions',
       id: 'advisor-review-panel',
       order: 30,
     }, (props) => AdvisorHost({ ...props, t })))
+  ctx.effect(() => () => {
+    disposeAdvisor?.()
+  }, 'memory-evolve: advisor panel')
 
   // DSH 重连会让 host 的内存 ring/连接代次发生变化；转成浏览器事件后，
   // 每个 session store 都会取消旧请求、清空 after 游标并立即重新同步。

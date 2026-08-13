@@ -503,7 +503,19 @@ function RowView(props: {
         ? (
           <td className="mt-models-cell mt-models-col-reasoning">
             {!row.thinking
-              ? <span className="mt-models-tag mt-models-tag-off">{t('modelsTab.thinkingOff')}</span>
+              ? (
+                <>
+                  <span className="mt-models-tag mt-models-tag-off">{t('modelsTab.thinkingOff')}</span>
+                  {/* 稳定版复审 P1-3：思考关闭后仍保留「编辑」入口——「思考」
+                      开关藏在展开编辑器里，旧版关掉后无按钮可再打开（死路）；
+                      有思考等级的模型才需要入口（无等级时编辑器无可编辑内容） */}
+                  {levels.length > 0 && (
+                    <button type="button" className="mt-models-link" onClick={onExpand} aria-expanded={expanded}>
+                      {expanded ? t('modelsTab.closeEditor') : t('modelsTab.editLevels')}
+                    </button>
+                  )}
+                </>
+              )
               : levels.length === 0
                 ? <span className="mt-models-muted-cell">—</span>
                 : (
