@@ -154,14 +154,13 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
       .catch(() => { /* best-effort */ })
   }, [poll, loadList])
 
-  /** 展开单条：拉全文（超长落文件时）+ 标记已读。 */
+  /** 展开单条：总是拉全文 + 标记已读。
+   *  ⚠️ 不能依赖 item.content——那是列表预览（200 字截断）。200~8KB 的中长
+   *  通知若不拉 /content，详情里会永远看不到被截断的部分。host 端 full(id)
+   *  无论是否落文件都返回完整内容，故这里无条件拉。 */
   const openDetail = useCallback((item: NotificationItem): void => {
     setDetailId(item.id)
     markRead([item.id])
-    if (!item.hasBody) {
-      setDetail({ item, content: item.content })
-      return
-    }
     void fetch(`${API}/${encodeURIComponent(item.id)}/content`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((data: { content?: string }) => setDetail({ item, content: data.content ?? item.content }))
