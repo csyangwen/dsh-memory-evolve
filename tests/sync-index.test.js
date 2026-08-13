@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { makeProjectDirResolver, projectSyncInfo, renderSyncLine, handleCommand, spawnWorker, syncStatusSync, installMemorySync } from '../lib/sync/index.js'
+import { makeProjectDirResolver, projectSyncInfo, handleCommand, spawnWorker, syncStatusSync, installMemorySync } from '../lib/sync/index.js'
 import { ensureMemoryRepo, deviceBConnect } from '../lib/sync/repo.js'
 import { resolveProjectId } from '../lib/sync/identity.js'
 import { projectHash } from '../lib/store.js'
@@ -94,40 +94,6 @@ test('makeProjectDirResolver：已初始化 sync 项目 → projectId 目录；�
     const plainCwd = join(root, 'no-git-project')
     mkdirSync(plainCwd, { recursive: true })
     assert.equal(resolver(plainCwd), join(memoryDir, 'projects', projectHash(plainCwd)))
-  } finally {
-    clean(root)
-  }
-})
-
-/* ---------------- 快照状态行 ---------------- */
-
-test('renderSyncLine：未初始化 → 空串（不占快照体积）；初始化后 → 状态文本', { skip }, async () => {
-  const root = tempDir()
-  try {
-    const { cwd, memoryDir } = await bootProject(root)
-    // 未初始化项目：空串
-    const plainCwd = join(root, 'plain')
-    mkdirSync(plainCwd, { recursive: true })
-    assert.equal(renderSyncLine({ memoryDir }, plainCwd), '')
-    // 无 cwd：空串
-    assert.equal(renderSyncLine({ memoryDir }, undefined), '')
-    // 已初始化：状态文本（刚初始化 → 未推送 0、落后 0 → "已同步"）
-    const line = renderSyncLine({ memoryDir }, cwd)
-    assert.match(line, /^## 记忆同步/)
-    assert.match(line, /已同步|未推送/)
-  } finally {
-    clean(root)
-  }
-})
-
-test('renderSyncLine：未推送变更会体现在状态行（状态驱动稳定；2026-08-11 用户反馈：口径 = 工作树未提交 + 已提交未推送）', { skip }, async () => {
-  const root = tempDir()
-  try {
-    const { cwd, memoryDir, dir } = await bootProject(root)
-    // 工作树加一条未提交记忆（模拟 store 写入后）
-    writeFileSync(join(dir, 'KEY.md'), '[id:aaaa0000] [2026-08-11] 未推送条目\n')
-    const line = renderSyncLine({ memoryDir }, cwd)
-    assert.match(line, /未推送 1 条/)
   } finally {
     clean(root)
   }
@@ -286,18 +252,14 @@ test('installMemorySync：命令注册 + dispose 清理 + syncStatus', () => {
     getRuntime: () => ({ ...rt }),
     applyRuntimePatch: () => {},
   })
-  // 命令注册
-  assert.ok(registered.some((d) => d.name === 'memory_sync'), '应注册 /memory_sync 命令')
-  const def = registered.find((d) => d.name === 'memory_sync')
-  assert.match(def.input.syntax, /setup/)
-  // syncStatus：未初始化项目如实返回
+  // 2026-08-13 用户拍板：记忆同步无 AI 侧入口——不再注册 /memory_sync 命令
+  assert.ok(!registered.some((d) => d.name === 'memory_sync'), '不再注册 /memory_sync 命令（AI 不参与同步）')
+  // syncStatus：未初始化项目如实返回（GUI/API 数据源保留）
   const status = installed.syncStatus('/tmp/nonexistent-cwd')
   assert.equal(status.enabled, true)
   assert.equal(status.initialized, false)
-  // dispose：清理命令注册
+  // dispose：幂等
   installed.dispose()
-  assert.ok(disposed >= 1, 'dispose 应清理注册')
-  // 幂等 dispose
   installed.dispose()
 })
 

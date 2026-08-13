@@ -17,7 +17,7 @@ import { BroadcastStore, messageToolDefinition } from '../lib/coi/broadcast.js'
 import { coiToolDefinitions } from '../lib/coi/tools.js'
 import { installCoiApi } from '../lib/coi/api.js'
 import { validateCoiRuntimePatch } from '../lib/coi/index.js'
-import { buildBroadcastBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
@@ -1373,10 +1373,20 @@ test('installBroadcast: 独立装配（不依赖 coiEnabled，注册 de_broadcas
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('installBroadcast: 成员状态变化（agent/status）→ 动态队列（不再发收件箱通知）', async () => {
+test('installBroadcast: 成员状态变化 → 向同房其他成员投递独立消息（不再写动态队列）', async () => {
   const dir = tempDir()
   const { ctx } = fakeCtx()
   const { installBroadcast } = await import('../lib/coi/index.js')
+  // 假 agents 服务：记录各会话收到的 inject 消息
+  const aInjects = []
+  const bInjects = []
+  ctx.get = (name) => (name === 'agents'
+    ? {
+        get: (sid) => (sid === 'sA'
+          ? { status: 'idle', inject: (m) => aInjects.push(m) }
+          : sid === 'sB' ? { status: 'idle', inject: (m) => bInjects.push(m) } : null),
+      }
+    : undefined)
   const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
   // 建房间：A 创建，B 加入
   const created = installed.store.rooms.create({ createdBy: 'sA', name: '协作组' })
@@ -1385,26 +1395,71 @@ test('installBroadcast: 成员状态变化（agent/status）→ 动态队列（�
   // 触发 B 的 agent/status：先 idle 再 running（切换才触发 onChange）
   ctx.emit('agent/status', { agent: { session: { id: 'sB' } }, status: 'idle' })
   ctx.emit('agent/status', { agent: { session: { id: 'sB' } }, status: 'running' })
-  // 收件箱**没有**系统通知（状态变化不再走收件箱——快照动态段接管）
-  assert.equal(installed.store.forSession('sA').length, 0, '状态变化不再发收件箱通知')
-  // 动态队列写入事件（房间 + 成员 + 状态）
-  const dynFile = join(dir, 'bcast', 'dynamics.json')
-  const dyn = JSON.parse(readFileSync(dynFile, 'utf8'))
-  assert.equal(dyn.events.length, 1)
-  assert.equal(dyn.events[0].roomId, created.room.id)
-  assert.equal(dyn.events[0].member, 'sB')
-  assert.equal(dyn.events[0].kind, 'running')
-  // 非房间成员 C 的状态变化 → 零事件（零噪声）
+  // 房间动态：向同房其他成员（sA）投递独立消息（inject 不唤醒）
+  assert.equal(aInjects.length, 1, 'sA 收到房间动态消息')
+  assert.ok(aInjects[0].content[0].text.includes('【房间动态】'), '动态消息格式')
+  assert.ok(aInjects[0].content[0].text.includes('开始干活'), 'running 语义')
+  assert.equal(bInjects.length, 0, '变化者自己不收自己的动态')
+  // 不再写 dynamics 队列（快照消费已移除，2026-08-13）
+  assert.ok(!existsSync(join(dir, 'bcast', 'dynamics.json')), '不再写动态队列文件')
+  // 非房间成员 C 的状态变化 → 零投递（零噪声）
   ctx.emit('agent/status', { agent: { session: { id: 'sC' } }, status: 'running' })
-  ctx.emit('agent/status', { agent: { session: { id: 'sC' } }, status: 'idle' })
-  const dyn2 = JSON.parse(readFileSync(dynFile, 'utf8'))
-  assert.equal(dyn2.events.length, 1, '非房间成员状态变化不写动态')
-  // 同状态重复事件不触发（idle→running→running 只记 2 条）
-  ctx.emit('agent/status', { agent: { session: { id: 'sB' } }, status: 'idle' })
+  assert.equal(aInjects.length, 1, '非房间成员变化不投递')
+  // 同状态重复事件不触发（running→running）
   ctx.emit('agent/status', { agent: { session: { id: 'sB' } }, status: 'running' })
-  ctx.emit('agent/status', { agent: { session: { id: 'sB' } }, status: 'running' })
-  const dyn3 = JSON.parse(readFileSync(dynFile, 'utf8'))
-  assert.equal(dyn3.events.length, 3, 'idle→running 2 条 + 重复 running 不记 = 共 3 条')
+  assert.equal(aInjects.length, 1, '同状态不投递')
+  installed.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('installBroadcast: 新广播消息 → 向接收方投递独立消息（收件箱语义不变）', async () => {
+  const dir = tempDir()
+  const { ctx } = fakeCtx()
+  const { installBroadcast } = await import('../lib/coi/index.js')
+  const bInjects = []
+  ctx.get = (name) => (name === 'agents'
+    ? { get: (sid) => (sid === 'sB' ? { status: 'idle', inject: (m) => bInjects.push(m) } : null) }
+    : undefined)
+  const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
+  // 新消息落盘 → sB 收到独立消息（含主题 + read 引导）
+  const sent = installed.store.send({ sender: 'sA', recipients: ['sB'], content: '协作消息', subject: '进度同步' })
+  assert.equal(sent.ok, true)
+  assert.equal(bInjects.length, 1, '接收方收到广播消息通知')
+  const text = bInjects[0].content[0].text
+  assert.ok(text.includes('【广播消息】'), '广播消息格式')
+  assert.ok(text.includes('进度同步'), '含主题')
+  assert.ok(text.includes(`de_broadcast read ${sent.item.id}`), '引导 read 处理（收件箱语义不变）')
+  // 未读仍在收件箱（通知 ≠ 已读）
+  assert.equal(installed.store.unreadCount('sB'), 1, '通知后未读计数不变（仍需 read）')
+  // 发送者自己不收
+  assert.equal(bInjects.length, 1)
+  installed.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('installBroadcast: 会话首次出现补投未读汇总（重启前的未读不丢）', async () => {
+  const dir = tempDir()
+  const { ctx } = fakeCtx()
+  const { installBroadcast } = await import('../lib/coi/index.js')
+  const bInjects = []
+  // sB 先离线（agents.get 返回 null）：send 投递失败但消息落盘
+  let sBOnline = false
+  ctx.get = (name) => (name === 'agents'
+    ? { get: (sid) => (sid === 'sB' && sBOnline ? { status: 'idle', inject: (m) => bInjects.push(m) } : null) }
+    : undefined)
+  const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
+  // 先有未读消息（sB 离线期间到达）
+  installed.store.send({ sender: 'sA', recipients: ['sB'], content: '离线消息', subject: '补投测试' })
+  assert.equal(installed.store.unreadCount('sB'), 1)
+  assert.equal(bInjects.length, 0, '离线时 send 不投递（落盘等待补投）')
+  // sB 上线（首次状态事件，模拟进程重启后恢复）→ 补投未读汇总
+  sBOnline = true
+  ctx.emit('agent/status', { agent: { session: { id: 'sB', header: { cwd: '/w' } } }, status: 'idle' })
+  assert.equal(bInjects.length, 1, '首次出现补投未读汇总')
+  assert.ok(bInjects[0].content[0].text.includes('【会话广播】你有 1 条未读'), '汇总格式')
+  // 再次事件不重复补投（seen 集合）
+  ctx.emit('agent/status', { agent: { session: { id: 'sB', header: { cwd: '/w' } } }, status: 'running' })
+  assert.equal(bInjects.length, 1, '补投只发生一次')
   installed.dispose()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -1530,44 +1585,6 @@ test('broadcast store: send/visibility/read/remove/prune + long body file', () =
   const pruned = store.prune()
   assert.equal(pruned, 1)
   assert.equal(store.forSession('B').some((m) => m.id === 'old-1'), false)
-  rmSync(dir, { recursive: true, force: true })
-})
-
-test('broadcast snapshot block: 定点注入只给接收者 + read 后提示消失', () => {
-  const dir = tempDir()
-  const coiDir = join(dir, 'coi')
-  mkdirSync(coiDir, { recursive: true })
-  const now = Date.now()
-  writeFileSync(join(coiDir, 'broadcast.json'), JSON.stringify([
-    { id: 'msg-1', sender: 'sessA', recipients: ['sessB'], content: '给 B 的消息', createdAt: now, readBy: [] },
-    { id: 'msg-2', sender: 'sessA', recipients: ['sessC'], content: '给 C 的消息', createdAt: now, readBy: [] },
-    { id: 'msg-3', sender: 'sessA', recipients: ['sessB'], content: 'B 已读', createdAt: now, readBy: ['sessB'] },
-  ]))
-  // 独立目录：broadcastDataDir（默认 memoryDir/broadcast，测试显式指定原路径）
-  const config = resolveConfig({ memoryDir: dir, coiEnabled: true, broadcastDataDir: coiDir })
-  // B：1 条未读（msg-1；msg-3 已读不计）；收件箱式列出 id+主题，可直接 read
-  const blockB = buildBroadcastBlock(config, 'sessB')
-  assert.ok(blockB !== null)
-  assert.ok(blockB.includes('未读消息 1 条'), 'B 看到自己的未读数')
-  assert.ok(blockB.includes('msg-1'), '快照列出消息 id（AI 可直接 read，无需先 list）')
-  assert.ok(blockB.includes('给 B 的消息'), '快照列出主题（缺省=内容首行）')
-  assert.ok(blockB.includes('必须用 de_broadcast read'), '指令式：必须 read 处理')
-  assert.ok(!blockB.includes('msg-2'), '不注入他人消息')
-  assert.ok(!blockB.includes('msg-3'), '已读消息不列出')
-  // C：1 条未读（msg-2）
-  const blockC = buildBroadcastBlock(config, 'sessC')
-  assert.ok(blockC.includes('未读消息 1 条'))
-  assert.ok(blockC.includes('msg-2'))
-  // 无关会话 / 无会话视角：整段不注入（定点）
-  assert.equal(buildBroadcastBlock(config, 'sessD'), null, '无关会话无感知')
-  assert.equal(buildBroadcastBlock(config, undefined), null, '无会话视角不注入')
-  // 文件不存在：null
-  assert.equal(buildBroadcastBlock(resolveConfig({ memoryDir: tempDir() }), 'sessB'), null)
-  // read 后提示消失（模拟 readBy 落盘）
-  const parsed = JSON.parse(readFileSync(join(coiDir, 'broadcast.json'), 'utf8'))
-  parsed.find((m) => m.id === 'msg-1').readBy.push('sessB')
-  writeFileSync(join(coiDir, 'broadcast.json'), JSON.stringify(parsed))
-  assert.equal(buildBroadcastBlock(config, 'sessB'), null, '全部已读后提示消失')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1856,98 +1873,6 @@ test('broadcast tools: room-create/join/leave/list + send 到房间', async () =
   const created2 = await msgTool.execute({ action: 'room-create', name: '待解散' }, execA)
   const rmOk = await msgTool.execute({ action: 'room-rm', roomId: created2.rooms[0].id }, execA)
   assert.equal(rmOk.ok, true, '创建者可解散房间')
-  rmSync(dir, { recursive: true, force: true })
-})
-
-test('broadcast snapshot block: 房间成员与项目内会话的未读清单注入', () => {
-  const dir = tempDir()
-  const bdir = join(dir, 'broadcast')
-  mkdirSync(bdir, { recursive: true })
-  const now = Date.now()
-  writeFileSync(join(bdir, 'rooms.json'), JSON.stringify({ 'room-1': { id: 'room-1', name: '审核组', members: ['sessA', 'sessB'], createdAt: now, createdBy: 'sessA' } }))
-  writeFileSync(join(bdir, 'broadcast.json'), JSON.stringify([
-    { id: 'msg-r', sender: 'sessA', recipients: ['room-1'], content: '房间消息', subject: '房间', createdAt: now, readBy: [] },
-    { id: 'msg-p', sender: 'sessA', recipients: ['project:/workA'], content: '项目消息', subject: '项目', createdAt: now, readBy: [] },
-    { id: 'msg-d', sender: 'sessA', recipients: ['sessB'], content: '单聊', subject: '单聊', createdAt: now, readBy: [] },
-  ]))
-  const config = resolveConfig({ memoryDir: dir, broadcastEnabled: true, broadcastDataDir: bdir })
-  // 房间成员 sessB（cwd=/workA）：三条全可见（房间成员 + 项目同目录 + 直接接收者）
-  const blockB = buildBroadcastBlock(config, 'sessB', '/workA')
-  assert.ok(blockB.includes('msg-r'), '房间成员注入房间消息')
-  assert.ok(blockB.includes('msg-p'), '同目录注入项目消息')
-  assert.ok(blockB.includes('msg-d'), '直接接收者注入')
-  assert.ok(blockB.includes('未读消息 3 条'))
-  // from/to 可读标注：发件人 + 消息类型（私信/房间名/项目路径）
-  assert.ok(blockB.includes('来自 sessA'), '标注发件人')
-  assert.ok(blockB.includes('房间：审核组'), '房间消息标注群名')
-  assert.ok(blockB.includes('项目：/workA'), '项目消息标注路径')
-  assert.ok(blockB.includes('（私信）'), '直接消息标注私信')
-  // 非成员且跨目录 sessC：只看到直接接收者？sessC 无任何关系 → null
-  assert.equal(buildBroadcastBlock(config, 'sessC', '/workB'), null, '无关会话无感知')
-  // 房间非成员但同目录 sessD：只看到项目消息
-  const blockD = buildBroadcastBlock(config, 'sessD', '/workA')
-  assert.ok(blockD !== null)
-  assert.ok(!blockD.includes('msg-r'), '非房间成员看不到房间消息')
-  assert.ok(blockD.includes('msg-p'), '同目录看到项目消息')
-  rmSync(dir, { recursive: true, force: true })
-})
-
-test('broadcast snapshot: 房间动态段渲染即消费（成员状态变化快照直达，无需 read）', () => {
-  const dir = tempDir()
-  const bdir = join(dir, 'broadcast')
-  mkdirSync(bdir, { recursive: true })
-  const now = Date.now()
-  const roomId = 'room-dyn1'
-  // 房间：sessA、sessB 成员
-  writeFileSync(join(bdir, 'rooms.json'), JSON.stringify({
-    [roomId]: { id: roomId, name: '协作组', members: ['sessA', 'sessB'], createdAt: now, status: 'active' },
-  }))
-  // 动态队列：sessB 连续 running→idle（应合并为最新 idle）；sessX 非成员事件（不应显示）
-  writeFileSync(join(bdir, 'dynamics.json'), JSON.stringify({
-    seq: 3,
-    events: [
-      { seq: 1, roomId, member: 'sessB', kind: 'running', at: now - 60000 },
-      { seq: 2, roomId, member: 'sessB', kind: 'idle', at: now - 30000 },
-      { seq: 3, roomId, member: 'sessX', kind: 'running', at: now },
-    ],
-    cursors: {},
-  }))
-  const config = resolveConfig({ memoryDir: dir, broadcastEnabled: true, broadcastDataDir: bdir })
-  // 第一次渲染：sessB 的连续变化合并为一条 idle（最新状态），sessX 不显示
-  const block1 = buildBroadcastBlock(config, 'sessA')
-  assert.ok(block1 !== null)
-  assert.ok(block1.includes('房间动态'), '动态段出现')
-  // 标题带当前时间锚点（快照渲染时刻，精确到秒）——模型对比事件时间判断新旧
-  assert.match(block1, /房间动态（成员状态变化 · ⏰ 当前 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}）/, '标题含当前时间锚点（秒级）')
-  assert.ok(block1.includes('sessB 干完/闲了'), '合并为最新状态 idle')
-  assert.ok(block1.includes('wake'), 'idle 语义明确：提示需 wake')
-  assert.ok(!block1.includes('开始干活（协作组）'), 'running 中间态被合并掉')
-  assert.ok(!block1.includes('sessX'), '非成员事件不显示')
-  assert.ok(!block1.includes('sessB 开始干活'), '自己之外只看最新状态')
-  // 渲染即消费：第二次渲染动态段消失（无未读无动态 = null）
-  const block2 = buildBroadcastBlock(config, 'sessA')
-  assert.equal(block2, null, '消费后动态段消失（水位已推进）')
-  // 水位已落盘：sessA 推进到最新，事件保留
-  const saved = JSON.parse(readFileSync(join(bdir, 'dynamics.json'), 'utf8'))
-  assert.equal(saved.cursors['sessA'], 3, 'sessA 水位推进到最新')
-  assert.equal(saved.events.length, 3, '事件保留（只推水位，不删事件）')
-  // 动态与未读消息并存：都有时两段都注入
-  writeFileSync(join(bdir, 'broadcast.json'), JSON.stringify([
-    { id: 'msg-z', sender: 'sessB', recipients: ['sessA'], content: '你好', subject: '你好', createdAt: now, readBy: [] },
-  ]))
-  writeFileSync(join(bdir, 'dynamics.json'), JSON.stringify({
-    seq: 4,
-    events: [
-      { seq: 1, roomId, member: 'sessB', kind: 'running', at: now - 60000 },
-      { seq: 2, roomId, member: 'sessB', kind: 'idle', at: now - 30000 },
-      { seq: 4, roomId, member: 'sessB', kind: 'running', at: now },
-    ],
-    cursors: { sessA: 3 },
-  }))
-  const block3 = buildBroadcastBlock(config, 'sessA')
-  assert.ok(block3.includes('会话广播'), '未读段注入')
-  assert.ok(block3.includes('房间动态'), '动态段注入')
-  assert.ok(block3.includes('sessB 开始干活'), '新变化（seq4 running）显示')
   rmSync(dir, { recursive: true, force: true })
 })
 
