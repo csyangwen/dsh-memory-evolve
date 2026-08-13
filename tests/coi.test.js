@@ -17,7 +17,7 @@ import { BroadcastStore, messageToolDefinition } from '../lib/coi/broadcast.js'
 import { coiToolDefinitions } from '../lib/coi/tools.js'
 import { installCoiApi } from '../lib/coi/api.js'
 import { validateCoiRuntimePatch } from '../lib/coi/index.js'
-import { buildBroadcastBlock, buildCoiSnapshotBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { buildBroadcastBlock, buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
@@ -700,23 +700,69 @@ function bootSchedulerWithAgents(dir, agent, agentsService) {
   return { ...stores, scheduler, harness }
 }
 
-test('wakeOnComplete: idle owner gets followup (wakeup delivery, message shape)', () => {
+test('启动通知：任务发起即向发起会话投递「已发起」消息（inject 不唤醒）', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  const result = scheduler.dispatch({ adapterId: 'grok', prompt: '启动通知', ownerSessionId: 'sess-1' })
+  assert.equal(result.ok, true)
+  // 进程挂载后立即投递一条（不等待完成）
+  assert.equal(agent.calls.length, 1)
+  const [kind, message] = agent.calls[0]
+  assert.equal(kind, 'inject', '启动通知不唤醒（刚派完模型就在回合内）')
+  assert.match(message.content[0].text, /COI 任务已发起/)
+  assert.match(message.content[0].text, /de_coi_status 查询/)
+  assert.equal(message.source.form, 'notice')
+  // 不 emit close：任务仍在跑，不应有完成通知
+  assert.equal(agent.calls.length, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('启动即失败路径（resume 缺 sessionId）不发「已发起」消息', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler } = bootSchedulerWithAgents(dir, agent)
+  // sessionId 占位符未替换 → #startProcess 直接 finish failed
+  const result = scheduler.dispatch({ adapterId: 'codex', prompt: '恢复', ownerSessionId: 'sess-1', sessionId: '{sessionId}' })
+  assert.equal(result.ok, true)
+  assert.equal(agent.calls.length, 0, '启动即失败不发「已发起」')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('wakeOnComplete: idle owner gets followup (完成唤醒), 消息无摘要截取、含日志路径', () => {
   const dir = tempDir()
   const agent = makeFakeAgent('idle')
   const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
   const result = scheduler.dispatch({ adapterId: 'grok', prompt: '唤醒我', ownerSessionId: 'sess-1', wakeOnComplete: true })
   assert.equal(result.ok, true)
   harness.children[0].emit('close', 0)
-  assert.equal(agent.calls.length, 1)
-  const [kind, message] = agent.calls[0]
-  assert.equal(kind, 'followup')
+  // 调用 = [inject(启动), followup(完成)]
+  assert.equal(agent.calls.length, 2)
+  assert.equal(agent.calls[0][0], 'inject')
+  const [kind, message] = agent.calls[1]
+  assert.equal(kind, 'followup', 'idle + wakeOnComplete → 唤醒开新回合')
   // 官方 UserMessage 结构：role/content/source（插件 notice 表单）+ id
   assert.equal(message.role, 'user')
   assert.equal(message.content[0].type, 'text')
   assert.match(message.content[0].text, /COI 任务完成/)
+  // 2026-08-13 用户拍板：完成消息不携带输出摘要截取，直接给日志文件路径
+  assert.ok(!message.content[0].text.includes('摘要：'), '消息不得携带摘要截取')
+  assert.match(message.content[0].text, /日志文件/, '消息必须给出完整日志文件路径')
   assert.equal(message.source.kind, 'plugin')
   assert.equal(message.source.form, 'notice')
   assert.equal(typeof message.id, 'string')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('终态默认投递（不带 wakeOnComplete）：完成时 inject 不唤醒', () => {
+  const dir = tempDir()
+  const agent = makeFakeAgent('idle')
+  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
+  scheduler.dispatch({ adapterId: 'grok', prompt: '默认通知', ownerSessionId: 'sess-1' })
+  harness.children[0].emit('close', 0)
+  assert.equal(agent.calls.length, 2, '启动 inject + 完成 inject')
+  assert.equal(agent.calls[1][0], 'inject', '默认（无 wakeOnComplete）不唤醒，完成消息 inject')
+  assert.match(agent.calls[1][1].content[0].text, /COI 任务完成/)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -726,18 +772,9 @@ test('wakeOnComplete: busy owner gets inject (no wake)', () => {
   const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
   scheduler.dispatch({ adapterId: 'grok', prompt: '忙', ownerSessionId: 'sess-1', wakeOnComplete: true })
   harness.children[0].emit('close', 0)
-  assert.equal(agent.calls.length, 1)
+  assert.equal(agent.calls.length, 2)
   assert.equal(agent.calls[0][0], 'inject')
-  rmSync(dir, { recursive: true, force: true })
-})
-
-test('wakeOnComplete: default (unset) does not deliver anything', () => {
-  const dir = tempDir()
-  const agent = makeFakeAgent('idle')
-  const { scheduler, harness } = bootSchedulerWithAgents(dir, agent)
-  scheduler.dispatch({ adapterId: 'grok', prompt: '默认不唤醒', ownerSessionId: 'sess-1' })
-  harness.children[0].emit('close', 0)
-  assert.equal(agent.calls.length, 0)
+  assert.equal(agent.calls[1][0], 'inject', '忙碌时即使 wakeOnComplete 也 inject（不打断）')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -751,8 +788,9 @@ test('wakeOnComplete: no wake cap — every idle completion wakes (2026-08-12 us
     scheduler.dispatch({ adapterId: 'grok', prompt: `唤醒 ${i}`, ownerSessionId: 'sess-1', wakeOnComplete: true })
     harness.children[i].emit('close', 0)
   }
+  // 每次任务 = 1 条启动 inject + 1 条完成 followup
   assert.equal(agent.calls.filter((c) => c[0] === 'followup').length, 5)
-  assert.equal(agent.calls.filter((c) => c[0] === 'inject').length, 0)
+  assert.equal(agent.calls.filter((c) => c[0] === 'inject').length, 5)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1023,99 +1061,32 @@ test('memory context: excludeDshOnly skips [dsh-only] entries (COI injection)', 
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('snapshot: COI task status block (active notify) injected when coiEnabled', () => {
+test('snapshot: COI 状态段已移除（2026-08-13 用户拍板：状态变化改为独立消息投递）', () => {
   const dir = tempDir()
-  const coiDir = join(dir, 'coi')
-  mkdirSync(coiDir, { recursive: true })
-  const t = (id, now) => ({ id, adapterId: 'grok', coi: 'Grok (xAI)', startedAt: now - 60000 })
-  const now = Date.now()
-  writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify({
-    tasks: [
-      // 工作区 /workA 的任务（含跨目录派发，ownerCwd=/workA）
-      { ...t('coi-run-1', now), status: 'running', prompt: '写一个手表页面', scope: 'project', ownerCwd: '/workA', finishedAt: null },
-      { ...t('coi-temp-run-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'running', prompt: '本会话临时任务', scope: 'temporary', ownerSessionId: 'sessA', finishedAt: null },
-      { ...t('coi-temp-other-run-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'running', prompt: '别的会话临时任务', scope: 'temporary', ownerSessionId: 'sessB', finishedAt: null },
-      { ...t('coi-done-1', now), adapterId: 'kimi', coi: 'Kimi Code', status: 'completed', prompt: '重构登录模块', scope: 'project', ownerCwd: '/workA', finishedAt: now - 5 * 60000, summary: '已完成 5 个文件改动，验证通过' },
-      { ...t('coi-fail-1', now), status: 'failed', prompt: '部署', scope: 'project', ownerCwd: '/workA', finishedAt: now - 60000, summary: '…（前 1000 字符已省略）\n部署失败：超时' },
-      // 其他工作区 /workB 的任务（不应注入给 /workA 的查看者）
-      { ...t('coi-other-1', now), status: 'completed', prompt: 'B 工作区的任务', scope: 'project', ownerCwd: '/workB', finishedAt: now - 4 * 60000, summary: 'B 的摘要' },
-      // 全局任务（全显；时间较老，避免挤占 done 前 2）
-      { ...t('coi-global-1', now), status: 'completed', prompt: '全局任务', scope: 'global', finishedAt: now - 30 * 60000, summary: '全局摘要' },
-    ],
-  }))
-  const config = resolveConfig({ memoryDir: dir, coiEnabled: true })
-  // 查看者：会话 sessA、工作区 /workA
-  const viewer = { sessionId: 'sessA', cwd: '/workA' }
-  // 单元：buildCoiSnapshotBlock（带 viewer 过滤）
-  const block = buildCoiSnapshotBlock(config, viewer)
-  assert.ok(block !== null)
-  assert.ok(block.includes('COI 任务状态'))
-  assert.ok(block.includes('coi-run-1'), '本工作区运行中任务注入')
-  assert.ok(!block.includes('分钟'), '运行中行不含耗时（固定文本，快照只在状态变化时变）')
-  assert.ok(!block.includes('写一个手表页面'), '运行中行不含用户输入的提示词（隐私克制）')
-  assert.ok(!block.includes('重构登录模块'), '终态行不含用户输入的提示词（隐私克制）')
-  assert.ok(block.includes('coi-temp-run-1'), '本会话临时任务注入')
-  assert.ok(!block.includes('coi-temp-other-run-1'), '其他会话的临时任务不注入')
-  assert.ok(block.includes('coi-done-1'), '本工作区最近完成任务注入')
-  assert.ok(block.includes('已完成 5 个文件改动'), '完整摘要注入')
-  assert.ok(block.includes('````'), '摘要用 4 反引号围栏包裹（AI 可识别为完整摘要）')
-  assert.ok(!block.includes('前 1000 字符已省略'), 'readLog 省略标记被清理')
-  assert.ok(block.includes('coi-fail-1'), '最近失败任务注入')
-  assert.ok(block.includes('部署失败：超时'), '失败任务完整摘要注入')
-  assert.ok(!block.includes('coi-other-1'), '其他工作区的任务不注入')
-  assert.ok((block.match(/[✅❌]/g) ?? []).length <= 2, '终态最多 2 条（克制）')
-  // 无视角（viewer 为空）：只注入 global（先测，避免被下方 viewer 视角抢先通知）
-  const blockNoViewer = buildCoiSnapshotBlock(config, {})
-  assert.ok(blockNoViewer !== null)
-  assert.ok(blockNoViewer.includes('coi-global-1'), '全局任务全显')
-  assert.ok(!blockNoViewer.includes('coi-run-1'), '无视角不注入项目任务')
-  // 一次性通知：终态展示后被标记 notified，第二次不再注入（运行中仍注入；
-  // 首次未轮到展示的终态会在后续轮次补通知）
-  const block2 = buildCoiSnapshotBlock(config, viewer)
-  assert.ok(block2 !== null)
-  assert.ok(block2.includes('coi-run-1'), '运行中任务每次注入')
-  assert.ok(!block2.includes('coi-done-1'), '终态任务只通知一次')
-  assert.ok(!block2.includes('coi-fail-1'), '终态任务只通知一次')
-  // 调度器覆盖模拟：TaskStore 整数组写回（内存副本无 notified 字段，运行中
-  // 任务每 2s flush 一次 update(lastOutputAt) 即整文件覆盖）——通知标记在
-  // 独立 notified.json，覆盖 tasks.json 后仍必须只通知一次（否则反复注入）
-  const rewritten = JSON.parse(readFileSync(join(coiDir, 'tasks.json'), 'utf8'))
-  for (const t of rewritten.tasks) delete t.notified // 模拟调度器内存副本
-  writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify(rewritten, null, 2) + '\n')
-  const block3 = buildCoiSnapshotBlock(config, viewer)
-  assert.ok(block3.includes('coi-run-1'), 'tasks.json 被覆盖后运行中任务仍注入')
-  assert.ok(!block3.includes('coi-done-1'), 'tasks.json 被覆盖后终态仍只通知一次（notified.json 独立存储）')
-  assert.ok(!block3.includes('coi-fail-1'), 'tasks.json 被覆盖后终态仍只通知一次（notified.json 独立存储）')
-  // 旧数据兼容：任务记录里已带 notified:true 的任务不重复通知（整段不注入）
-  const dir3 = tempDir()
-  const coiDir3 = join(dir3, 'coi')
-  mkdirSync(coiDir3, { recursive: true })
-  writeFileSync(join(coiDir3, 'tasks.json'), JSON.stringify([
-    { ...t('legacy-done', now), status: 'completed', prompt: '旧通知', scope: 'global', finishedAt: now - 1000, summary: '旧摘要', notified: true },
-  ]))
-  const config3 = resolveConfig({ memoryDir: dir3, coiEnabled: true })
-  assert.equal(buildCoiSnapshotBlock(config3, {}), null, '旧 notified:true 任务不重复通知')
-  rmSync(dir3, { recursive: true, force: true })
-  // 集成：renderSnapshot 注入（agent 提供会话视角）
-  const store = new MemoryStore(dir, config)
-  const agent = { session: { id: 'sessA', header: { cwd: '/workA' } } }
-  const snap = renderSnapshot(config, store, agent)
-  assert.ok(snap.includes('COI 任务状态'))
-  assert.ok(!snap.includes('coi-other-1'), '集成视图同样过滤其他工作区')
-  // 会话 ID 注入：AI 始终知道"我是谁"（广播双向判断 sender/recipients）
-  assert.ok(snap.includes('你的会话 ID'), '注入会话 ID 段')
-  assert.ok(snap.includes('sessA'), '注入自己的会话 ID 值')
-  // coiEnabled=false → COI 段消失（零开销）；会话 ID 段常驻（独立输出端）
-  const off = renderSnapshot({ ...config, coiEnabled: false }, store, agent)
-  assert.ok(!off.includes('COI 任务状态'))
-  assert.ok(off.includes('你的会话 ID'), '会话 ID 段常驻（不随 coiEnabled，其他模块的消费者也用）')
-  // tasks.json 不存在/无数据 → 不注入、不抛错
-  const dir2 = tempDir()
-  const config2 = resolveConfig({ memoryDir: dir2 })
-  assert.equal(buildCoiSnapshotBlock(config2), null)
-  assert.ok(!renderSnapshot(config2, store, agent).includes('COI 任务状态'))
-  rmSync(dir2, { recursive: true, force: true })
-  rmSync(dir, { recursive: true, force: true })
+  try {
+    const coiDir = join(dir, 'coi')
+    mkdirSync(coiDir, { recursive: true })
+    const now = Date.now()
+    // 即使有运行中/终态任务，快照也不得再出现 COI 状态段（职责已转移给
+    // 调度器的独立消息投递 #notifyDone/#deliver）
+    writeFileSync(join(coiDir, 'tasks.json'), JSON.stringify({
+      tasks: [
+        { id: 'coi-run-1', adapterId: 'grok', coi: 'Grok (xAI)', status: 'running', scope: 'project', ownerCwd: '/workA', startedAt: now - 60000, finishedAt: null },
+        { id: 'coi-done-1', adapterId: 'kimi', coi: 'Kimi Code', status: 'completed', scope: 'project', ownerCwd: '/workA', finishedAt: now - 5000, summary: '已完成' },
+      ],
+    }))
+    const config = resolveConfig({ memoryDir: dir, coiEnabled: true })
+    const store = new MemoryStore(dir, config)
+    const agent = { session: { id: 'sessA', header: { cwd: '/workA' } } }
+    const snap = renderSnapshot(config, store, agent)
+    assert.ok(!snap.includes('COI 任务状态'), '快照不再注入 COI 状态段')
+    assert.ok(!snap.includes('coi-run-1'), '运行中任务不再进快照')
+    // 会话 ID 段仍常驻（广播/编排等其他模块的消费者用，与 COI 无关）
+    assert.ok(snap.includes('你的会话 ID'), '会话 ID 段常驻')
+    assert.ok(snap.includes('sessA'), '注入自己的会话 ID 值')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // ---------------------------------------------------------------------- api
