@@ -41,6 +41,12 @@ import {
   viewportToNode,
 } from './helpers.ts'
 import { createDebouncedSaver, loadCanvasState } from './store.ts'
+import {
+  detectBackend,
+  loadCanvasFromBackend,
+  saveCanvasToBackend,
+  type BackendSaveResult,
+} from './api-client.ts'
 import type {
   CanvasDialogKind,
   CanvasNode,
@@ -77,7 +83,13 @@ function aiSlot(nodes: CanvasNode[]): { x: number; y: number } {
   }
 }
 
-export function CanvasView(_props: ConvViewProps & CanvasViewProps): JSX.Element {
+export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element {
+  // 后端探测：宿主 canvasEnabled 开关开启 → 整板走后端（含 rev 乐观锁）；
+  // 否则纯前端 localStorage 降级（前端一期验收期行为）。
+  const backendReadyRef = useRef(false)
+  const backendRevRef = useRef(0)
+  const [backendReady, setBackendReady] = useState(false)
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'conflict' | 'offline'>('idle')
   const initial = useRef(loadCanvasState()).current
   const [nodes, setNodes] = useState<CanvasNode[]>(initial.nodes)
   const [viewport, setViewport] = useState<CanvasViewport>(initial.viewport)
@@ -109,6 +121,54 @@ export function CanvasView(_props: ConvViewProps & CanvasViewProps): JSX.Element
   })
   snapRef.current = { version: 1, nodes, viewport, viewMode, lastAiNodeId }
 
+  // 会话 id（后端归属键）：conversation.view 的 strict-session props 自带。
+  const sessionId = typeof (props as { sessionId?: string }).sessionId === 'string'
+    ? (props as { sessionId: string }).sessionId
+    : 'session-local'
+
+  /** 初始加载：探测后端 → 后端有板则用后端数据（并接管保存）。 */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const ready = await detectBackend()
+      if (cancelled) return
+      if (!ready) {
+        setSyncState('offline')
+        return
+      }
+      const remote = await loadCanvasFromBackend(sessionId)
+      if (cancelled) return
+      if (remote !== null) {
+        backendRevRef.current = 0 // 整板 rev 从后端 load 的版本接续（服务端自增）
+        snapRef.current = remote
+        setNodes(remote.nodes)
+        setViewport(remote.viewport)
+        setViewMode(remote.viewMode)
+      }
+      backendReadyRef.current = true
+      setBackendReady(true)
+      setSyncState('idle')
+    })()
+    return () => { cancelled = true }
+  }, [sessionId])
+
+  /** 后端整板保存（防抖 + rev 乐观锁；409 冲突提示刷新，不静默覆盖）。 */
+  const persistBackend = useCallback((state: CanvasPersistState) => {
+    setSyncState('saving')
+    void saveCanvasToBackend(state, backendRevRef.current, sessionId).then((result: BackendSaveResult) => {
+      if (result.ok && typeof result.rev === 'number') {
+        backendRevRef.current = result.rev
+        setSyncState('idle')
+      } else if (result.conflict) {
+        setSyncState('conflict')
+        showToast('画板已被其他会话修改，请刷新页面加载最新内容')
+      } else {
+        // 网络/宿主错误：降级为离线提示，不打断本地操作
+        setSyncState('offline')
+      }
+    })
+  }, [sessionId])
+
   const persist = useCallback((patch: Partial<CanvasPersistState>) => {
     const state: CanvasPersistState = {
       version: 1,
@@ -118,8 +178,12 @@ export function CanvasView(_props: ConvViewProps & CanvasViewProps): JSX.Element
       lastAiNodeId: patch.lastAiNodeId === undefined ? snapRef.current.lastAiNodeId : patch.lastAiNodeId,
     }
     snapRef.current = state
-    saver.schedule(state)
-  }, [saver])
+    if (backendReadyRef.current) {
+      saver.schedule(() => persistBackend(state))
+    } else {
+      saver.schedule(state)
+    }
+  }, [persistBackend, saver])
 
   useEffect(() => () => {
     saver.cancel()
@@ -462,6 +526,12 @@ export function CanvasView(_props: ConvViewProps & CanvasViewProps): JSX.Element
           {visibleNodes.length}/{nodes.length} 张
           {searchActive ? ` · 命中 ${matchIds.size}` : ''}
           {' · '}{viewMode === 'session' ? CURRENT_SESSION_LABEL : viewMode === 'project' ? CURRENT_PROJECT_LABEL : '全部'}
+          {backendReady ? (
+            syncState === 'conflict' ? ' · ⚠️ 冲突，请刷新'
+              : syncState === 'saving' ? ' · 保存中'
+                : syncState === 'offline' ? ' · 离线模式'
+                  : ' · 已同步'
+          ) : ' · 本地模式'}
         </span>
       </div>
 
@@ -487,6 +557,7 @@ export function CanvasView(_props: ConvViewProps & CanvasViewProps): JSX.Element
         kind={dialog}
         previewNode={dialog === 'preview' ? previewNode : null}
         removeNode={dialog === 'remove' ? removeNode : null}
+        backendReady={backendReady}
         onClose={closeDialog}
         onPath={onPath}
         onNote={onNote}

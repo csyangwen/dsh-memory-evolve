@@ -74,10 +74,17 @@ export function saveCanvasState(state: CanvasPersistState): void {
   }
 }
 
-/** 简单防抖封装，组件卸载时要 cancel。 */
+/**
+ * 防抖封装，组件卸载时要 cancel。
+ *
+ * schedule 支持两种载荷：
+ *   - CanvasPersistState：localStorage 快照保存（纯前端降级模式）；
+ *   - () => void 回调：后端模式（CanvasView 传 persistBackend 闭包，
+ *     宿主 API 保存，带 rev 乐观锁）。
+ */
 export function createDebouncedSaver(ms: number): {
-  schedule: (state: CanvasPersistState) => void
-  flush: (state: CanvasPersistState) => void
+  schedule: (payload: CanvasPersistState | (() => void)) => void
+  flush: (payload: CanvasPersistState | (() => void)) => void
   cancel: () => void
 } {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -87,17 +94,24 @@ export function createDebouncedSaver(ms: number): {
       timer = null
     }
   }
+  const run = (payload: CanvasPersistState | (() => void)): void => {
+    if (typeof payload === 'function') {
+      payload()
+    } else {
+      saveCanvasState(payload)
+    }
+  }
   return {
-    schedule(state) {
+    schedule(payload) {
       cancel()
       timer = setTimeout(() => {
         timer = null
-        saveCanvasState(state)
+        run(payload)
       }, ms)
     },
-    flush(state) {
+    flush(payload) {
       cancel()
-      saveCanvasState(state)
+      run(payload)
     },
     cancel,
   }
