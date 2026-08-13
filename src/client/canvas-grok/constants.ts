@@ -12,11 +12,11 @@ import type {
 } from './types.ts'
 
 /**
- * localStorage 键。**双外援并存验收期用分键隔离**（.grok.v1 / .codex.v1），
- * 避免两版互相读到不兼容结构；定稿胜出版后统一改回正式键
- * `memory-evolve.canvas.v1`。
+ * localStorage 键（正式键）。此前双外援并存验收期用过分键
+ * `memory-evolve.canvas.grok.v1`，2026-08-13 用户拍板选 Grok 版后统一
+ * 回正式键；历史分键数据不再读取（验收期演示数据，无保留价值）。
  */
-export const STORAGE_KEY = 'memory-evolve.canvas.grok.v1'
+export const STORAGE_KEY = 'memory-evolve.canvas.v1'
 
 /** 样式标签标记，卸载时按这个选择器清理。 */
 export const STYLE_ATTR = 'data-cg-canvas-css'
