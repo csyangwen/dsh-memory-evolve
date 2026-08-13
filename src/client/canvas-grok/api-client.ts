@@ -133,16 +133,18 @@ export async function saveCanvasToBackend(
  * 真实本地文件搜索（后端复用 search-docs provider / walk 兜底）。
  * 后端不可用时返回 null（前端用内置模拟清单）。
  * @param {string} query
- * @param {object} [opts] - { dir?, limit? }
+ * @param {object} [opts] - { dir?, sessionId?, limit? }（dir 缺省时后端按
+ *   sessionId 解析当前会话工作目录为搜索范围）
  * @returns {Promise<Array<{ title: string, path: string, type: string, size: string }> | null>}
  */
 export async function searchFilesBackend(
   query: string,
-  opts: { dir?: string; limit?: number } = {},
+  opts: { dir?: string; sessionId?: string; limit?: number } = {},
 ): Promise<Array<{ title: string; path: string; type: string; size: string }> | null> {
   try {
     const params = new URLSearchParams({ q: query })
     if (opts.dir) params.set('dir', opts.dir)
+    if (opts.sessionId) params.set('sessionId', opts.sessionId)
     if (opts.limit) params.set('limit', String(opts.limit))
     const res = await fetch(`${API_BASE}/search?${params.toString()}`, { method: 'GET' })
     if (!res.ok) return null

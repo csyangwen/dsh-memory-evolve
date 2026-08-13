@@ -41,6 +41,7 @@ import {
 import { createDebouncedSaver, loadCanvasState } from './store.ts'
 import {
   detectBackend,
+  fileProxyUrl,
   loadCanvasFromBackend,
   saveCanvasToBackend,
   type BackendSaveResult,
@@ -207,6 +208,53 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     if (highlightTimer.current) clearTimeout(highlightTimer.current)
     if (toastTimer.current) clearTimeout(toastTimer.current)
   }, [saver, viewportSaver])
+
+  /** 文本补全（拉取式）：路径引用的 markdown/plainText 节点若有 path 但
+   *  content 为空（搜索上板/路径上板只存路径、不预读内容），从宿主文件
+   *  代理读取文本填入卡片。已补全的节点记入 set，不再重复读；
+   *  读取失败（如文件未保存完成 404）退避重试几次后放弃，不打扰操作。 */
+  const textFilledRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!backendReady) return
+    const candidates = nodes.filter((n) =>
+      (n.type === 'markdown' || n.type === 'plainText')
+      && typeof n.path === 'string' && n.path !== ''
+      && !n.content
+      && !textFilledRef.current.has(n.id),
+    )
+    if (candidates.length === 0) return
+    let cancelled = false
+    const fill = (node: CanvasNode, attempt: number): void => {
+      void (async () => {
+        try {
+          const res = await fetch(fileProxyUrl(node.id))
+          if (!res.ok) {
+            // 节点可能尚未保存到后端（保存链是异步的）→ 退避重试
+            if (attempt < 3 && !cancelled) {
+              setTimeout(() => { if (!cancelled) fill(node, attempt + 1) }, 500 * (attempt + 1))
+            }
+            return
+          }
+          const text = await res.text()
+          if (cancelled) return
+          textFilledRef.current.add(node.id)
+          // 截断保护（与后端便签上限同量级），避免大文件撑爆卡片
+          const clipped = text.length > 120 * 1024
+            ? `${text.slice(0, 120 * 1024)}\n…（内容过长，已截断）`
+            : text
+          // 先算 next 再 set+persist（避免在 updater 里调用 persist 被重复执行）
+          const next = nodes.map((n) => n.id === node.id ? { ...n, content: clipped } : n)
+          setNodes(next)
+          persist({ nodes: next })
+        } catch {
+          // 网络错误：静默放弃（节点保持"仅路径"状态，预览仍可走代理）
+        }
+      })()
+    }
+    candidates.forEach((n) => fill(n, 0))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendReady, nodes])
 
   useEffect(() => {
     const timer = setTimeout(() => setAppliedQuery(query), 180)
@@ -566,6 +614,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         previewNode={dialog === 'preview' ? previewNode : null}
         removeNode={dialog === 'remove' ? removeNode : null}
         backendReady={backendReady}
+        sessionId={sessionId}
         onClose={closeDialog}
         onPath={onPath}
         onNote={onNote}

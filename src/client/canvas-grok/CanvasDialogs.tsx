@@ -26,6 +26,8 @@ export interface CanvasDialogsProps {
   removeNode: CanvasNode | null
   /** 后端可用标记：true 时预览走宿主文件代理。 */
   backendReady: boolean
+  /** 当前会话 id（真实搜索按它定位默认搜索目录=会话工作目录）。 */
+  sessionId: string
   onClose: () => void
   onPath: (payload: PathSubmit) => void
   onNote: (payload: NoteSubmit) => void
@@ -119,6 +121,8 @@ function CatalogDialog(props: {
   onCatalog: (title: string, path: string, type: CanvasNodeType) => void
   /** 后端可用标记：true 时走宿主真实搜索。 */
   backendReady: boolean
+  /** 当前会话 id（后端按它解析默认搜索目录）。 */
+  sessionId: string
 }): JSX.Element {
   const [q, setQ] = useState('')
   const [remoteRows, setRemoteRows] = useState<Array<{ title: string; path: string; type: string; size: string }> | null>(null)
@@ -139,7 +143,7 @@ function CatalogDialog(props: {
     setSearchError(null)
     const seq = ++searchSeq.current
     const timer = setTimeout(() => {
-      void searchFilesBackend(needle, { limit: 20 }).then((rows) => {
+      void searchFilesBackend(needle, { sessionId: props.sessionId, limit: 20 }).then((rows) => {
         if (searchSeq.current !== seq) return // 过期响应丢弃
         setSearching(false)
         setRemoteRows(rows)
@@ -147,7 +151,7 @@ function CatalogDialog(props: {
       })
     }, 350)
     return () => { clearTimeout(timer); setSearching(false) }
-  }, [q, props.backendReady])
+  }, [q, props.backendReady, props.sessionId])
 
   // 降级模式：内置模拟清单本地过滤。
   const localRows = useMemo(() => {
@@ -323,7 +327,7 @@ export function CanvasDialogs(props: CanvasDialogsProps): JSX.Element | null {
       {props.kind === 'path' ? <PathDialog onClose={props.onClose} onPath={props.onPath} /> : null}
       {props.kind === 'note' ? <NoteDialog onClose={props.onClose} onNote={props.onNote} /> : null}
       {props.kind === 'catalog' ? (
-        <CatalogDialog onClose={props.onClose} onCatalog={props.onCatalog} backendReady={props.backendReady} />
+        <CatalogDialog onClose={props.onClose} onCatalog={props.onCatalog} backendReady={props.backendReady} sessionId={props.sessionId} />
       ) : null}
       {props.kind === 'preview' && props.previewNode ? (
         <PreviewDialog node={props.previewNode} onClose={props.onClose} onToast={props.onToast} backendReady={props.backendReady} />
