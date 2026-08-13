@@ -100,6 +100,8 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
   const [items, setItems] = useState<NotificationItem[] | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [detail, setDetail] = useState<OpenDetail | null>(null)
+  // 「查看详情」大弹窗（长通知全文展示用，几千字可滚动）。
+  const [modal, setModal] = useState<OpenDetail | null>(null)
 
   /** 轮询未读数（尽力而为，失败静默保持旧值）。 */
   const poll = useCallback((): void => {
@@ -150,7 +152,7 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
   /** 删除单条。 */
   const removeItem = useCallback((id: string): void => {
     void fetch(`${API}/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      .then(() => { poll(); loadList(); setDetailId(null); setDetail(null) })
+      .then(() => { poll(); loadList(); setDetailId(null); setDetail(null); setModal(null) })
       .catch(() => { /* best-effort */ })
   }, [poll, loadList])
 
@@ -219,7 +221,13 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
                     <div className="me-notify-detail">
                       {detail?.item.id === item.id && (
                         <div className="me-notify-detail-body">
-                          <pre className="me-notify-detail-content">{detail.content}</pre>
+                          {/* inline 全文：CSS 截断约 6 行；长文点「查看详情」开大弹窗。 */}
+                          <pre className={`me-notify-detail-content${detail.content.length > 300 ? ' me-notify-detail-content-clamped' : ''}`}>{detail.content}</pre>
+                          {detail.content.length > 300 && (
+                            <button type="button" className="me-notify-more" onClick={() => setModal(detail)}>
+                              {t('notify.viewDetail')}
+                            </button>
+                          )}
                           {item.attachments.length > 0 && (
                             <div className="me-notify-attachments">
                               {item.attachments.map((att, i) => (
@@ -264,6 +272,64 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* 「查看详情」大弹窗：长通知全文展示，几千字可滚动。 */}
+      {modal && (
+        <div className="me-notify-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="me-notify-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="me-notify-modal-head">
+              <span className="me-notify-modal-title">{modal.item.subject || t('notify.title')}</span>
+              <button type="button" className="me-notify-modal-close" onClick={() => setModal(null)} aria-label={t('notify.close')}>✕</button>
+            </div>
+            <div className="me-notify-modal-body">
+              <div className="me-notify-modal-meta">
+                <span className={`me-notify-sender me-notify-${modal.item.semantic}`}>
+                  {modal.item.senderName === 'system' ? t('notify.system') : modal.item.senderName}
+                </span>
+                <span className="me-notify-time">{fmtTime(modal.item.createdAt)}</span>
+              </div>
+              <pre className="me-notify-modal-content">{modal.content}</pre>
+              {modal.item.attachments.length > 0 && (
+                <div className="me-notify-attachments">
+                  {modal.item.attachments.map((att, i) => (
+                    <div key={i} className="me-notify-att">
+                      {att.mime?.startsWith('image/') ? (
+                        <img
+                          className="me-notify-att-img"
+                          src={`${API}/${encodeURIComponent(modal.item.id)}/attachment/${i}`}
+                          alt={att.name}
+                        />
+                      ) : (
+                        <a
+                          className="me-notify-att-file"
+                          href={`${API}/${encodeURIComponent(modal.item.id)}/attachment/${i}`}
+                          download={att.name}
+                        >
+                          {att.name}
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="me-notify-detail-actions">
+                {modal.item.sender !== '' && (
+                  <button
+                    type="button"
+                    className="me-notify-jump"
+                    onClick={() => { openSession(modal.item.sender); setModal(null); setOpen(false) }}
+                  >
+                    {t('notify.jump')}
+                  </button>
+                )}
+                <button type="button" className="me-notify-delete" onClick={() => removeItem(modal.item.id)}>
+                  {t('notify.delete')}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
