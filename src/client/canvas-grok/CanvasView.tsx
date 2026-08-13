@@ -1,8 +1,9 @@
 /**
  * 无限画板 Tab 根组件。
  *
- * 负责：视角筛选、三种上板、画板内搜索、AI 投放模拟、复制/移除、
- * localStorage 持久化。画布手势本身交给 CanvasBoard。
+ * 负责：视角筛选、三种上板、画板内搜索、复制/移除、
+ * localStorage 持久化（后端模式：整板走宿主 API + rev 乐观锁）。
+ * 画布手势本身交给 CanvasBoard。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -10,14 +11,11 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconPlusOutline16,
   IconSearchOutline16,
-  IconSparkle16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CanvasBoard } from './CanvasBoard.tsx'
 import { CanvasDialogs } from './CanvasDialogs.tsx'
 import type { NoteSubmit, PathSubmit } from './CanvasDialogs.tsx'
 import {
-  AI_NOTE_POOL,
-  AI_ZONE,
   CURRENT_PROJECT_ID,
   CURRENT_PROJECT_LABEL,
   CURRENT_SESSION_ID,
@@ -71,16 +69,6 @@ function placeNear(nodes: CanvasNode[], type: CanvasNodeType, preferX: number, p
   // 简单错位：已有卡片越多越往右下偏，避免完全重叠
   const offset = (nodes.length % 6) * 28
   return { x: preferX + offset, y: preferY + offset + size.height * 0 }
-}
-
-function aiSlot(nodes: CanvasNode[]): { x: number; y: number } {
-  const aiCount = nodes.filter((n) => n.aiPlaced).length
-  const col = aiCount % 2
-  const row = Math.floor(aiCount / 2) % 2
-  return {
-    x: AI_ZONE.x + 20 + col * 270,
-    y: AI_ZONE.y + 36 + row * 120,
-  }
 }
 
 export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element {
@@ -361,26 +349,8 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast(`已上板：${title}`)
   }, [addNode, showToast])
 
-  const dropAiNote = useCallback(() => {
-    const pick = AI_NOTE_POOL[Math.floor(Math.random() * AI_NOTE_POOL.length)]
-    const slot = aiSlot(nodes)
-    const node = addNode({
-      type: 'markdown',
-      title: pick.title,
-      scope: 'session',
-      scopeLabel: CURRENT_SESSION_LABEL,
-      sessionId: CURRENT_SESSION_ID,
-      projectId: CURRENT_PROJECT_ID,
-      content: pick.content,
-      aiPlaced: true,
-      x: slot.x,
-      y: slot.y,
-    })
-    setLastAiNodeId(node.id)
-    persist({ lastAiNodeId: node.id })
-    showToast('AI 已投放一张便签')
-  }, [addNode, persist, showToast])
-
+  // 「跳到最近 AI 写入」：真实 AI 写入（de_canvas add_note，后端已接入）
+  // 落会话板中央区并记 lastAiNodeId，此按钮定位到那张便签。
   const jumpToAi = useCallback(() => {
     const id = lastAiNodeId
     const node = id ? nodes.find((n) => n.id === id) : null
@@ -527,16 +497,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
             便签
           </button>
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('catalog')}>
-            模拟搜索
+            搜索上板
           </button>
         </div>
 
         <div className="cg-toolbar-sep" />
 
         <div className="cg-toolbar-group">
-          <button type="button" className="cg-btn cg-primary" onClick={dropAiNote}>
-            <IconSparkle16 /> AI 投放
-          </button>
           <button type="button" className="cg-btn cg-ghost" onClick={jumpToAi} disabled={!lastAiNodeId}>
             跳到最近 AI 写入
           </button>

@@ -129,26 +129,6 @@ export const CATALOG: CatalogItem[] = [
   { title: 'README.txt', path: '~/Projects/demo/README.txt', type: 'plainText', size: '4 KB', hint: '纯文本说明' },
 ]
 
-/** AI 模拟投放的随机标题 / 正文。 */
-export const AI_NOTE_POOL: Array<{ title: string; content: string }> = [
-  {
-    title: '会议纪要 · 自动整理',
-    content: '今日对齐：一期只做人闭环 + AI 投放模拟；后端 API 由主会话后续接入。待确认：视角筛选默认落在「会话」。',
-  },
-  {
-    title: '代码审查要点',
-    content: '- 画布必须走 transform 合成，禁止改 left/top 做平移\n- LOD 阈值 0.36\n- 卡片虚拟化：只挂视口内 DOM',
-  },
-  {
-    title: '本周进展摘录',
-    content: '无限画板前端一期落地：6 类卡片、三层归属、三种上板入口、画板内搜索。',
-  },
-  {
-    title: '待办摘录',
-    content: '1. 路径上板标「未验证」\n2. 引用串格式 `[canvas:id] 标题`\n3. AI 节点落中央固定区，用户自己拖走',
-  },
-]
-
 /** 默认视口：让 AI 投放区 + 预置卡片大致落在 Tab 中央偏上。 */
 export const DEFAULT_VIEWPORT: CanvasViewport = { x: 48, y: 36, scale: 0.88 }
 
