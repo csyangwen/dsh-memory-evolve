@@ -52,6 +52,8 @@ import bookmarkStyles from './bookmark-styles.css'
 import advisorStyles from './advisor/advisor-styles.css'
 import mobileCss from './mobile.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
+import { createNotificationBell } from './notification-bell.tsx'
+import notificationStyles from './notification-styles.css'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
@@ -803,8 +805,16 @@ export const zh = {
   'panel.config.advisorEnabled.hint': '会话评审模块总闸：给每个会话挂一个独立评审员（观察可见对话、每轮评审、steer/inject 实时建议、持续会话上下文、面板可提问/新建评审会话）。**默认关闭**——评审会消耗额外模型调用；关闭时评审停止、会话评审入口（会话头部按钮/悬浮面板）全部隐藏，模块整体不可用；开启后立即恢复',
   'panel.config.broadcastEnabled': '会话广播',
   'panel.config.broadcastEnabled.hint': '启用会话广播（de_broadcast）：DSH 会话间消息传递——快照「会话广播」未读提示（收件箱式列出 id+主题+发送者+时间）+ de_broadcast 工具（send/list/read，read 即消费、全读后自动删除、8KB 落文件、30 天清理）+ 会话广播管理面板 Tab。**独立于 COI 调度**（默认关闭，可单独开启）；关闭时以上全部不可见；「你的会话 ID」常驻快照段不受影响；会话头部「⧉ 复制会话ID」「✎ 别名」按钮属「会话编排」模块（面板顶部另有复制入口）',
-  'panel.config.notifyEnabled': '渠道通知',
-  'panel.config.notifyEnabled.hint': '启用渠道通知（de_notify）：AI 完成任务后通过 IM 渠道（一期：飞书）**主动发通知**给你——de_notify 手动工具（随时可发、无频率限制）+ COI 任务完成自动通知（COI 运行时配置 coiNotifyChannels 选渠道）。**独立子模块，默认关闭**；依赖对应渠道插件（dsh-feishu 等）已安装（渠道未装会如实报"渠道不可用"，不影响主插件）；关闭时工具不注册、COI 自动通知静默跳过',
+  'panel.config.notifyEnabled': '通知模块',
+  'panel.config.notifyEnabled.hint': '启用通知模块（de_notify）：AI 完成任务后主动发通知给你——de_notify 手动工具（随时可发、无频率限制，channels 含 feishu/qq/weixin/wecom/web）+ COI 任务完成自动通知（coiNotifyChannels 选渠道）。web 渠道=发到本网页右上角站内通知铃铛：落盘 + 未读数字徽标 + 弹窗查看「哪个会话发来什么通知」+ 点击跳转到该会话。独立模块，默认关闭；IM 渠道依赖对应渠道插件（dsh-feishu 等，未装如实报渠道不可用），web 渠道由本插件内置零依赖；关闭时工具不注册、铃铛消失、COI 自动通知静默跳过',
+  'notify.title': '通知',
+  'notify.bellAria': '站内通知',
+  'notify.empty': '暂无未读通知',
+  'notify.loading': '加载中…',
+  'notify.readAll': '全部已读',
+  'notify.system': '系统',
+  'notify.jump': '跳转到会话',
+  'notify.delete': '删除',
   'panel.config.syncEnabled': '记忆同步',
   'panel.config.syncEnabled.hint': '**模块开关**：启用「记忆同步」模块——对话页出现「记忆同步」Tab、/memory_sync 命令可用。**注意：这只是模块启用，不等于任何项目开始同步**——每个项目由「记忆同步」Tab 里的「本项目同步」开关单独启用（默认关；未启用的项目保持纯本地状态，不建 Git 仓库、不生成身份证）。同步机制：项目记忆（KEY + 项目日志 + 归档 + 项目待办）经 Git 对账到记忆远端——不填地址默认用你的主代码仓库（专属分支，零配置）；填共享记忆仓库地址 = 一个私有仓库装所有项目的记忆（全局记忆二期也只能用它同步）。push 永远需你显式触发',
   'panel.config.sessionSearchEnabled': '会话搜索',
@@ -1571,8 +1581,16 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.config.advisorEnabled.hint': 'Master switch for the session-review module: each session gets an independent reviewer (observes the visible conversation, reviews every turn, live suggestions via steer/inject, continuous conversation context, panel Q&A / new review session). Off by default — reviews consume extra model calls; when off, reviewing stops and all review UI (header toggle / floating panel) is hidden, so the module disappears from the session entirely; turn it back on to restore it instantly',
   'panel.config.broadcastEnabled': 'Session broadcast',
   'panel.config.broadcastEnabled.hint': 'Enable session broadcast (de_broadcast): inter-session messaging — the "Session broadcast" unread hint in the snapshot (inbox-style rows: id+subject+sender+time) + the de_broadcast tool (send/list/read; read consumes and auto-deletes once all recipients read; >8KB spills to a file; 30-day cleanup) + the broadcast management panel tab. **Independent of COI dispatch** (off by default, can be enabled alone); when off, all of the above are invisible; the persistent "Your session ID" snapshot section is unaffected; the header "⧉ Copy session ID" / "✎ alias" buttons belong to "Session orchestration" (the panel top also has a copy entry)',
-  'panel.config.notifyEnabled': 'Channel notify',
-  'panel.config.notifyEnabled.hint': 'Enable channel notify (de_notify): the AI proactively sends you a message over IM channels (phase 1: Feishu) when a task is done — the de_notify manual tool (send anytime, no frequency limit) + automatic COI completion notify (pick channels via the COI runtime config coiNotifyChannels). **Independent module, off by default**; requires the matching channel plugin (dsh-feishu etc.) to be installed (missing channels are reported honestly as "unavailable" without affecting the main plugin); when off, the tool is not registered and COI auto-notify silently skips',
+  'panel.config.notifyEnabled': 'Notifications',
+  'panel.config.notifyEnabled.hint': 'Enable the notification module (de_notify): the AI proactively notifies you when a task is done — the de_notify manual tool (send anytime, no frequency limit; channels include feishu/qq/weixin/wecom/web) + automatic COI completion notify (pick channels via coiNotifyChannels). The web channel delivers to an in-app notification bell at the top-right: persisted + unread badge + a popover showing "which session sent what" + click to jump to that session. Independent module, off by default; IM channels require the matching channel plugin (dsh-feishu etc., missing ones reported honestly), the web channel is built in with zero deps; when off, the tool is not registered, the bell disappears, and COI auto-notify silently skips',
+  'notify.title': 'Notifications',
+  'notify.bellAria': 'In-app notifications',
+  'notify.empty': 'No unread notifications',
+  'notify.loading': 'Loading…',
+  'notify.readAll': 'Mark all read',
+  'notify.system': 'System',
+  'notify.jump': 'Jump to session',
+  'notify.delete': 'Delete',
   'panel.config.syncEnabled': 'Memory sync',
   'panel.config.syncEnabled.hint': '**Module switch**: enables the Memory Sync module — the Memory Sync tab appears in conversations and /memory_sync works. **Note: this does NOT start syncing any project** — each project is opted in separately via the "Sync this project" switch in the Memory Sync tab (off by default; never-opted-in projects keep their pure-local state: no Git repo, no entry IDs). Sync moves project memory (KEY + project log + archive + project todos) over Git to one memory remote — leave the URL empty to use your main code repo by default (dedicated branch, zero config); paste a shared memory repo URL to use one private repo for all projects (global memory, phase 2, can only sync through it). Push always requires your explicit trigger',
   'panel.config.sessionSearchEnabled': 'Session search',
@@ -1650,7 +1668,7 @@ export const dshMobile = {
   enhance: createInputSheetEnhance,
 }
 
-export const inject = ['slots', 'locale', 'conversation']
+export const inject = ['slots', 'locale', 'conversation', 'sessions']
 
 /**
  * Client plugin body: register the session memory tab when the host switch
@@ -1790,6 +1808,40 @@ export function apply(ctx: Context): void {
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'memory-evolve: advisor stylesheet')
+
+  // web 站内通知铃铛样式（me-notify- 前缀）：铃铛 portal 到 body，样式须由
+  // 客户端入口常驻注入（与 advisor 悬浮面板同款，不依赖 Tab 生命周期）。
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return () => {}
+    const existing = document.querySelector('style[data-notify-css]')
+    if (existing !== null) return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.notifyCss = '1'
+    tag.textContent = notificationStyles
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'memory-evolve: notification stylesheet')
+
+  // web 站内通知铃铛（全局右上角）：探测宿主端 /api/notifications/unread 成功
+  // 才挂载（notifyEnabled 开启时 API 才挂载，关闭时 404 → 铃铛不注入）。
+  // 「跳转到会话」经 DSH client 的 sessions 服务 ctx.sessions.open(sessionId)
+  // 切换（2026-08-13 调研：官方唯一切换入口，ui-workspace 同款路径）。
+  let notifyBellCancelled = false
+  let disposeNotifyBell: (() => void) | undefined
+  void fetch('/memory-evolve/api/notifications/unread')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(() => {
+      if (notifyBellCancelled) return
+      disposeNotifyBell = createNotificationBell({
+        openSession: (sessionId) => { ctx.sessions.open(sessionId) },
+        t,
+      }).dispose
+    })
+    .catch(() => { /* 通知模块未启用：铃铛保持隐藏 */ })
+  ctx.effect(() => () => {
+    notifyBellCancelled = true
+    disposeNotifyBell?.()
+  }, 'memory-evolve: notification bell')
 
   // 会话页顶部 Tab 顺序（2026-08-11 用户拍板：记忆 技能 待办 COI调度 会话广播
   // 提示词 临时信息 记忆同步 模型设置 书签 Web UI设置 Memory Evolve设置；order

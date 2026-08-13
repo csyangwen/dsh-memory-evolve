@@ -1,0 +1,246 @@
+/**
+ * web 站内通知铃铛样式（me-notify-* 前缀，与其他模块 me- 前缀一致）。
+ * 铃铛固定右上角（z-index 高，跨会话常驻）；弹窗为右下/右上浮层。
+ */
+
+/* 宿主容器：固定定位，不随滚动，跨会话常驻。 */
+.me-notify-host {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* 铃铛按钮。 */
+.me-notify-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  border-radius: 50%;
+  background: var(--dsw-static-white, #ffffff);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  transition: transform 0.1s ease;
+}
+.me-notify-bell:hover {
+  transform: scale(1.05);
+}
+.me-notify-bell-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* 未读数字徽标。 */
+.me-notify-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* 通知弹窗。 */
+.me-notify-pop {
+  margin-top: 8px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  border-radius: 12px;
+  background: var(--dsw-static-white, #ffffff);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+/* 弹窗头部（标题 + 全部已读）。 */
+.me-notify-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+}
+.me-notify-pop-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.me-notify-readall {
+  border: none;
+  background: none;
+  color: var(--dsw-static-blue-9, #2563eb);
+  font-size: 12px;
+  cursor: pointer;
+}
+.me-notify-readall:hover {
+  text-decoration: underline;
+}
+
+/* 列表容器（滚动）。 */
+.me-notify-list {
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+/* 空态 / 加载态。 */
+.me-notify-empty {
+  padding: 24px 14px;
+  text-align: center;
+  color: var(--dsw-static-gray-9, #6b7280);
+  font-size: 13px;
+}
+
+/* 单条通知。 */
+.me-notify-item {
+  border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+}
+.me-notify-item:last-child {
+  border-bottom: none;
+}
+
+/* 条目头部（发送方 + 主题 + 时间）。 */
+.me-notify-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.me-notify-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.me-notify-sender {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.me-notify-sender.me-notify-notify {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.me-notify-sender.me-notify-direct {
+  background: #ecfdf5;
+  color: #047857;
+}
+.me-notify-subject {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.me-notify-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--dsw-static-gray-9, #6b7280);
+}
+
+/* 预览（未展开时一行截断）。 */
+.me-notify-preview {
+  padding: 0 14px 10px;
+  font-size: 12px;
+  color: var(--dsw-static-gray-9, #6b7280);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 展开详情。 */
+.me-notify-detail {
+  padding: 0 14px 12px;
+}
+.me-notify-detail-content {
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--dsw-static-gray-2, #f9fafb);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* 附件（图片缩略图 / 文件链接）。 */
+.me-notify-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.me-notify-att-img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+}
+.me-notify-att-file {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--dsw-static-gray-2, #f9fafb);
+  font-size: 12px;
+  color: var(--dsw-static-blue-9, #2563eb);
+  text-decoration: none;
+}
+.me-notify-att-file:hover {
+  text-decoration: underline;
+}
+
+/* 详情操作按钮。 */
+.me-notify-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+.me-notify-jump,
+.me-notify-delete {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.me-notify-jump {
+  border-color: var(--dsw-static-blue-9, #2563eb);
+  color: var(--dsw-static-blue-9, #2563eb);
+}
+.me-notify-delete {
+  color: #e5484d;
+}
+.me-notify-jump:hover {
+  background: #eef2ff;
+}
+.me-notify-delete:hover {
+  background: #fef2f2;
+}
