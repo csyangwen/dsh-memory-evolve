@@ -35,6 +35,8 @@ import { PromptView } from './PromptView.tsx'
 import { BookmarksView } from './BookmarksView.tsx'
 import { SyncView } from './SyncView.tsx'
 import { createBookmarkInjector } from './bookmark-injector.tsx'
+import { registerCanvasTab as registerGrokCanvas } from './canvas-grok/index.ts'
+import { registerCanvasTab as registerCodexCanvas } from './canvas-codex/index.tsx'
 import { createSessionFilter } from './session-filter.ts'
 import { createWideBubble, createWideChat } from './wide-chat.ts'
 import { createContextMeterWarn } from './context-meter-warn.ts'
@@ -2380,4 +2382,14 @@ export function apply(ctx: Context): void {
     disposeBookmarkCapture?.()
     disposeBookmarkTab?.()
   }, 'memory-evolve: bookmarks')
+
+  // 无限画板（canvas-hub）：前端一期（2026-08-13 双外援并行实现，对比验收中）。
+  // Grok 实现（cg- 前缀）+ Codex 实现（cc- 前缀）并存两个 Tab，便于对照；
+  // 验收定稿后只保留胜出版本。纯前端：数据走 localStorage，不依赖宿主 API。
+  const disposeGrokCanvas = registerGrokCanvas(ctx, { t, id: 'canvas-hub-grok', label: '画板·Grok', order: 80 })
+  const disposeCodexCanvas = registerCodexCanvas(ctx, { t, id: 'canvas-hub-codex', label: '画板·Codex', order: 81 })
+  ctx.effect(() => () => {
+    disposeGrokCanvas?.()
+    disposeCodexCanvas?.()
+  }, 'memory-evolve: canvas-tabs')
 }
