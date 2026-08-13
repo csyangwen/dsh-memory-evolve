@@ -121,6 +121,8 @@ interface RuntimeConfig {
   syncEnabled: boolean
   /** 会话评审 Advisor（独立子模块，默认关）：评审员挂每个会话实时评审。 */
   advisorEnabled: boolean
+  /** 无限画板（独立子模块，默认关）：素材集中台 + de_canvas 双向。 */
+  canvasEnabled: boolean
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -265,6 +267,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       bookmarkEnabled: draft.bookmarkEnabled,
       notifyEnabled: draft.notifyEnabled,
       syncEnabled: draft.syncEnabled,
+      canvasEnabled: draft.canvasEnabled,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -761,6 +764,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.syncEnabled}
                     onChange={(event) => patchDraft({ syncEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.canvasEnabled')}
+                    <em className="me-field-hint">{t('panel.config.canvasEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.canvasEnabled}
+                    onChange={(event) => patchDraft({ canvasEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">

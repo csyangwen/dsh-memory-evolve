@@ -47,9 +47,9 @@ export function resetBackendDetection(): void {
 /**
  * 后端整板读取。返回 null = 后端不可用或空板（调用方决定回退种子）。
  * @param {string} sessionId - 当前会话 id（后端按需解析归属，前端只透传）
- * @returns {Promise<CanvasPersistState | null>}
+ * @returns {Promise<CanvasPersistState & { rev: number } | null>}
  */
-export async function loadCanvasFromBackend(sessionId: string): Promise<CanvasPersistState | null> {
+export async function loadCanvasFromBackend(sessionId: string): Promise<(CanvasPersistState & { rev: number }) | null> {
   try {
     const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''
     const res = await fetch(`${API_BASE}${query}`, { method: 'GET' })
@@ -67,6 +67,9 @@ export async function loadCanvasFromBackend(sessionId: string): Promise<CanvasPe
         : { x: 520, y: 330, scale: 0.9 },
       viewMode: row.viewMode === 'project' || row.viewMode === 'global' ? row.viewMode : 'session',
       lastAiNodeId: typeof row.lastAiNodeId === 'string' ? row.lastAiNodeId : null,
+      // 乐观锁 rev：必须取后端当前值，否则保存带旧 rev 会被 409 拒绝
+      // （曾硬编码 0 导致一切保存被拒——"加上去有、刷新没"的根因）。
+      rev: Number.isFinite(Number(row.rev)) ? Number(row.rev) : 0,
     }
   } catch {
     return null

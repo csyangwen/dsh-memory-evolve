@@ -107,6 +107,10 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
   const [stageSize, setStageSize] = useState({ w: 800, h: 560 })
 
   const saver = useRef(createDebouncedSaver(PERSIST_DEBOUNCE_MS)).current
+  /** 后端模式下纯视角变化（viewport/viewMode）的短防抖保存器：
+   *  滚轮缩放每帧触发 persist，但视角是低频价值数据（刷新恢复用），
+   *  500ms 合批即可；nodes 变更不走它（走立即串行，数据必达）。 */
+  const viewportSaver = useRef(createDebouncedSaver(500)).current
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -139,11 +143,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       const remote = await loadCanvasFromBackend(sessionId)
       if (cancelled) return
       if (remote !== null) {
-        backendRevRef.current = 0 // 整板 rev 从后端 load 的版本接续（服务端自增）
+        // 乐观锁 rev 必须用后端当前值（曾硬编码 0 导致保存被 409 全拒）
+        backendRevRef.current = remote.rev
         snapRef.current = remote
         setNodes(remote.nodes)
         setViewport(remote.viewport)
         setViewMode(remote.viewMode)
+        if (remote.lastAiNodeId) setLastAiNodeId(remote.lastAiNodeId)
       }
       backendReadyRef.current = true
       setBackendReady(true)
@@ -152,21 +158,29 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     return () => { cancelled = true }
   }, [sessionId])
 
-  /** 后端整板保存（防抖 + rev 乐观锁；409 冲突提示刷新，不静默覆盖）。 */
+  /** 后端整板保存：**立即 + 串行队列**（不用防抖——防抖 + 卸载 cancel 会
+   *  丢最后一次变更：加便签后 800ms 内刷新页面保存被取消，便签丢失）。
+   *  串行保证同一时刻只有一个 POST 在飞，避免并发携带旧 rev 触发 409；
+   *  队列尾总是最新快照，最终一致。 */
+  const saveChainRef = useRef<Promise<unknown>>(Promise.resolve())
   const persistBackend = useCallback((state: CanvasPersistState) => {
     setSyncState('saving')
-    void saveCanvasToBackend(state, backendRevRef.current, sessionId).then((result: BackendSaveResult) => {
-      if (result.ok && typeof result.rev === 'number') {
-        backendRevRef.current = result.rev
-        setSyncState('idle')
-      } else if (result.conflict) {
-        setSyncState('conflict')
-        showToast('画板已被其他会话修改，请刷新页面加载最新内容')
-      } else {
-        // 网络/宿主错误：降级为离线提示，不打断本地操作
-        setSyncState('offline')
-      }
-    })
+    // 排到串行队列尾部：前一个保存完成后才发下一个（携带届时最新的 rev）。
+    saveChainRef.current = saveChainRef.current
+      .catch(() => { /* 前序失败不阻断后续 */ })
+      .then(() => saveCanvasToBackend(state, backendRevRef.current, sessionId))
+      .then((result: BackendSaveResult) => {
+        if (result.ok && typeof result.rev === 'number') {
+          backendRevRef.current = result.rev
+          setSyncState('idle')
+        } else if (result.conflict) {
+          setSyncState('conflict')
+          showToast('画板已被其他会话修改，请刷新页面加载最新内容')
+        } else {
+          // 网络/宿主错误：降级为离线提示，不打断本地操作
+          setSyncState('offline')
+        }
+      })
   }, [sessionId])
 
   const persist = useCallback((patch: Partial<CanvasPersistState>) => {
@@ -179,18 +193,32 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     }
     snapRef.current = state
     if (backendReadyRef.current) {
-      saver.schedule(() => persistBackend(state))
+      // 后端模式：**含 nodes 的变更立即进串行队列（数据必达）**；
+      // 纯 viewport/viewMode 变化走短防抖（滚轮缩放每帧触发，但视角
+      // 是低频价值数据，防抖合批不丢关键信息）。
+      if (patch.nodes !== undefined || patch.lastAiNodeId !== undefined) {
+        persistBackend(state)
+      } else {
+        viewportSaver.schedule(() => persistBackend(state))
+      }
     } else {
       saver.schedule(state)
     }
   }, [persistBackend, saver])
 
   useEffect(() => () => {
+    // 卸载（切 Tab/刷新）时：localStorage 模式 flush 掉 pending 快照
+    // （防抖未触发的最后一次变更不丢）；后端模式 nodes 变更已立即串行
+    // 保存，这里只需 cancel 视角防抖（视角丢失无害）。
+    if (!backendReadyRef.current) {
+      saver.flush(snapRef.current)
+    }
     saver.cancel()
+    viewportSaver.cancel()
     if (flashTimer.current) clearTimeout(flashTimer.current)
     if (highlightTimer.current) clearTimeout(highlightTimer.current)
     if (toastTimer.current) clearTimeout(toastTimer.current)
-  }, [saver])
+  }, [saver, viewportSaver])
 
   useEffect(() => {
     const timer = setTimeout(() => setAppliedQuery(query), 180)
