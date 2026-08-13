@@ -87,11 +87,19 @@
 
 .cg-seg button.cg-on,
 .cg-btn.cg-primary {
-  background: var(--dsw-alias-brand-primary);
-  /* ⚠️ 文字色必须用 brand-primary-invert（品牌色反色）：DSH 无
-     --dsw-alias-on-brand token，曾 fallback #fff 导致深色主题下
-     浅色背景+白字看不见（用户反馈 2026-08-13）。 */
-  color: var(--dsw-alias-brand-primary-invert);
+  /* 完全对齐 DSH 官方主按钮（ui-primitives/Button.module.css .primary）：
+     background=button-primary-fill + color=label-primary-foreground。
+     ⚠️ 踩坑记录（用户反馈 2026-08-13 两轮）：曾用
+     var(--dsw-alias-on-brand,#fff) fallback 白字（该 token 不存在）与
+     brand-primary-invert（两主题下与 brand-primary 同值，名不副实），
+     都导致深色主题浅底浅字看不见。 */
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.cg-seg button.cg-on:hover,
+.cg-btn.cg-primary:hover {
+  background: var(--dsw-alias-button-primary-hover);
 }
 
 .cg-btn.cg-ghost {
