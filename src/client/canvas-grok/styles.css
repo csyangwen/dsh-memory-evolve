@@ -88,7 +88,10 @@
 .cg-seg button.cg-on,
 .cg-btn.cg-primary {
   background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-on-brand, #fff);
+  /* ⚠️ 文字色必须用 brand-primary-invert（品牌色反色）：DSH 无
+     --dsw-alias-on-brand token，曾 fallback #fff 导致深色主题下
+     浅色背景+白字看不见（用户反馈 2026-08-13）。 */
+  color: var(--dsw-alias-brand-primary-invert);
 }
 
 .cg-btn.cg-ghost {
