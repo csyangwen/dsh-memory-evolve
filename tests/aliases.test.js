@@ -61,7 +61,7 @@ test('snapshot: 有别名注入「你的会话别名」行，无别名不注入'
   // 会话名称（2026-08-12 用户要求）：有名称注入「你的会话名称」行，
   // 与别名并存；没有名称/别名时输出与旧版一致（只有 ID，零变化兼容）
   const fakeTitle = { get: (session) => (session.id === 'sessA' ? { title: '登录页开发' } : undefined) }
-  const snap3 = renderSnapshot(config, store, agent, undefined, null, null, null, fakeTitle)
+  const snap3 = renderSnapshot(config, store, agent, undefined, fakeTitle)
   assert.ok(snap3.includes('你的会话名称：登录页开发'), '有名称注入名称行')
   assert.ok(snap3.includes('你的会话别名：小明'), '名称与别名并存')
   // 名称服务不可用/无标题（未传 service）→ 不注入名称行（兼容降级）
@@ -69,7 +69,7 @@ test('snapshot: 有别名注入「你的会话别名」行，无别名不注入'
   assert.ok(!snap4.includes('你的会话名称'), '无名称服务不注入名称行')
   // 名称服务返回无标题 → 也不注入（有别名仍显示别名+ID）
   const emptyTitle = { get: () => undefined }
-  const snap5 = renderSnapshot(config, store, agent, undefined, null, null, null, emptyTitle)
+  const snap5 = renderSnapshot(config, store, agent, undefined, emptyTitle)
   assert.ok(!snap5.includes('你的会话名称'), '无标题不注入名称行')
   assert.ok(snap5.includes('你的会话别名：小明'), '别名不受影响')
   rmSync(dir, { recursive: true, force: true })

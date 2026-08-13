@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { WsCoordStore, buildWsCoordBlock, wsToolDefinitions, installWsCoord } from '../lib/coi/ws-coord.js'
 
@@ -436,13 +436,15 @@ test('renderSnapshot 集成：wsCoord 活动段注入不抛错（防 2026-08-09 
     ['B', { cwd: '/w', status: 'running', lastActiveAt: Date.now() }],
   ])
   const agent = { session: { id: 'S', header: { cwd: '/w' } } }
-  // 必须不抛错，且活动段注入（时间=状态驱动的 HH:MM，非渲染时刻秒级时间戳）
-  const out = renderSnapshot(cfg, new MemoryStore(dir), agent, {}, store, meta)
-  assert.ok(out.includes('【工作区活动】'), '应注入活动段')
-  assert.ok(!/20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(out), '不得含渲染时刻秒级时间戳（重复注入根因）')
-  // wsCoordEnabled=false 时零开销（不注入、不抛）
-  const out2 = renderSnapshot({ ...cfg, wsCoordEnabled: false }, new MemoryStore(dir), agent, {}, store, meta)
-  assert.ok(!out2.includes('【工作区活动】'))
+  // 2026-08-13 用户拍板：公告板移出整体快照（DSH 按整体文本 diff 注入，
+  // 单段变化会连带其他段重注入 = 噪声；且 DSH 不支持逐段投影）。改为
+  // ws-coord 独立消息投递（见 checkAndNotify 测试）——快照里不得再出现
+  // 活动段，renderSnapshot 也不得因 wsCoord 数据抛错（模块级函数回归保护）
+  const out = renderSnapshot(cfg, new MemoryStore(dir), agent)
+  assert.ok(!out.includes('【工作区活动】'), '公告板已移出快照（改为独立消息投递）')
+  // wsCoordEnabled 开关不影响 renderSnapshot（不再消费 wsCoord 数据）
+  const out2 = renderSnapshot({ ...cfg, wsCoordEnabled: false }, new MemoryStore(dir), agent)
+  assert.equal(out, out2, 'wsCoordEnabled 开关不再影响快照文本')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -511,4 +513,105 @@ test('buildWsCoordBlock：observed 锁 30s 过期/重登记不改变文本（not
   const block3 = buildWsCoordBlock(config, 'S', '/w', store, meta, (s) => s)
   assert.equal(block1, block3, '锁重登记不得改变文本')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ----------------------------------------------------------------- 2026-08-13 公告板独立投递（移出快照后）
+
+/** 组装 installWsCoord 的最小 ctx：捕获事件监听器 + 假 agents 服务。 */
+function makeWsCtx(agentsMap) {
+  const listeners = {}
+  const registered = []
+  const ctx = {
+    listeners,
+    get: (name) => (name === 'agents' ? { get: (sid) => agentsMap.get(sid) ?? null } : undefined),
+    on: (event, fn) => { (listeners[event] ??= []).push(fn); return () => {} },
+    effect: (fn) => { const out = fn(); return typeof out === 'function' ? out : () => {} },
+    tools: { register: () => () => {} },
+    workspaceRegistry: { archivedSessionIds: [] },
+  }
+  return ctx
+}
+
+/** 触发 installWsCoord 注册的某个事件监听（payload 透传）。 */
+function emit(listeners, event, payload) {
+  for (const fn of listeners[event] ?? []) fn(payload)
+}
+
+test('公告板独立投递：并行开始投递公告板、无变化不重复投递、并行结束投递结束消息', () => {
+  // 用 mock 时钟控制 Date.now：并行结束发生在 30s 节流窗口内时，需要先
+  // 越过节流（真实场景中定时器会延迟补投，测试里直接快进时间）
+  mock.timers.enable({ apis: ['Date'] })
+  // mock 时钟从 epoch 起跳：先越过 30s 节流窗口，避免首次投递就被
+  // 「Date.now() - 0 < 30s」节流挡住
+  mock.timers.tick(31_000)
+  const dir = tempDir()
+  const agentsMap = new Map()
+  const ctx = makeWsCtx(agentsMap)
+  const installed = installWsCoord(ctx, {
+    wsCoordEnabled: true, wsCoordSnapshot: true,
+    memoryDir: dir, broadcastDataDir: join(dir, 'broadcast'),
+  }, {})
+  try {
+    // 会话 A、B 进入 running（触发 agent/status → 即时检测投递）
+    const aAgent = { status: 'running', inject: () => {}, followup: () => {} }
+    const bAgent = { status: 'running', inject: () => {}, followup: () => {} }
+    const aInjects = []
+    const bInjects = []
+    aAgent.inject = (m) => aInjects.push(m)
+    bAgent.inject = (m) => bInjects.push(m)
+    agentsMap.set('A', aAgent)
+    agentsMap.set('B', bAgent)
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'A', header: { cwd: '/w' } } }, status: 'running' })
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'B', header: { cwd: '/w' } } }, status: 'running' })
+    // 两个 running 会话 → 各自收到一条公告板（不唤醒：只走 inject）
+    assert.equal(aInjects.length, 1, 'A 应收到公告板更新')
+    assert.equal(bInjects.length, 1, 'B 应收到公告板更新')
+    assert.ok(aInjects[0].content[0].text.includes('【工作区活动】'), '消息内容=旧公告板行')
+    assert.ok(aInjects[0].content[0].text.includes('A'), '包含完整会话 ID')
+    assert.ok(!aInjects[0].content[0].text.includes('并行已结束'), '首次进入 running（活跃 1）不得误发「并行已结束」')
+    // 无状态变化：再触发一次 status（同状态）→ 不重复投递（状态驱动稳定）
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'A', header: { cwd: '/w' } } }, status: 'running' })
+    assert.equal(aInjects.length, 1, '同状态不重复投递')
+    // 手动 checkAndNotify 同样不重复（防定时器路径）
+    installed.checkAndNotify()
+    assert.equal(aInjects.length, 1, 'checkAndNotify 无变化不投递')
+    // 并行结束：B 转 idle → A 视角活跃 <2 → 投递「并行结束」消息。
+    // 先越过 30s 节流窗口（真实场景定时器 15s 轮询会在节流到期后补投）
+    mock.timers.tick(31_000)
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'B', header: { cwd: '/w' } } }, status: 'idle' })
+    assert.equal(aInjects.length, 2, 'A 应收到并行结束消息')
+    assert.ok(aInjects[1].content[0].text.includes('并行已结束'), '结束消息有信息量')
+    rmSync(dir, { recursive: true, force: true })
+  } finally {
+    installed.dispose()
+    mock.timers.reset()
+  }
+})
+
+test('公告板独立投递：锁登记触发更新（fs/observed），30s 节流兜底', () => {
+  const dir = tempDir()
+  const agentsMap = new Map()
+  const ctx = makeWsCtx(agentsMap)
+  const installed = installWsCoord(ctx, {
+    wsCoordEnabled: true, wsCoordSnapshot: true,
+    memoryDir: dir, broadcastDataDir: join(dir, 'broadcast'),
+  }, {})
+  try {
+    const injects = []
+    agentsMap.set('A', { status: 'running', inject: (m) => injects.push(m) })
+    agentsMap.set('B', { status: 'running', inject: () => {} })
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'A', header: { cwd: '/w' } } }, status: 'running' })
+    emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'B', header: { cwd: '/w' } } }, status: 'running' })
+    const first = injects.length
+    assert.equal(first, 1, '并行开始收到一条')
+    // A 写文件（等价于 fs/observed 自动登记）：observed 锁 note 为空、
+    // 成员不变 → 公告板文本不变 → 不投递（30s 节流只是极端兜底，正常
+    // 路径靠「文本相同跳过」）
+    installed.store.observe('A', '/w', 'a.js')
+    installed.checkAndNotify()
+    assert.equal(injects.length, first, 'note 为空时锁登记不改变公告板文本（不投递）')
+    rmSync(dir, { recursive: true, force: true })
+  } finally {
+    installed.dispose()
+  }
 })
