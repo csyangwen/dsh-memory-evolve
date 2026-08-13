@@ -6,8 +6,8 @@
 /* 宿主容器：固定定位，不随滚动，跨会话常驻。 */
 .me-notify-host {
   position: fixed;
-  /* 用户反馈：铃铛太靠上，往下移 50px（避开顶部标题栏/其他悬浮元素）。 */
-  top: 62px;
+  /* 用户反馈：铃铛太靠上，累计下移 85px（50 + 35，避开顶部标题栏/其他悬浮元素）。 */
+  top: 97px;
   right: 16px;
   z-index: 2147483000;
   display: flex;
@@ -34,8 +34,11 @@
   transform: scale(1.05);
 }
 .me-notify-bell-icon {
-  font-size: 18px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 铃铛线框颜色：跟随按钮文字色（DSH 主题灰，svg stroke=currentColor 继承）。 */
+  color: var(--dsw-static-gray-11, #111827);
 }
 
 /* 未读数字徽标。 */
@@ -244,4 +247,27 @@
 }
 .me-notify-delete:hover {
   background: #fef2f2;
+}
+
+/* ================================================================
+ * 移动端适配（≤767px）：铃铛位置/尺寸收紧，弹窗全宽不越界。
+ * 兼容纯 web 移动端浏览器 + dsh-android-edapp（其挂 html[data-dsh-mobile]，
+ * 此处用 @media 宽度判断，两条路径都覆盖）。
+ * ================================================================ */
+@media (max-width: 767px) {
+  /* 铃铛：移动端顶部栏较矮，位置回调到顶部栏下方；触区略缩、贴右不越界。 */
+  .me-notify-host {
+    top: 56px;
+    right: 10px;
+  }
+  .me-notify-bell {
+    width: 36px;
+    height: 36px;
+  }
+  /* 弹窗：全宽贴边（左右各 10px），不超出屏幕宽度。 */
+  .me-notify-pop {
+    width: calc(100vw - 20px);
+    max-width: none;
+    margin-top: 6px;
+  }
 }

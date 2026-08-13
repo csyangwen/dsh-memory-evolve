@@ -23,6 +23,31 @@
 import { createRoot } from 'react-dom/client'
 import { useCallback, useEffect, useState } from 'react'
 
+/**
+ * 铃铛图标（自绘 SVG，匹配 DSH outline 图标风格：stroke=currentColor 线框，
+ * 跟随主题文字色，替代 emoji 🔔）。Feather「bell」线框造型，24 viewBox 缩放。
+ */
+function BellIcon({ size = 20 }: { size?: number }): JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* 钟身 + 底缘弧 */}
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      {/* 铃舌 */}
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  )
+}
+
 /** 通知 API 基址（与宿主端 installNotifyWebApi 的 prefix 对齐）。 */
 const API = '/memory-evolve/api/notifications'
 /** 未读数轮询间隔（与其他 Tab 红点 BADGE_POLL_MS 一致）。 */
@@ -159,7 +184,7 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
         aria-label={t('notify.bellAria')}
         title={t('notify.bellAria')}
       >
-        <span className="me-notify-bell-icon" aria-hidden="true">🔔</span>
+        <span className="me-notify-bell-icon" aria-hidden="true"><BellIcon /></span>
         {unread > 0 && (
           <span className="me-notify-badge">{unread > 99 ? '99+' : unread}</span>
         )}
