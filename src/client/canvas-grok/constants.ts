@@ -11,8 +11,12 @@ import type {
   CatalogItem,
 } from './types.ts'
 
-/** localStorage 键（规格建议 `memory-evolve.canvas.v1`）。 */
-export const STORAGE_KEY = 'memory-evolve.canvas.v1'
+/**
+ * localStorage 键。**双外援并存验收期用分键隔离**（.grok.v1 / .codex.v1），
+ * 避免两版互相读到不兼容结构；定稿胜出版后统一改回正式键
+ * `memory-evolve.canvas.v1`。
+ */
+export const STORAGE_KEY = 'memory-evolve.canvas.grok.v1'
 
 /** 样式标签标记，卸载时按这个选择器清理。 */
 export const STYLE_ATTR = 'data-cg-canvas-css'

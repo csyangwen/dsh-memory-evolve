@@ -8,8 +8,12 @@ import type {
   CanvasViewport,
 } from './types.ts'
 
-/** 一期固定键名；未来后端接入后仍可用它做一次性迁移来源。 */
-export const CANVAS_STORAGE_KEY = 'memory-evolve.canvas.v1'
+/**
+ * localStorage 键。**双外援并存验收期用分键隔离**（.grok.v1 / .codex.v1），
+ * 避免两版互相读到不兼容结构；定稿胜出版后统一改回正式键
+ * `memory-evolve.canvas.v1`（未来后端接入后仍可用它做一次性迁移来源）。
+ */
+export const CANVAS_STORAGE_KEY = 'memory-evolve.canvas.codex.v1'
 
 export const DEFAULT_VIEWPORT: CanvasViewport = { x: 520, y: 330, scale: 0.9 }
 
