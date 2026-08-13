@@ -109,7 +109,6 @@ interface RuntimeConfig {
   broadcastEnabled: boolean
   sessionSearchEnabled: boolean
   sessionEnabled: boolean
-  scratchEnabled: boolean
   promptsEnabled: boolean
   modelsEnabled: boolean
   uiSettingsEnabled: boolean
@@ -260,7 +259,6 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       advisorEnabled: draft.advisorEnabled,
       sessionSearchEnabled: draft.sessionSearchEnabled,
       sessionEnabled: draft.sessionEnabled,
-      scratchEnabled: draft.scratchEnabled,
       promptsEnabled: draft.promptsEnabled,
       modelsEnabled: draft.modelsEnabled,
       uiSettingsEnabled: draft.uiSettingsEnabled,
@@ -800,18 +798,6 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.sessionSearchEnabled}
                     onChange={(event) => patchDraft({ sessionSearchEnabled: event.target.checked })}
-                  />
-                </label>
-                <label className="me-field">
-                  <span className="me-field-label">
-                    {t('panel.config.scratchEnabled')}
-                    <em className="me-field-hint">{t('panel.config.scratchEnabled.hint')}</em>
-                  </span>
-                  <input
-                    type="checkbox"
-                    className="me-switch"
-                    checked={draft.scratchEnabled}
-                    onChange={(event) => patchDraft({ scratchEnabled: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">

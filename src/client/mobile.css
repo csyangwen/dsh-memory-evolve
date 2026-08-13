@@ -23,12 +23,12 @@
  *   方向一致的规则（面板收窄、触区放大、放通等）不加。
  *
  * ## 覆盖范围（按 Tab 分组，见下方分区注释）
- * memory-evolve 各 Tab（记忆/技能/待办/COI调度/会话广播/便签/提示词/书签/
- * 设置/模型）挂在 DSH 的 `conversation.view` 槽（中心列），手机上中心列
+ * memory-evolve 各 Tab（记忆/技能/待办/COI调度/会话广播/提示词/书签/
+ * 设置/模型/画板）挂在 DSH 的 `conversation.view` 槽（中心列），手机上中心列
  * 全宽，Tab 容器本身没问题，问题在 Tab **内部**布局（桌面假设）：
  * flex 横排多列、white-space: nowrap、max-width: 45%、固定宽度面板
  * （360px/560px 编辑器）、长列表/表格等。
- * memory-evolve 全部使用**普通类名**（me-/mt-/coi-/bb-/sp-/pm-/bm- 前缀，
+ * memory-evolve 全部使用**普通类名**（me-/mt-/coi-/bb-/pm-/bm- 前缀，
  * esbuild 构建后不哈希）→ 选择器可直接选中覆盖。
  * 第 10 节另覆盖 DSH **核心对话区**（ConversationRoot/ChatView，不是本
  * 插件 Tab）：对话区与用户消息气泡在手机上满宽、与屏幕等宽无两侧边距。
@@ -343,31 +343,7 @@ html[data-dsh-mobile] .bb-content {
 }
 
 /* ================================================================
- * 6. 便签 Tab（sp- 类，ScratchView）
- * ================================================================ */
-
-/* sp- 系列主体本来就是纵向布局（标题行 + 全宽编辑器 + 工具条），
-   只需两处横排行补换行 + 收窄留白。 */
-html[data-dsh-mobile] .sp-root {
-  padding: 10px;
-}
-
-/* 头部行（路径 + 保存时间）：桌面 baseline 单行，手机上允许折行，
-   长路径不再挤压保存时间。 */
-html[data-dsh-mobile] .sp-head {
-  flex-wrap: wrap;
-}
-
-/* 工具条（按钮 + 状态）：手机上允许折行，按钮多时换行排列。
-   （兜底层模式 2 对 [class*="toolbar"] 已强制 flex-wrap + row-gap 8px，
-   方向一致。） */
-html[data-dsh-mobile] .sp-toolbar {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* ================================================================
- * 7. 提示词 Tab（pm- 类，PromptView）
+ * 6. 提示词 Tab（pm- 类，PromptView）
  * ================================================================ */
 
 /* 根容器：桌面 overflow:hidden 三栏内部各自滚动，手机上改整体可滚。 */

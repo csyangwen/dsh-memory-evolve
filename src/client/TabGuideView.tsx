@@ -7,7 +7,7 @@
  * 与 MemoryQueueView 的「使用指南」面板视觉一致。
  *
  * 用途：设置 Tab 的「指南」= 整个插件的简单介绍（MemoryQueueView
- * feature='guide'，不走本组件）；记忆/技能/待办/提示词/临时信息 Tab 的
+ * feature='guide'，不走本组件）；记忆/技能/待办/提示词 Tab 的
  * 「指南」= 各自功能的详细介绍（本组件 + 各自 locale 文案）。
  */
 import type { JSX } from 'react'

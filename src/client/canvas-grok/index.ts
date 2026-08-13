@@ -14,16 +14,19 @@ import styles from './styles.css'
 /**
  * 注册所需的最小 ctx 面。主会话传入的 cordis Context 结构兼容。
  * 不用值导入 cordis / runtime，避免踩 client bundle 白名单。
+ * ⚠️ register 的 spec 用宽松形状（name/order 等字段 cordis 侧类型可能
+ * 更宽），保证 cordis Context 可赋值给本接口（tsc 严格模式下曾报
+ * Context 不可赋给 CanvasTabHost）。
  */
 export interface CanvasTabHost {
   slots: {
-    inject: (key: 'conversation.view', callback: () => (() => void)) => () => void
+    inject: (key: string, callback: () => (() => void)) => () => void
     register: (
       spec: {
-        name: 'conversation.view'
+        name: string
         id: string
         order: number
-        label: () => string
+        label?: () => string
       },
       render: (props: import('@deepseek-ai/dsh-client-ui-conversation/client').ConvViewProps) => JSX.Element,
     ) => () => void
