@@ -65,6 +65,20 @@ interface SuggestionEntry {
 }
 
 /**
+ * 一条建议 + 服务端原始队列下标。
+ *
+ * 展示层按 hits 倒序排列（反复出现的建议最可能值得确认），但操作时必须
+ * 回传服务端磁盘队列的原始 1-based 序号——服务端 approve/reject/archive
+ * 按原始顺序解释序号（lib/review.js）。若只排序不改号，任一 hits>1 的
+ * 条目排到前面后，「采纳第 1 条」实际处理的是另一条（误采纳/误拒绝）。
+ */
+interface SuggestionRow {
+  entry: SuggestionEntry
+  /** 服务端队列中的原始下标（0-based；对外操作时 +1 转 1-based 序号）。 */
+  origIndex: number
+}
+
+/**
  * 项目级建议（target=key / todo-project）显示项目标识：取 cwd 的最后一段
  * 作为项目名（兼容 / 与 \ 分隔的路径），完整路径放 title 悬浮提示。
  */
@@ -138,7 +152,7 @@ function formatTime(iso: string): string {
 /** The three feature panels (suggestions / skills / config). */
 export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
   const { t, feature, onChanged } = props
-  const [entries, setEntries] = useState<SuggestionEntry[] | null>(null)
+  const [entries, setEntries] = useState<SuggestionRow[] | null>(null)
   const [skills, setSkills] = useState<PendingSkill[] | null>(null)
   const [config, setConfig] = useState<RuntimeConfig | null>(null)
   const [draft, setDraft] = useState<RuntimeConfig | null>(null)
@@ -156,8 +170,11 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       api<{ config: RuntimeConfig }>('/api/config'),
     ]).then(([s, sk, c]) => {
       // Facts that resurfaced in several reviews are the most likely to be
-      // worth confirming — show them first.
-      const sorted = [...s.entries].sort((a, b) => (b.hits ?? 1) - (a.hits ?? 1))
+      // worth confirming — show them first. 每条携带服务端原始队列下标，
+      // 操作时回传原始序号（见 SuggestionRow 注释），保证与服务端对齐。
+      const sorted = [...s.entries]
+        .map((entry, index) => ({ entry, origIndex: index }))
+        .sort((a, b) => (b.entry.hits ?? 1) - (a.entry.hits ?? 1))
       setEntries(sorted)
       setSkills(sk.entries)
       setEdits({})
@@ -184,11 +201,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       // all-empty contents array would otherwise be treated as a real edit
       // of every entry ("" is not nullish), overwriting the suggestion.
       if (contents.some((content) => content !== '')) body.contents = contents
-      // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）
+      // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）。
+      // 按原始序号定位条目（entries 是排序后的展示数组，不能直接按下标取）。
       const overrides: Record<string, string> = {}
       for (const index of indices) {
         const pick = targetPicks[index]
-        if (pick !== undefined && pick !== entries?.[index - 1]?.target) overrides[String(index)] = pick
+        const row = (entries ?? []).find((candidate) => candidate.origIndex + 1 === index)
+        if (pick !== undefined && pick !== row?.entry.target) overrides[String(index)] = pick
       }
       if (Object.keys(overrides).length > 0) body.targets = overrides
     }
@@ -263,10 +282,10 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     setDraft((prev) => (prev === null ? prev : { ...prev, ...patch }))
   }
 
-  /** 当前面板的建议行（保留全量队列的 1-based index）：记忆面板=非待办类，
-   *  待办面板=todo-* 类。 */
+  /** 当前面板的建议行（序号=服务端原始队列的 1-based index）：记忆面板=非待办类，
+   *  待办面板=todo-* 类。展示排序不影响序号——序号取 origIndex，与服务端对齐。 */
   const suggestionRows = (entries ?? [])
-    .map((entry, index) => ({ entry, index: index + 1 }))
+    .map((row) => ({ entry: row.entry, index: row.origIndex + 1 }))
     .filter(({ entry }) => (feature === 'todo-suggestions')
       ? entry.target.startsWith('todo-')
       : !entry.target.startsWith('todo-'))
