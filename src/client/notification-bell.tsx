@@ -61,6 +61,7 @@ interface NotificationItem {
   semantic: 'notify' | 'direct'
   subject: string
   content: string
+  isLong: boolean
   hasBody: boolean
   attachments: Array<{ name: string; size: number; mime: string }>
   createdAt: number
@@ -98,8 +99,6 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[] | null>(null)
-  const [detailId, setDetailId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<OpenDetail | null>(null)
   // 「查看详情」大弹窗（长通知全文展示用，几千字可滚动）。
   const [modal, setModal] = useState<OpenDetail | null>(null)
 
@@ -152,22 +151,22 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
   /** 删除单条。 */
   const removeItem = useCallback((id: string): void => {
     void fetch(`${API}/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      .then(() => { poll(); loadList(); setDetailId(null); setDetail(null); setModal(null) })
+      .then(() => { poll(); loadList(); setModal(null) })
       .catch(() => { /* best-effort */ })
   }, [poll, loadList])
 
-  /** 展开单条：总是拉全文 + 标记已读。
-   *  ⚠️ 不能依赖 item.content——那是列表预览（200 字截断）。200~8KB 的中长
-   *  通知若不拉 /content，详情里会永远看不到被截断的部分。host 端 full(id)
-   *  无论是否落文件都返回完整内容，故这里无条件拉。 */
-  const openDetail = useCallback((item: NotificationItem): void => {
-    setDetailId(item.id)
-    markRead([item.id])
+  /** 标记单条已读（用户点「已读」按钮触发，不自动已读）。 */
+  const markReadItem = useCallback((id: string): void => {
+    markRead([id])
+  }, [markRead])
+
+  /** 打开「查看详情」大弹窗：拉全文（host full(id) 无论是否落文件都返回完整内容）。 */
+  const viewDetail = useCallback((item: NotificationItem): void => {
     void fetch(`${API}/${encodeURIComponent(item.id)}/content`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data: { content?: string }) => setDetail({ item, content: data.content ?? item.content }))
-      .catch(() => setDetail({ item, content: item.content }))
-  }, [markRead])
+      .then((data: { content?: string }) => setModal({ item, content: data.content ?? item.content }))
+      .catch(() => setModal({ item, content: item.content }))
+  }, [])
 
   const toggle = (): void => {
     const next = !open
@@ -203,75 +202,66 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
           <div className="me-notify-list">
             {items === null && <div className="me-notify-empty">{t('notify.loading')}</div>}
             {items !== null && items.length === 0 && <div className="me-notify-empty">{t('notify.empty')}</div>}
-            {items?.map((item) => {
-              const expanded = detailId === item.id
-              return (
-                <div key={item.id} className={`me-notify-item${expanded ? ' me-notify-item-open' : ''}`}>
-                  <button type="button" className="me-notify-item-head" onClick={() => openDetail(item)}>
-                    <span className="me-notify-meta">
-                      <span className={`me-notify-sender me-notify-${item.semantic}`}>
-                        {item.senderName === 'system' ? t('notify.system') : item.senderName}
-                      </span>
-                      <span className="me-notify-subject">{item.subject}</span>
-                    </span>
-                    <span className="me-notify-time">{fmtTime(item.createdAt)}</span>
+            {items?.map((item) => (
+              <div key={item.id} className="me-notify-item">
+                {/* 第一行：发送人（左）+ 时间（右） */}
+                <div className="me-notify-item-head">
+                  <span className={`me-notify-sender me-notify-${item.semantic}`}>
+                    {item.senderName === 'system' ? t('notify.system') : item.senderName}
+                  </span>
+                  <span className="me-notify-time">{fmtTime(item.createdAt)}</span>
+                </div>
+                {/* 第二行：主题（点击跳转到发送会话；system 通知无 sender 不可点） */}
+                <button
+                  type="button"
+                  className="me-notify-subject"
+                  disabled={item.sender === ''}
+                  onClick={() => { if (item.sender) { openSession(item.sender); setOpen(false) } }}
+                  title={item.sender ? t('notify.jump') : undefined}
+                >
+                  {item.subject}
+                </button>
+                {/* 内容：短内容完整显示；长文（isLong）截断 + 「查看详情」大弹窗。 */}
+                <div className={`me-notify-content${item.isLong ? ' me-notify-content-clamped' : ''}`}>
+                  {item.content}
+                </div>
+                {/* 附件缩略（若有） */}
+                {item.attachments.length > 0 && (
+                  <div className="me-notify-attachments">
+                    {item.attachments.map((att, i) => (
+                      <div key={i} className="me-notify-att">
+                        {att.mime?.startsWith('image/') ? (
+                          <img
+                            className="me-notify-att-img"
+                            src={`${API}/${encodeURIComponent(item.id)}/attachment/${i}`}
+                            alt={att.name}
+                          />
+                        ) : (
+                          <a
+                            className="me-notify-att-file"
+                            href={`${API}/${encodeURIComponent(item.id)}/attachment/${i}`}
+                            download={att.name}
+                          >
+                            {att.name}
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* 底部操作：已读按钮（不自动已读）+ 长文「查看详情」。 */}
+                <div className="me-notify-item-actions">
+                  <button type="button" className="me-notify-markread" onClick={() => markReadItem(item.id)}>
+                    {t('notify.markRead')}
                   </button>
-                  {!expanded && <div className="me-notify-preview">{item.content}</div>}
-                  {expanded && (
-                    <div className="me-notify-detail">
-                      {detail?.item.id === item.id && (
-                        <div className="me-notify-detail-body">
-                          {/* inline 全文：CSS 截断约 6 行；长文点「查看详情」开大弹窗。 */}
-                          <pre className={`me-notify-detail-content${detail.content.length > 300 ? ' me-notify-detail-content-clamped' : ''}`}>{detail.content}</pre>
-                          {detail.content.length > 300 && (
-                            <button type="button" className="me-notify-more" onClick={() => setModal(detail)}>
-                              {t('notify.viewDetail')}
-                            </button>
-                          )}
-                          {item.attachments.length > 0 && (
-                            <div className="me-notify-attachments">
-                              {item.attachments.map((att, i) => (
-                                <div key={i} className="me-notify-att">
-                                  {att.mime?.startsWith('image/') ? (
-                                    <img
-                                      className="me-notify-att-img"
-                                      src={`${API}/${encodeURIComponent(item.id)}/attachment/${i}`}
-                                      alt={att.name}
-                                    />
-                                  ) : (
-                                    <a
-                                      className="me-notify-att-file"
-                                      href={`${API}/${encodeURIComponent(item.id)}/attachment/${i}`}
-                                      download={att.name}
-                                    >
-                                      {att.name}
-                                    </a>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div className="me-notify-detail-actions">
-                            {item.sender !== '' && (
-                              <button
-                                type="button"
-                                className="me-notify-jump"
-                                onClick={() => { openSession(item.sender); setOpen(false) }}
-                              >
-                                {t('notify.jump')}
-                              </button>
-                            )}
-                            <button type="button" className="me-notify-delete" onClick={() => removeItem(item.id)}>
-                              {t('notify.delete')}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                  {item.isLong && (
+                    <button type="button" className="me-notify-more" onClick={() => viewDetail(item)}>
+                      {t('notify.viewDetail')}
+                    </button>
                   )}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         </div>
       )}

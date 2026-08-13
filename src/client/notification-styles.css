@@ -113,32 +113,22 @@
   font-size: 13px;
 }
 
-/* 单条通知。 */
+/* 单条通知（分行：发送人+时间 / 主题 / 内容 / 操作）。 */
 .me-notify-item {
   border-bottom: 1px solid var(--dsw-static-gray-5, #e5e7eb);
+  padding: 10px 14px;
 }
 .me-notify-item:last-child {
   border-bottom: none;
 }
 
-/* 条目头部（发送方 + 主题 + 时间）。 */
+/* 第一行：发送人（左）+ 时间（右）。 */
 .me-notify-item-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
-  padding: 10px 14px 4px;
-  border: none;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-}
-.me-notify-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
+  margin-bottom: 6px;
 }
 .me-notify-sender {
   flex-shrink: 0;
@@ -155,66 +145,79 @@
   background: #ecfdf5;
   color: #047857;
 }
-.me-notify-subject {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .me-notify-time {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--dsw-static-gray-9, #6b7280);
 }
 
-/* 预览（未展开时最多 2 行截断，点开看全文）。 */
-.me-notify-preview {
-  padding: 0 14px 10px;
-  font-size: 12px;
-  color: var(--dsw-static-gray-9, #6b7280);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+/* 第二行：主题（可点击跳转到发送会话；system 通知 disabled）。 */
+.me-notify-subject {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
   word-break: break-word;
 }
-
-/* 展开详情。 */
-.me-notify-detail {
-  padding: 0 14px 12px;
+.me-notify-subject:disabled {
+  cursor: default;
 }
-.me-notify-detail-content {
-  margin: 0 0 8px;
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--dsw-static-gray-2, #f9fafb);
-  font-family: inherit;
+.me-notify-subject:not(:disabled):hover {
+  color: var(--dsw-static-blue-9, #2563eb);
+  text-decoration: underline;
+}
+
+/* 内容：短内容完整显示（pre-wrap 保留换行），长文截断。 */
+.me-notify-content {
   font-size: 12px;
   line-height: 1.6;
+  color: var(--dsw-static-gray-10, #374151);
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* 长通知 inline 截断：约 6 行 + 底部渐隐遮罩，点「查看详情」看全文。 */
-.me-notify-detail-content-clamped {
+/* 长文截断：约 6 行 + 底部渐隐遮罩，点「查看详情」看全文。 */
+.me-notify-content-clamped {
   position: relative;
-  max-height: 132px; /* 约 6 行 × 22px */
+  max-height: 115px; /* 约 6 行 × 19px */
   overflow: hidden;
 }
-.me-notify-detail-content-clamped::after {
+.me-notify-content-clamped::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 40px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-static-gray-2, #f9fafb));
+  height: 36px;
+  background: linear-gradient(to bottom, transparent, var(--dsw-static-white, #ffffff));
 }
 
-/* 「查看详情」按钮（长通知 inline 详情底部）。 */
+/* 底部操作：已读按钮 + 长文「查看详情」。 */
+.me-notify-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.me-notify-markread {
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-static-gray-6, #d0d5dd);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--dsw-static-gray-11, #111827);
+  cursor: pointer;
+}
+.me-notify-markread:hover {
+  background: var(--dsw-static-gray-2, #f9fafb);
+}
 .me-notify-more {
-  display: block;
-  margin: -4px 0 8px;
   padding: 4px 10px;
   border: none;
   background: none;
@@ -231,7 +234,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-top: 8px;
 }
 .me-notify-att-img {
   width: 72px;
