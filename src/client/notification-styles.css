@@ -6,7 +6,8 @@
 /* 宿主容器：固定定位，不随滚动，跨会话常驻。 */
 .me-notify-host {
   position: fixed;
-  top: 12px;
+  /* 用户反馈：铃铛太靠上，往下移 50px（避开顶部标题栏/其他悬浮元素）。 */
+  top: 62px;
   right: 16px;
   z-index: 2147483000;
   display: flex;
