@@ -38,6 +38,8 @@ export interface CanvasBoardProps {
   onViewportChange: (next: CanvasViewport, persist: boolean) => void
   onSelect: (id: string | null) => void
   onMoveNode: (id: string, x: number, y: number, persist: boolean) => void
+  /** 卡片缩放：id + 新宽高（世界坐标）+ 是否持久化。 */
+  onResizeNode: (id: string, width: number, height: number, persist: boolean) => void
   onPreview: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
@@ -47,6 +49,7 @@ export interface CanvasBoardProps {
 type Gesture =
   | { kind: 'pan'; lastX: number; lastY: number }
   | { kind: 'drag'; id: string; originX: number; originY: number; startX: number; startY: number }
+  | { kind: 'resize'; id: string; originW: number; originH: number; startX: number; startY: number }
 
 function applyWorldTransform(el: HTMLElement | null, vp: CanvasViewport): void {
   if (!el) return
@@ -197,6 +200,13 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
       return
     }
     const scale = vpRef.current.scale || 1
+    if (g.kind === 'resize') {
+      // 世界坐标增量 = 屏幕增量 / scale；最小尺寸 120×60 防拖没。
+      const width = Math.max(120, g.originW + (event.clientX - g.startX) / scale)
+      const height = Math.max(60, g.originH + (event.clientY - g.startY) / scale)
+      props.onResizeNode(g.id, width, height, false)
+      return
+    }
     const x = g.originX + (event.clientX - g.startX) / scale
     const y = g.originY + (event.clientY - g.startY) / scale
     props.onMoveNode(g.id, x, y, false)
@@ -214,6 +224,12 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
       return
     }
     const scale = vpRef.current.scale || 1
+    if (g.kind === 'resize') {
+      const width = Math.max(120, g.originW + (event.clientX - g.startX) / scale)
+      const height = Math.max(60, g.originH + (event.clientY - g.startY) / scale)
+      props.onResizeNode(g.id, width, height, true)
+      return
+    }
     const x = g.originX + (event.clientX - g.startX) / scale
     const y = g.originY + (event.clientY - g.startY) / scale
     props.onMoveNode(g.id, x, y, true)
@@ -234,6 +250,25 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
       id,
       originX: node.placement.x,
       originY: node.placement.y,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+  }, [])
+
+  /** 右下角缩放起始：记录原始宽高，之后 move/end 按世界坐标增量更新。 */
+  const onResizeStart = useCallback((id: string, event: ReactPointerEvent<HTMLElement>) => {
+    if (spaceRef.current) return
+    const node = nodesRef.current.find((n) => n.id === id)
+    if (!node) return
+    const stage = stageRef.current
+    if (stage) {
+      try { stage.setPointerCapture(event.pointerId) } catch { /* ignore */ }
+    }
+    gestureRef.current = {
+      kind: 'resize',
+      id,
+      originW: node.placement.width,
+      originH: node.placement.height,
       startX: event.clientX,
       startY: event.clientY,
     }
@@ -277,6 +312,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             highlighted={props.highlightIds.has(node.id)}
             onSelect={props.onSelect}
             onDragStart={onDragStart}
+            onResizeStart={onResizeStart}
             onPreview={props.onPreview}
             onCopy={props.onCopy}
             onAskRemove={props.onAskRemove}

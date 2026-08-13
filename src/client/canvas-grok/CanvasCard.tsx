@@ -20,6 +20,8 @@ export interface CanvasCardProps {
   highlighted: boolean
   onSelect: (id: string) => void
   onDragStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
+  /** 右下角缩放：id + 起始 pointer 事件（手势在 CanvasBoard 层统一管理）。 */
+  onResizeStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
   onPreview: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
@@ -119,6 +121,15 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
     props.onDragStart(node.id, event)
   }, [node.id, props])
 
+  /** 右下角缩放手柄：阻止冒泡（避免误触标题栏拖动），交给 CanvasBoard 手势。 */
+  const onResizePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    props.onSelect(node.id)
+    props.onResizeStart(node.id, event)
+  }, [node.id, props])
+
   const className = [
     'cg-card',
     selected ? 'cg-selected' : '',
@@ -175,6 +186,15 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
           </footer>
         </>
       )}
+
+      {/* 右下角缩放手柄：拖动改变卡片宽高（最小尺寸由 CSS/常量约束） */}
+      <button
+        type="button"
+        className="cg-resize-handle"
+        aria-label="拖动调整卡片大小"
+        title="拖动调整大小"
+        onPointerDown={onResizePointerDown}
+      />
     </article>
   )
 }

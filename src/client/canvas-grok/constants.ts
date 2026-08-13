@@ -59,14 +59,14 @@ export const OTHER_PROJECT_LABEL = '客户合同库'
 /** AI 投放区（世界坐标）。AI 新节点只落在这里，用户再拖走。 */
 export const AI_ZONE = { x: 80, y: 40, width: 560, height: 300 } as const
 
-/** 各类型默认卡片尺寸（比参考项目略小，适配会话 Tab 而不是 Electron 全屏）。 */
+/** 各类型默认卡片尺寸（文本类调大：曾 268×208 内容挤，用户反馈看不清）。 */
 export const DEFAULT_SIZE: Record<CanvasNodeType, { width: number; height: number }> = {
   folder: { width: 248, height: 168 },
-  markdown: { width: 268, height: 208 },
-  plainText: { width: 248, height: 176 },
-  image: { width: 252, height: 196 },
-  media: { width: 252, height: 176 },
-  file: { width: 236, height: 156 },
+  markdown: { width: 360, height: 260 },
+  plainText: { width: 340, height: 240 },
+  image: { width: 320, height: 240 },
+  media: { width: 320, height: 220 },
+  file: { width: 260, height: 170 },
 }
 
 /** 类型展示名。 */

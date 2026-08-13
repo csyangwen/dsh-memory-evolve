@@ -374,6 +374,18 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     })
   }, [persist])
 
+  /** 卡片右下角缩放：更新宽高（世界坐标），松手时持久化。 */
+  const onResizeNode = useCallback((id: string, width: number, height: number, shouldPersist: boolean) => {
+    setNodes((prev) => {
+      const next = prev.map((n) => {
+        if (n.id !== id) return n
+        return { ...n, placement: { ...n.placement, width, height } }
+      })
+      if (shouldPersist) persist({ nodes: next })
+      return next
+    })
+  }, [persist])
+
   const onSelect = useCallback((id: string | null) => {
     setSelectedId(id)
     if (!id) return
@@ -542,6 +554,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onViewportChange={applyViewport}
         onSelect={onSelect}
         onMoveNode={onMoveNode}
+        onResizeNode={onResizeNode}
         onPreview={onPreview}
         onCopy={onCopy}
         onAskRemove={onAskRemove}

@@ -246,6 +246,28 @@
   border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 50%, var(--dsw-alias-interactive-bg-hover));
 }
 
+/* 右下角缩放手柄：hover 卡片时显示；拖动改变卡片宽高。 */
+.cg-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  background:
+    linear-gradient(135deg, transparent 42%, var(--dsw-alias-label-secondary) 46%, var(--dsw-alias-label-secondary) 54%, transparent 58%),
+    linear-gradient(135deg, transparent 62%, var(--dsw-alias-label-secondary) 66%, var(--dsw-alias-label-secondary) 74%, transparent 78%);
+  opacity: 0;
+  cursor: nwse-resize;
+  transition: opacity 0.15s ease;
+}
+.cg-card:hover .cg-resize-handle,
+.cg-resize-handle:active {
+  opacity: 0.85;
+}
+
 @keyframes cg-flash {
   0%, 100% { box-shadow: none; }
   20%, 60% {
