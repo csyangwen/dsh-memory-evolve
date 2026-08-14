@@ -123,6 +123,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     ? (props as { sessionId: string }).sessionId
     : 'session-local'
 
+  // 当前会话项目归属（后端 GET 下发，按会话工作目录解析）：视角筛选与
+  // 新增节点归属必须用真实值——曾用模拟常量 'proj-demo'/'sess-demo-current'
+  // 导致「本会话/本项目」视角筛选错乱（2026-08-14 用户反馈：记忆.png 标
+  // 当前会话却本会话视角看不到，只有项目/所有项目视角可见）。
+  const [currentProjectId, setCurrentProjectId] = useState<string>(CURRENT_PROJECT_ID)
+  const [currentProjectLabel, setCurrentProjectLabel] = useState<string>(CURRENT_PROJECT_LABEL)
+
   /** 初始加载：探测后端 → 后端有板则用后端数据（并接管保存）。 */
   useEffect(() => {
     let cancelled = false
@@ -143,6 +150,9 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         setViewport(remote.viewport)
         setViewMode(remote.viewMode)
         if (remote.lastAiNodeId) setLastAiNodeId(remote.lastAiNodeId)
+        // 当前会话项目归属（后端解析的真实值；后端未下发时保留默认）
+        if (remote.currentProjectId) setCurrentProjectId(remote.currentProjectId)
+        if (remote.currentProjectLabel) setCurrentProjectLabel(remote.currentProjectLabel)
       }
       backendReadyRef.current = true
       setBackendReady(true)
@@ -294,8 +304,12 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
   }, [])
 
   const visibleNodes = useMemo(
-    () => nodes.filter((n) => isNodeVisible(n, viewMode)),
-    [nodes, viewMode],
+    // ⚠️ 必须传真实 sessionId/currentProjectId——isNodeVisible 的默认参数
+    // 是模拟常量（'sess-demo-current'/'proj-demo'），不传会导致「本会话」
+    // 视角永远匹配不上真实节点（2026-08-14 用户反馈：记忆.png 标当前会话
+    // 却本会话视角看不到，只有项目/所有项目视角可见）。
+    () => nodes.filter((n) => isNodeVisible(n, viewMode, sessionId, currentProjectId)),
+    [nodes, viewMode, sessionId, currentProjectId],
   )
 
   const matchIds = useMemo(() => {
@@ -367,14 +381,16 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       // 归属必须用真实查看者会话 id（曾写死模拟常量 CURRENT_SESSION_ID，
       // 导致新节点归属到假会话、其他会话视角过滤看不到——2026-08-14 修复）
       sessionId,
-      projectId: CURRENT_PROJECT_ID,
+      // projectId 同样必须用后端下发的真实值（曾写死 'proj-demo' 模拟值，
+      // 导致「本项目」视角筛选错乱——2026-08-14 修复）
+      projectId: currentProjectId,
       path,
       unverified: true,
       meta: { mtime: '未验证' },
     })
     setDialog(null)
     showToast(`已上板：${titleFromPath(path)}`)
-  }, [addNode, sessionId, showToast])
+  }, [addNode, currentProjectId, sessionId, showToast])
 
   const onNote = useCallback((payload: NoteSubmit) => {
     addNode({
@@ -384,12 +400,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       scopeLabel: CURRENT_SESSION_LABEL,
       // 归属用真实查看者会话 id（2026-08-14 修复，见 onPath 注释）
       sessionId,
-      projectId: CURRENT_PROJECT_ID,
+      // projectId 用后端下发的真实值（2026-08-14 修复，见 onPath 注释）
+      projectId: currentProjectId,
       content: payload.content,
     })
     setDialog(null)
     showToast('便签已上板')
-  }, [addNode, sessionId, showToast])
+  }, [addNode, currentProjectId, sessionId, showToast])
 
   const onCatalog = useCallback((title: string, path: string, type: CanvasNodeType) => {
     addNode({
@@ -399,14 +416,15 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       scopeLabel: CURRENT_SESSION_LABEL,
       // 归属用真实查看者会话 id（2026-08-14 修复，见 onPath 注释）
       sessionId,
-      projectId: CURRENT_PROJECT_ID,
+      // projectId 用后端下发的真实值（2026-08-14 修复，见 onPath 注释）
+      projectId: currentProjectId,
       path,
       unverified: true,
       meta: { size: CATALOG_SIZE[path], mtime: '示例' },
     })
     setDialog(null)
     showToast(`已上板：${title}`)
-  }, [addNode, sessionId, showToast])
+  }, [addNode, currentProjectId, sessionId, showToast])
 
   // 「跳到最近 AI 便签」：真实 AI 写入（de_canvas add_note，后端已接入）
   // 落会话板中央区并记 lastAiNodeId，此按钮定位到那张便签。
@@ -591,7 +609,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         <span className="cg-meta">
           {visibleNodes.length}/{nodes.length} 张
           {searchActive ? ` · 命中 ${matchIds.size}` : ''}
-          {' · '}{viewMode === 'session' ? '本会话' : viewMode === 'project' ? '本项目' : '所有项目'}
+          {' · '}{viewMode === 'session' ? '本会话' : viewMode === 'project' ? currentProjectLabel : '所有项目'}
           {backendReady ? (
             syncState === 'conflict' ? ' · ⚠️ 冲突，请刷新'
               : syncState === 'saving' ? ' · 保存中'

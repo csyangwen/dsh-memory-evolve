@@ -56,7 +56,18 @@ export async function loadCanvasFromBackend(sessionId: string): Promise<(CanvasP
     if (!res.ok) return null
     const data: unknown = await res.json()
     if (!data || typeof data !== 'object') return null
-    const row = data as { nodes?: unknown; rev?: unknown; viewport?: unknown; viewMode?: unknown; lastAiNodeId?: unknown }
+    const row = data as {
+      nodes?: unknown
+      rev?: unknown
+      viewport?: unknown
+      viewMode?: unknown
+      lastAiNodeId?: unknown
+      // 2026-08-14 新增：当前会话项目归属（后端按会话工作目录解析，
+      // 前端视角筛选/新增节点归属用真实值——曾用模拟常量 'proj-demo'
+      // 导致「本会话/本项目」视角筛选错乱）
+      currentProjectId?: unknown
+      currentProjectLabel?: unknown
+    }
     if (!Array.isArray(row.nodes)) return null
     const vp = row.viewport as { x?: unknown; y?: unknown; scale?: unknown } | null
     return {
@@ -70,6 +81,8 @@ export async function loadCanvasFromBackend(sessionId: string): Promise<(CanvasP
       // 乐观锁 rev：必须取后端当前值，否则保存带旧 rev 会被 409 拒绝
       // （曾硬编码 0 导致一切保存被拒——"加上去有、刷新没"的根因）。
       rev: Number.isFinite(Number(row.rev)) ? Number(row.rev) : 0,
+      currentProjectId: typeof row.currentProjectId === 'string' ? row.currentProjectId : undefined,
+      currentProjectLabel: typeof row.currentProjectLabel === 'string' ? row.currentProjectLabel : undefined,
     }
   } catch {
     return null
