@@ -109,6 +109,21 @@ test('tool output schemas are valid DSH JSON Schema (no property-level required 
   }
 })
 
+test('tool output declares render (DSH tools.register hard requirement)', () => {
+  // 2026-08-14 回归护栏：DSH register() 要求 output = { schema, render }，
+  // render 必须是函数，否则抛 TypeError 且工具静默不注册（de_canvas 曾
+  // 因此缺失导致所有会话看不到该工具，而前端 Tab/API 一切正常）。
+  const ctx = fakeCtx()
+  apply(ctx, { reviewEnabled: true })
+  for (const tool of ctx.state.tools) {
+    assert.equal(
+      typeof tool.output.render,
+      'function',
+      `tool "${tool.name}" output.render must be a function`,
+    )
+  }
+})
+
 test('resolveConfig defaults and validation', () => {
   const config = resolveConfig({})
   assert.equal(config.reviewEnabled, false)
