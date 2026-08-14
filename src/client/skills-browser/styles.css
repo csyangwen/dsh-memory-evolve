@@ -81,7 +81,7 @@
 }
 
 .sb-search-input::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .sb-search-input:focus-visible {
@@ -385,7 +385,7 @@
   color: var(--dsw-static-neutral-5, var(--dsw-alias-label-tertiary));
   background: color-mix(
     in srgb,
-    var(--dsw-static-neutral-5, var(--dsw-alias-label-dimmed)) 16%,
+    var(--dsw-static-neutral-5, var(--dsw-alias-label-tertiary)) 16%,
     transparent
   );
 }
@@ -431,7 +431,7 @@
 
 .sb-card-when-label {
   margin-right: 4px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* ---------- 栏2 目录树 ---------- */
@@ -483,7 +483,7 @@
 
 .sb-crumb-sep {
   margin: 0 2px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .sb-crumb {
@@ -559,7 +559,7 @@
 .sb-tree-size {
   flex: none;
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .sb-tree-note {
@@ -570,7 +570,7 @@
   padding-bottom: 4px;
   padding-right: 8px;
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .sb-tree-errmsg {
@@ -618,7 +618,7 @@
 .sb-editor-path {
   min-width: 0;
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -665,7 +665,7 @@
   font-size: 12px;
   line-height: 20px;
   text-align: right;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   user-select: none;
 }
 
@@ -823,7 +823,7 @@
 .sb-tree::-webkit-scrollbar-thumb:hover,
 .sb-editor-scroll::-webkit-scrollbar-thumb:hover,
 .sb-textarea::-webkit-scrollbar-thumb:hover {
-  background: var(--dsw-alias-scrollbar-hover-l, var(--dsw-alias-label-dimmed));
+  background: var(--dsw-alias-scrollbar-hover-l, var(--dsw-alias-label-tertiary));
 }
 
 .sb-list::-webkit-scrollbar-track,

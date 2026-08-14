@@ -406,7 +406,7 @@
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
-  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+  color: var(--dsw-alias-label-tertiary);
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent);
 }
 
@@ -492,7 +492,7 @@
 .bb-settings-desc {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   margin: 0 0 10px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
@@ -554,7 +554,7 @@
   display: block;
   margin-top: 4px;
   font-size: 12px;
-  color: var(--dsw-alias-label-dimmed, #999);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* ---- 记忆同步 Tab（SyncView）专属样式（sv- 前缀，2026-08-11 用户拍板
@@ -633,7 +633,7 @@
 .sv-radio-desc {
   font-size: 11px;
   line-height: 1.5;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   display: block;
   margin-top: 2px;
 }

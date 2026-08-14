@@ -275,7 +275,7 @@
 .advisor-status-disabled {
   border-color: var(--dsw-alias-border-l3);
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .advisor-status-halted {
@@ -311,7 +311,7 @@
 }
 
 .advisor-switch:disabled {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   cursor: default;
 }
 
@@ -465,7 +465,7 @@
 }
 
 .advisor-muted {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
 }
 
@@ -699,14 +699,14 @@
   padding: 7px 8px;
   border: 1px dashed var(--dsw-alias-border-l2);
   border-radius: 8px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
   text-align: center;
 }
 
 .advisor-note-meta {
   margin-bottom: 3px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 9px;
 }
 
@@ -828,7 +828,7 @@
 
 .advisor-input::placeholder,
 .advisor-textarea::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .advisor-button {
@@ -912,7 +912,7 @@
 .advisor-steer-hint,
 .advisor-settings-hint {
   margin-top: 5px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 9px;
   line-height: 1.4;
 }
@@ -926,7 +926,7 @@
 }
 
 .advisor-scope-hint {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   font-size: 9px;
   line-height: 1.4;
 }

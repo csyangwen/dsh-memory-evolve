@@ -125,7 +125,7 @@
   margin: 0;
   padding: 8px 0;
   font-size: 12px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Friendly empty state */
@@ -319,7 +319,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .me-item-actions {
@@ -508,7 +508,7 @@
   font-style: normal;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* 次级开关行（子功能开关，如 ws-coord 的快照/硬拦截）：缩进 + 弱化，
@@ -686,7 +686,7 @@
 .mt-cwd {
   margin: 0;
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -695,7 +695,7 @@
 .mt-muted {
   margin: 0;
   font-size: 12px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .mt-list {
@@ -753,7 +753,7 @@
   flex: 1;
   min-width: 0;
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -811,7 +811,7 @@
 .mt-scope-all-hint {
   font-style: normal;
   font-size: 10px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Per-entry branch-scope badge (click to edit). */
@@ -943,7 +943,7 @@
 }
 
 .mt-key-input::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .mt-key-add-foot {
@@ -1124,7 +1124,7 @@
 }
 
 .mt-search::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Search hit count badge in the card head */
@@ -1514,7 +1514,7 @@
 .me-todo-help {
   font-size: 11px;
   line-height: 1.6;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   margin: 0;
 }
 
@@ -1652,7 +1652,7 @@
   text-align: center;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   border: 1px dashed var(--dsw-alias-border-l, rgba(128, 128, 128, 0.3));
   border-radius: 8px;
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent);
@@ -1939,7 +1939,7 @@
 
 .mt-models-model-id {
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
   word-break: break-all;
 }
 
@@ -1949,7 +1949,7 @@
 }
 
 .mt-models-muted-cell {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .mt-models-levels {
@@ -1967,7 +1967,7 @@
 
 .mt-models-level-more {
   font-size: 10px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .mt-models-link {
@@ -2014,7 +2014,7 @@
 }
 
 .mt-models-note::placeholder {
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* 展开的思考等级编辑器（占整行）。 */
@@ -2054,7 +2054,7 @@
 
 .mt-models-editor-level-id {
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .mt-models-editor-add {
@@ -2117,7 +2117,7 @@
 
 .mt-models-editor-hint {
   font-size: 11px;
-  color: var(--dsw-alias-label-dimmed);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* 版本检测「发布说明」：保留换行（tag 附注多行展示，CodeX 复审 P1-8）。 */
