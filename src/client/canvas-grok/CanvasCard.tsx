@@ -31,6 +31,8 @@ export interface CanvasCardProps {
   onPreview: (id: string) => void
   /** 系统默认应用打开上板文件（2026-08-14：路径上板/搜索上板的一键打开）。 */
   onOpen: (id: string) => void
+  /** 保存文本/便签内容到本机文件（2026-08-14：弹系统保存对话框）。 */
+  onSave: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -216,6 +218,10 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
           </div>
           <footer className="cg-card-foot">
             <button type="button" onClick={() => props.onPreview(node.id)}>预览</button>
+            {(node.type === 'markdown' || node.type === 'plainText') && node.content
+              ? (
+                <button type="button" className="cg-open" onClick={() => props.onSave(node.id)} title="保存内容到本机文件">保存</button>
+              ) : null}
             {node.path ? (
               <button type="button" className="cg-open" onClick={() => props.onOpen(node.id)} title="用系统默认应用打开">打开</button>
             ) : null}

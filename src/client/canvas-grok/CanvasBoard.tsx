@@ -47,6 +47,8 @@ export interface CanvasBoardProps {
   onPreview: (id: string) => void
   /** 系统默认应用打开上板文件（2026-08-14）。 */
   onOpen: (id: string) => void
+  /** 保存文本/便签内容到本机文件（2026-08-14）。 */
+  onSave: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -336,6 +338,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             onResizeStart={onResizeStart}
             onPreview={props.onPreview}
             onOpen={props.onOpen}
+            onSave={props.onSave}
             onCopy={props.onCopy}
             onAskRemove={props.onAskRemove}
             onChangeContent={props.onChangeContent}

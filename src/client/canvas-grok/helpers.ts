@@ -204,6 +204,66 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * 把画板文本/便签内容保存到本机文件（2026-08-14 用户要求：AI 和用户
+ * 加的文本/markdown 标签都能保存落地）。
+ * 优先用 File System Access API 的 showSaveFilePicker——弹出**系统原生
+ * 保存对话框**让用户选路径（Chrome 系浏览器；localhost/127.0.0.1 属
+ * secure context 可用）；API 不可用/失败时降级为 Blob 下载（存到
+ * 浏览器默认下载目录）。
+ * @param {string} title - 建议文件名（自动清洗非法字符 + 补扩展名）
+ * @param {string} content - 文件内容
+ * @returns {Promise<{ ok: boolean; canceled?: boolean; message?: string }>}
+ */
+export async function saveTextToFile(title: string, content: string): Promise<{ ok: boolean; canceled?: boolean; message?: string }> {
+  const safeName = sanitizeFileName(title) || '便签'
+  const fileName = /\.(md|txt)$/i.test(safeName) ? safeName : `${safeName}.md`
+  // 首选：系统原生保存对话框（File System Access API）。
+  const picker = (window as unknown as { showSaveFilePicker?: (opts: object) => Promise<{
+    createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>
+  }> }).showSaveFilePicker
+  if (typeof picker === 'function') {
+    try {
+      const handle = await picker({
+        suggestedName: fileName,
+        types: [{
+          description: 'Markdown 文本',
+          accept: { 'text/markdown': ['.md', '.txt'] },
+        }],
+      })
+      const writable = await handle.createWritable()
+      await writable.write(content)
+      await writable.close()
+      return { ok: true }
+    } catch (error) {
+      // 用户取消（AbortError）不算失败；其他错误降级下载
+      if ((error as { name?: string })?.name === 'AbortError') {
+        return { ok: false, canceled: true }
+      }
+    }
+  }
+  // 降级：Blob 下载（存浏览器默认下载目录）。
+  try {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    return { ok: true, message: '已下载到浏览器默认下载目录' }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** 清洗文件名非法字符（Windows/macOS 通用保留字符）。 */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 120)
+}
+
 /** 根据 id 生成稳定的占位渐变，让每张图片卡看起来不一样。 */
 export function placeholderHue(id: string): number {
   let h = 0
