@@ -424,20 +424,8 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast(`已上板：${title}`)
   }, [addNode, currentProjectId, sessionId, showToast])
 
-  // 「跳到最近 AI 便签」：真实 AI 写入（de_canvas add_note，后端已接入）
-  // 落会话板中央区并记 lastAiNodeId，此按钮定位到那张便签。
-  const jumpToAi = useCallback(() => {
-    const id = lastAiNodeId
-    const node = id ? nodes.find((n) => n.id === id) : null
-    if (!node) {
-      showToast('还没有 AI 便签')
-      return
-    }
-    setSelectedId(node.id)
-    pulseHighlight(node.id)
-    applyViewport(viewportToNode(node, viewport, stageSize.w, stageSize.h), true)
-  }, [applyViewport, lastAiNodeId, nodes, pulseHighlight, showToast, stageSize.h, stageSize.w, viewport])
-
+  // 「跳到最近 AI 便签」已于 2026-08-14 删除（用户反馈无用）：
+  // lastAiNodeId 仍保留为持久化字段（boards.json 向后兼容），仅移除入口。
   const onMoveNode = useCallback((id: string, x: number, y: number, shouldPersist: boolean) => {
     setNodes((prev) => {
       const next = prev.map((n) => {
@@ -676,9 +664,6 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         <div className="cg-toolbar-sep" />
 
         <div className="cg-toolbar-group">
-          <button type="button" className="cg-btn cg-ghost" onClick={jumpToAi} disabled={!lastAiNodeId}>
-            跳到最近 AI 便签
-          </button>
           <button
             type="button"
             className="cg-btn cg-ghost cg-scale"

@@ -5,7 +5,7 @@
  * 范围可选本机全部（缺省）/ 当前项目。预览：后端可用时图片/文本/PDF
  * 走文件代理，否则占位色块。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { TYPE_GLYPH, TYPE_LABEL } from './constants.ts'
 import { inferTypeFromPath, placeholderHue } from './helpers.ts'
 import { fileProxyUrl, searchFilesBackend } from './api-client.ts'
@@ -140,10 +140,12 @@ function CatalogDialog(props: {
   const [searchError, setSearchError] = useState<string | null>(null)
   const searchSeq = useRef(0)
 
-  // 后端模式：输入防抖 350ms 触发真实搜索（mdfind/rg/walk）。
-  useEffect(() => {
-    if (!props.backendReady) return
+  // 2026-08-14 用户反馈：输入即搜（350ms 防抖）误触发太多——打字过程
+  // 中光标还没移开就弹出结果/打断思路。改为**显式触发**：点「搜索」
+  // 按钮或在输入框按回车才执行；输入/切范围只改状态不自动搜。
+  const runSearch = useCallback(() => {
     const needle = q.trim()
+    if (!props.backendReady) return
     if (!needle) {
       setRemoteRows(null)
       setSearchError(null)
@@ -152,16 +154,24 @@ function CatalogDialog(props: {
     setSearching(true)
     setSearchError(null)
     const seq = ++searchSeq.current
-    const timer = setTimeout(() => {
-      void searchFilesBackend(needle, { sessionId: props.sessionId, scope, limit: 20 }).then((rows) => {
-        if (searchSeq.current !== seq) return // 过期响应丢弃
-        setSearching(false)
-        setRemoteRows(rows)
-        if (rows === null) setSearchError('本地搜索不可用')
-      })
-    }, 350)
-    return () => { clearTimeout(timer); setSearching(false) }
-  }, [q, props.backendReady, props.sessionId, scope])
+    void searchFilesBackend(needle, { sessionId: props.sessionId, scope, limit: 20 }).then((rows) => {
+      if (searchSeq.current !== seq) return // 过期响应丢弃（如切换范围后旧请求晚到）
+      setSearching(false)
+      setRemoteRows(rows)
+      if (rows === null) setSearchError('本地搜索不可用')
+    })
+  }, [props.backendReady, props.sessionId, q, scope])
+
+  // 切换搜索范围：旧范围的结果作废（避免「当前项目」下显示全盘结果
+  // 的误导），清空并提示重新搜索；不自动搜，等用户点「搜索」。
+  const changeScope = useCallback((next: 'local' | 'project') => {
+    if (next === scope) return
+    searchSeq.current++ // 使在途请求过期
+    setScope(next)
+    setRemoteRows(null)
+    setSearchError(null)
+    setSearching(false)
+  }, [scope])
 
   const rows = props.backendReady && remoteRows !== null ? remoteRows : []
   return (
@@ -170,19 +180,25 @@ function CatalogDialog(props: {
       <p>搜索本机文件，选中即上板。</p>
       <div className="cg-field">
         <label htmlFor="cg-cat-q">关键字</label>
-        <input
-          id="cg-cat-q"
-          autoFocus
-          value={q}
-          placeholder="合同 / 设计稿 / 录音…"
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <div className="cg-search-row">
+          <input
+            id="cg-cat-q"
+            autoFocus
+            value={q}
+            placeholder="合同 / 设计稿 / 录音…"
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') runSearch() }}
+          />
+          <button type="button" className="cg-btn cg-primary" onClick={runSearch} disabled={!q.trim()}>
+            搜索
+          </button>
+        </div>
       </div>
       <div className="cg-seg cg-scope" role="group" aria-label="搜索范围">
-        <button type="button" className={scope === 'local' ? 'cg-on' : ''} onClick={() => setScope('local')}>
+        <button type="button" className={scope === 'local' ? 'cg-on' : ''} onClick={() => changeScope('local')}>
           本机全部
         </button>
-        <button type="button" className={scope === 'project' ? 'cg-on' : ''} onClick={() => setScope('project')}>
+        <button type="button" className={scope === 'project' ? 'cg-on' : ''} onClick={() => changeScope('project')}>
           当前项目
         </button>
       </div>

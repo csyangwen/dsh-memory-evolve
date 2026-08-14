@@ -612,6 +612,23 @@
   gap: 4px;
 }
 
+/* 搜索上板：关键字输入框 + 「搜索」按钮横排（2026-08-14 用户反馈：
+   输入即搜误触发多，改为显式点按钮/回车才搜索）。输入框撑满剩余宽度。 */
+.cg-search-row {
+  display: flex;
+  gap: 6px;
+}
+
+.cg-search-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-search-row .cg-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
 .cg-field label {
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary);
