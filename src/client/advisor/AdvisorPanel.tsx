@@ -209,10 +209,12 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const portal = typeof document === 'undefined' ? null : createPortal(
     expanded ? (
       <AdvisorPanel store={store} snapshot={snapshot} onCollapse={toggle} />
-    ) : panelEnabled && (enabled || userToggled) ? (
-      // 2026-08-13 用户反馈：悬浮胶囊默认不主动显示——本会话未启用评审
-      // 且用户未手动操作过时隐藏（页面干净）；用户点头部 toggle 点开过
-      // 面板（userToggled）或会话启用评审后，胶囊正常显示便于快速重开
+    ) : panelEnabled ? (
+      // 2026-08-14 用户反馈：「显示悬浮胶囊」开关开启时，胶囊应常驻显示
+      // （作为打开面板的入口 + 评审状态指示灯），不再因「本会话未启用评审」
+      // 或「刷新后 userToggled 归零」而消失。评审状态由胶囊颜色表达
+      // （capsuleStateClass：灰=停用/绿=空闲/蓝呼吸=评审中/橙红=异常），
+      // 而非用「显不显示」表达。
       <button
         type="button"
         className={`advisor-capsule ${capsuleStateClass}`}
