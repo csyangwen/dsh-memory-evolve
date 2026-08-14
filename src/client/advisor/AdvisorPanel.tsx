@@ -990,7 +990,7 @@ function SettingsDisclosure({ store, snapshot }: {
                   checked={draft.advisorEnabled}
                   onChange={(event) => setDraft({ ...draft, advisorEnabled: event.target.checked })}
                 />
-                <span>全局默认启用 Advisor</span>
+                <span>启用会话评审模块（总闸）</span>
               </label>
               <label className="advisor-check-row">
                 <input
