@@ -17,6 +17,7 @@ import { CanvasDialogs } from './CanvasDialogs.tsx'
 import type { NoteSubmit, PathSubmit } from './CanvasDialogs.tsx'
 import {
   CURRENT_PROJECT_ID,
+  CURRENT_PROJECT_LABEL,
   CURRENT_SESSION_LABEL,
   DEFAULT_SIZE,
   DEFAULT_VIEWPORT,
