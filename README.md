@@ -4,7 +4,7 @@
 >
 > 本指南按真实工作流组织，每个场景讲「适合谁、能做什么、怎么用、会得到什么」。
 >
-> 相关文档：[详细功能说明](README-详细说明.md) · [记忆同步](docs/记忆同步.md) · [更新日志](docs/CHANGELOG.md)
+> 相关文档：[详细功能说明](README-详细说明.md) · [记忆同步](docs/记忆同步.md) · [更新日志](docs/CHANGELOG.md) · [English](README.en.md)
 
 ---
 
