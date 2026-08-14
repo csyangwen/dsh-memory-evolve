@@ -1034,7 +1034,7 @@ function SettingsDisclosure({ store, snapshot }: {
               </span>
               <textarea
                 className="advisor-textarea advisor-prompt-textarea"
-                rows={10}
+                rows={22}
                 maxLength={8_192}
                 value={draft.advisorSystemPrompt === '' ? (snapshot.config?.defaultSystemPrompt ?? '') : draft.advisorSystemPrompt}
                 onChange={(event) => setDraft({ ...draft, advisorSystemPrompt: event.target.value })}

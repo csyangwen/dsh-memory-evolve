@@ -1130,10 +1130,10 @@
 }
 
 .advisor-prompt-textarea {
-  /* 2026-08-14 用户反馈：评审系统提示词输入框加高（原 96~190px 太矮，
-     下方留白），上限同步放宽 */
-  min-height: 180px;
-  max-height: 340px;
+  /* 2026-08-14 用户反馈：评审系统提示词输入框加高（默认行数 rows 已由
+     10→22，这里同步抬高 min/max 上下限） */
+  min-height: 280px;
+  max-height: 460px;
 }
 
 .advisor-settings-save {
