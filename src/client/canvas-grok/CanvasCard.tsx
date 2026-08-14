@@ -68,7 +68,7 @@ function CardBody(props: { node: CanvasNode; onChangeContent: CanvasCardProps['o
           }}
         >
           🖼
-          <small>模拟预览</small>
+          <small>图片预览</small>
         </div>
         {node.path ? <div className="cg-card-path" title={node.path}>{node.path}</div> : null}
       </>
@@ -85,7 +85,7 @@ function CardBody(props: { node: CanvasNode; onChangeContent: CanvasCardProps['o
           }}
         >
           ▶
-          <small>{node.path?.toLowerCase().match(/\.(mp3|wav|m4a|aac|ogg|flac)$/) ? '音频占位' : '视频占位'}</small>
+          <small>{node.path?.toLowerCase().match(/\.(mp3|wav|m4a|aac|ogg|flac)$/) ? '音频' : '视频'}</small>
         </div>
         {node.path ? <div className="cg-card-path" title={node.path}>{node.path}</div> : null}
       </>
@@ -97,7 +97,7 @@ function CardBody(props: { node: CanvasNode; onChangeContent: CanvasCardProps['o
       <>
         <div className="cg-ph" style={{ fontSize: 32, minHeight: 56 }}>📁</div>
         {node.path ? <div className="cg-card-path" title={node.path}>{node.path}</div> : null}
-        <div className="cg-card-meta">{node.meta?.size ?? '文件夹'} · 一期不内嵌浏览</div>
+        <div className="cg-card-meta">{node.meta?.size ?? '文件夹'} · 暂不支持内嵌浏览</div>
       </>
     )
   }

@@ -42,7 +42,7 @@ function PathDialog(props: { onClose: () => void; onPath: (p: PathSubmit) => voi
   return (
     <div className="cg-dialog" role="dialog" aria-label="路径上板">
       <h3>路径上板</h3>
-      <p>粘贴本地路径即可生成卡片。一期不校验文件是否存在，卡片会标「未验证」。</p>
+      <p>粘贴本地路径即可生成卡片。暂不校验文件是否存在，卡片会标「未验证」。</p>
       <div className="cg-field">
         <label htmlFor="cg-path-input">本地路径</label>
         <input
@@ -82,7 +82,7 @@ function NoteDialog(props: { onClose: () => void; onNote: (p: NoteSubmit) => voi
   return (
     <div className="cg-dialog" role="dialog" aria-label="新建便签">
       <h3>便签上板</h3>
-      <p>内容存在画板里，不指向任何文件（与 scratch 同语义，一期不做互通）。</p>
+      <p>内容存在画板里，不指向任何文件。</p>
       <div className="cg-field">
         <label htmlFor="cg-note-title">标题</label>
         <input id="cg-note-title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -147,7 +147,7 @@ function CatalogDialog(props: {
         if (searchSeq.current !== seq) return // 过期响应丢弃
         setSearching(false)
         setRemoteRows(rows)
-        if (rows === null) setSearchError('宿主搜索不可用')
+        if (rows === null) setSearchError('本地搜索不可用')
       })
     }, 350)
     return () => { clearTimeout(timer); setSearching(false) }
@@ -173,11 +173,11 @@ function CatalogDialog(props: {
       : localRows
   return (
     <div className="cg-dialog" role="dialog" aria-label="搜索上板">
-      <h3>搜索上板{props.backendReady ? '' : '（模拟）'}</h3>
+      <h3>搜索上板{props.backendReady ? '' : '（示例）'}</h3>
       <p>
         {props.backendReady
-          ? '真实搜索本机文件（Spotlight/Everything/rg），选中即上板。'
-          : '内置示例清单，选中即上板。开启宿主 canvas 模块后为真实本地搜索。'}
+          ? '搜索本机文件，选中即上板。'
+          : '内置示例清单，选中即上板。启用画板模块后为真实本地搜索。'}
       </p>
       <div className="cg-field">
         <label htmlFor="cg-cat-q">关键字</label>
@@ -194,7 +194,7 @@ function CatalogDialog(props: {
       <div className="cg-catalog">
         {!searching && rows.length === 0 ? (
           <div className="cg-hint">
-            {props.backendReady && q.trim() ? '没有匹配的文件' : '输入关键字搜索，或（降级）看内置示例'}
+            {props.backendReady && q.trim() ? '没有匹配的文件' : '输入关键字搜索，或浏览内置示例'}
           </div>
         ) : null}
         {rows.map((item) => (
@@ -252,7 +252,7 @@ function PreviewDialog(props: {
             }}
           >
             🖼
-            <small>模拟图片预览（开启宿主 canvas 模块后走文件代理显示真实图片）</small>
+            <small>启用画板模块后可预览真实图片</small>
           </div>
         )
       ) : null}
@@ -272,17 +272,17 @@ function PreviewDialog(props: {
             }}
           >
             ▶
-            <small>模拟音视频预览（开启宿主 canvas 模块后走文件代理播放真实文件）</small>
+            <small>启用画板模块后可播放真实文件</small>
           </div>
         )
       ) : null}
       {!light ? (
         <div>
-          <p>此类素材一期不在浏览器里渲染（Word / PDF / 文件夹等）。</p>
+          <p>此类素材暂不在浏览器内渲染（Word / PDF / 文件夹等）。</p>
           <button
             type="button"
             className="cg-btn cg-ghost"
-            onClick={() => props.onToast('用默认应用打开：后续版本接入')}
+            onClick={() => props.onToast('用默认应用打开：暂未支持')}
           >
             用默认应用打开
           </button>

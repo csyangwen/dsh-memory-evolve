@@ -17,7 +17,6 @@ import { CanvasDialogs } from './CanvasDialogs.tsx'
 import type { NoteSubmit, PathSubmit } from './CanvasDialogs.tsx'
 import {
   CURRENT_PROJECT_ID,
-  CURRENT_PROJECT_LABEL,
   CURRENT_SESSION_LABEL,
   DEFAULT_SIZE,
   DEFAULT_VIEWPORT,
@@ -400,13 +399,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast(`已上板：${title}`)
   }, [addNode, sessionId, showToast])
 
-  // 「跳到最近 AI 写入」：真实 AI 写入（de_canvas add_note，后端已接入）
+  // 「跳到最近 AI 便签」：真实 AI 写入（de_canvas add_note，后端已接入）
   // 落会话板中央区并记 lastAiNodeId，此按钮定位到那张便签。
   const jumpToAi = useCallback(() => {
     const id = lastAiNodeId
     const node = id ? nodes.find((n) => n.id === id) : null
     if (!node) {
-      showToast('还没有 AI 写入')
+      showToast('还没有 AI 便签')
       return
     }
     setSelectedId(node.id)
@@ -532,13 +531,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
           <span className="cg-meta">视角</span>
           <div className="cg-seg" role="tablist" aria-label="视角筛选">
             <button type="button" className={viewMode === 'session' ? 'cg-on' : ''} onClick={() => changeViewMode('session')}>
-              会话
+              本会话
             </button>
             <button type="button" className={viewMode === 'project' ? 'cg-on' : ''} onClick={() => changeViewMode('project')}>
-              项目
+              本项目
             </button>
             <button type="button" className={viewMode === 'global' ? 'cg-on' : ''} onClick={() => changeViewMode('global')}>
-              全局
+              所有项目
             </button>
           </div>
         </div>
@@ -568,7 +567,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
 
         <div className="cg-toolbar-group">
           <button type="button" className="cg-btn cg-ghost" onClick={jumpToAi} disabled={!lastAiNodeId}>
-            跳到最近 AI 写入
+            跳到最近 AI 便签
           </button>
           <button
             type="button"
@@ -583,13 +582,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         <span className="cg-meta">
           {visibleNodes.length}/{nodes.length} 张
           {searchActive ? ` · 命中 ${matchIds.size}` : ''}
-          {' · '}{viewMode === 'session' ? CURRENT_SESSION_LABEL : viewMode === 'project' ? CURRENT_PROJECT_LABEL : '全部'}
+          {' · '}{viewMode === 'session' ? '本会话' : viewMode === 'project' ? '本项目' : '所有项目'}
           {backendReady ? (
             syncState === 'conflict' ? ' · ⚠️ 冲突，请刷新'
               : syncState === 'saving' ? ' · 保存中'
-                : syncState === 'offline' ? ' · 离线模式'
+                : syncState === 'offline' ? ' · 未连接后端'
                   : ' · 已同步'
-          ) : ' · 本地模式'}
+          ) : ' · 仅本地保存'}
         </span>
       </div>
 

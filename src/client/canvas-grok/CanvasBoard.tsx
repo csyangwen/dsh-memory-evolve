@@ -301,7 +301,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             height: AI_ZONE.height,
           }}
         >
-          <span className="cg-ai-zone-label">AI 投放区 · 新便签落在这里，可拖走</span>
+          <span className="cg-ai-zone-label">AI 便签区 · AI 新放的便签落在这里，可拖走</span>
         </div>
         {visibleNodes.map((node) => (
           <CanvasCard
@@ -325,7 +325,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
       </div>
       <div className="cg-hint-bar">
         拖空白处平移 · 空格+拖 也可平移 · 滚轮缩放（中心为指针）· 缩放 {Math.round(props.viewport.scale * 100)}%
-        {props.lod ? ' · LOD 图标档' : ''}
+        {props.lod ? ' · 远看简化模式' : ''}
         {visibleNodes.length < props.nodes.length
           ? ` · 视口 ${visibleNodes.length}/${props.nodes.length}`
           : ''}
