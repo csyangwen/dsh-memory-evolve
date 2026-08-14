@@ -24,7 +24,6 @@ import {
   FLASH_MS,
   HIGHLIGHT_MS,
   LOD_SCALE,
-  PERSIST_DEBOUNCE_MS,
 } from './constants.ts'
 import {
   copyText,
@@ -39,7 +38,7 @@ import {
   toReferenceText,
   viewportToNode,
 } from './helpers.ts'
-import { createDebouncedSaver, loadCanvasState } from './store.ts'
+import { createDebouncedSaver } from './store.ts'
 import {
   detectBackend,
   fileProxyUrl,
@@ -79,17 +78,18 @@ function placeNear(nodes: CanvasNode[], type: CanvasNodeType, preferX: number, p
 }
 
 export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element {
-  // 后端探测：宿主 canvasEnabled 开关开启 → 整板走后端（含 rev 乐观锁）；
-  // 否则纯前端 localStorage 降级（前端一期验收期行为）。
+  // ⚠️ 2026-08-14：画板**只走后端**——Tab 能出现即 canvasEnabled 已开
+  // （前端 index.ts 探测 /canvas/state 后才注册 Tab），不再有纯前端
+  // localStorage 降级模式（一期验收期行为，用户拍板取消：开=后端同步，
+  // 关=整个画板不可见）。
   const backendReadyRef = useRef(false)
   const backendRevRef = useRef(0)
   const [backendReady, setBackendReady] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'conflict' | 'offline'>('idle')
-  const initial = useRef(loadCanvasState()).current
-  const [nodes, setNodes] = useState<CanvasNode[]>(initial.nodes)
-  const [viewport, setViewport] = useState<CanvasViewport>(initial.viewport)
-  const [viewMode, setViewMode] = useState<CanvasViewMode>(initial.viewMode)
-  const [lastAiNodeId, setLastAiNodeId] = useState<string | null>(initial.lastAiNodeId)
+  const [nodes, setNodes] = useState<CanvasNode[]>([])
+  const [viewport, setViewport] = useState<CanvasViewport>(DEFAULT_VIEWPORT)
+  const [viewMode, setViewMode] = useState<CanvasViewMode>('session')
+  const [lastAiNodeId, setLastAiNodeId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   /** 防抖后的搜索词：输入框即时回显，跳转/闪烁等 180ms 再动镜头。 */
@@ -101,10 +101,6 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
   const [toast, setToast] = useState<string | null>(null)
   const [stageSize, setStageSize] = useState({ w: 800, h: 560 })
 
-  const saver = useRef(createDebouncedSaver(PERSIST_DEBOUNCE_MS)).current
-  /** 后端模式下纯视角变化（viewport/viewMode）的短防抖保存器：
-   *  滚轮缩放每帧触发 persist，但视角是低频价值数据（刷新恢复用），
-   *  500ms 合批即可；nodes 变更不走它（走立即串行，数据必达）。 */
   const viewportSaver = useRef(createDebouncedSaver(500)).current
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -203,33 +199,25 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       lastAiNodeId: patch.lastAiNodeId === undefined ? snapRef.current.lastAiNodeId : patch.lastAiNodeId,
     }
     snapRef.current = state
-    if (backendReadyRef.current) {
-      // 后端模式：**含 nodes 的变更立即进串行队列（数据必达）**；
-      // 纯 viewport/viewMode 变化走短防抖（滚轮缩放每帧触发，但视角
-      // 是低频价值数据，防抖合批不丢关键信息）。
-      if (patch.nodes !== undefined || patch.lastAiNodeId !== undefined) {
-        persistBackend(state)
-      } else {
-        viewportSaver.schedule(() => persistBackend(state))
-      }
+    // 只走后端（2026-08-14：无本地降级）：**含 nodes 的变更立即进串行
+    // 队列（数据必达）**；纯 viewport/viewMode 变化走短防抖（滚轮缩放
+    // 每帧触发，但视角是低频价值数据，防抖合批不丢关键信息）。
+    if (patch.nodes !== undefined || patch.lastAiNodeId !== undefined) {
+      persistBackend(state)
     } else {
-      saver.schedule(state)
+      viewportSaver.schedule(() => persistBackend(state))
     }
-  }, [persistBackend, saver])
+  }, [persistBackend, viewportSaver])
 
   useEffect(() => () => {
-    // 卸载（切 Tab/刷新）时：localStorage 模式 flush 掉 pending 快照
-    // （防抖未触发的最后一次变更不丢）；后端模式 nodes 变更已立即串行
-    // 保存，这里只需 cancel 视角防抖（视角丢失无害）。
-    if (!backendReadyRef.current) {
-      saver.flush(snapRef.current)
-    }
-    saver.cancel()
+    // 卸载（切 Tab/刷新）：nodes 变更已立即串行保存（数据必达），
+    // 这里只需 cancel 视角防抖（视角丢失无害）。2026-08-14 起无
+    // localStorage 降级，不再 flush 本地快照。
     viewportSaver.cancel()
     if (flashTimer.current) clearTimeout(flashTimer.current)
     if (highlightTimer.current) clearTimeout(highlightTimer.current)
     if (toastTimer.current) clearTimeout(toastTimer.current)
-  }, [saver, viewportSaver])
+  }, [viewportSaver])
 
   /** 文本补全（拉取式）：路径引用的 markdown/plainText 节点若有 path 但
    *  content 为空（搜索上板/路径上板只存路径、不预读内容），从宿主文件

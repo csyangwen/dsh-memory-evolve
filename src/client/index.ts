@@ -2346,18 +2346,31 @@ export function apply(ctx: Context): void {
   }, 'memory-evolve: bookmarks')
 
   // 无限画板（canvas-hub）：前端一期 Grok 实现（2026-08-13 用户拍板选版）。
-  // cg- 前缀；纯前端阶段数据走 localStorage，后端接入后改调宿主 API。
-  // 注册参数 id: canvas-hub / label: 画板 / order: 80（正式值）。
+  // cg- 前缀。注册参数 id: canvas-hub / label: 画板 / order: 80（正式值）。
   // ctx 断言为 CanvasTabHost：cordis Context 类型缺 slots（项目既有类型
   // 环境问题，全部 slots 调用同源），运行时由客户端运行时注入。
-  // openSession（2026-08-14）：双击「其他会话」徽标跳转对应会话——
+  // openSession（2026-08-14）：footer「跳转」按钮跳转归属会话——
   // 与 web 通知铃铛同款路径 ctx.sessions.open(sessionId)（官方唯一
   // 切换入口）。
-  const disposeCanvasTab = registerCanvasTab(
-    ctx as unknown as import('./canvas-grok/index.ts').CanvasTabHost,
-    { t, openSession: (sessionId) => { ctx.sessions.open(sessionId) } },
-  )
+  // ⚠️ 2026-08-14 修复：Tab 注册必须跟随 canvasEnabled 开关（与书签
+  // 同款探测模式）——曾无条件注册，开关关闭时 Tab 还在（只剩后端
+  // 同步被关），用户预期「关=整个画板不可见」；现在探测
+  // /api/canvas/state（开关开启才有 200 {enabled:true}），关闭时
+  // 端点 404，Tab 完全不注入。
+  let canvasCancelled = false
+  let disposeCanvasTab: (() => void) | undefined
+  void fetch('/memory-evolve/api/canvas/state')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then((data: { enabled?: boolean }) => {
+      if (canvasCancelled || data.enabled !== true) return
+      disposeCanvasTab = registerCanvasTab(
+        ctx as unknown as import('./canvas-grok/index.ts').CanvasTabHost,
+        { t, openSession: (sessionId) => { ctx.sessions.open(sessionId) } },
+      )
+    })
+    .catch(() => { /* 画板未启用：不注入任何东西 */ })
   ctx.effect(() => () => {
+    canvasCancelled = true
     disposeCanvasTab?.()
   }, 'memory-evolve: canvas-tab')
 }
