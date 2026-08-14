@@ -37,6 +37,8 @@ export interface CanvasBoardProps {
   matchIds: ReadonlySet<string>
   /** 查看者会话 id：归属徽标按它判断「当前会话 / 其他会话」（2026-08-14）。 */
   currentSessionId?: string
+  /** 后端可用：透传给卡片，图片/音视频直接渲染真实内容（2026-08-14）。 */
+  backendReady: boolean
   onViewportChange: (next: CanvasViewport, persist: boolean) => void
   onSelect: (id: string | null) => void
   onMoveNode: (id: string, x: number, y: number, persist: boolean) => void
@@ -326,6 +328,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             dimmed={props.searchActive && !props.matchIds.has(node.id)}
             highlighted={props.highlightIds.has(node.id)}
             currentSessionId={props.currentSessionId}
+            backendReady={props.backendReady}
             onSelect={props.onSelect}
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}

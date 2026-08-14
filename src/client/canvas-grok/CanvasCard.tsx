@@ -9,6 +9,7 @@ import { memo, useCallback, type PointerEvent as ReactPointerEvent } from 'react
 import { TYPE_GLYPH, TYPE_LABEL } from './constants.ts'
 import { placeholderHue, scopeBadgeText } from './helpers.ts'
 import type { CanvasNode } from './types.ts'
+import { fileProxyUrl } from './api-client.ts'
 
 export interface CanvasCardProps {
   node: CanvasNode
@@ -20,6 +21,9 @@ export interface CanvasCardProps {
   highlighted: boolean
   /** 查看者会话 id：归属徽标按它判断「当前会话 / 其他会话」（2026-08-14）。 */
   currentSessionId?: string
+  /** 后端可用：true 时图片/音视频卡片直接走文件代理渲染真实内容
+   * （2026-08-14 用户反馈：卡片只有静态填充，至少图片要直接显示）。 */
+  backendReady: boolean
   onSelect: (id: string) => void
   onDragStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
   /** 右下角缩放：id + 起始 pointer 事件（手势在 CanvasBoard 层统一管理）。 */
@@ -38,8 +42,8 @@ function extOf(path?: string): string {
   return base.slice(i + 1).toUpperCase().slice(0, 6)
 }
 
-function CardBody(props: { node: CanvasNode; onChangeContent: CanvasCardProps['onChangeContent'] }): JSX.Element {
-  const { node, onChangeContent } = props
+function CardBody(props: { node: CanvasNode; backendReady: boolean; onChangeContent: CanvasCardProps['onChangeContent'] }): JSX.Element {
+  const { node, backendReady, onChangeContent } = props
   const hue = placeholderHue(node.id)
 
   if (node.type === 'markdown' || node.type === 'plainText') {
@@ -59,34 +63,64 @@ function CardBody(props: { node: CanvasNode; onChangeContent: CanvasCardProps['o
   }
 
   if (node.type === 'image') {
+    // 后端可用 + 有路径 → 卡片直接渲染真实图片（文件代理）；
+    // 否则降级静态占位（2026-08-14 用户反馈：至少图片要直接显示）。
+    const proxyUrl = backendReady && node.path ? fileProxyUrl(node.id) : ''
     return (
       <>
-        <div
-          className="cg-ph"
-          style={{
-            background: `linear-gradient(145deg, hsl(${hue} 42% 46%), hsl(${(hue + 40) % 360} 38% 32%))`,
-          }}
-        >
-          🖼
-          <small>图片预览</small>
-        </div>
+        {proxyUrl ? (
+          <div className="cg-card-media-wrap">
+            <img
+              className="cg-card-media"
+              src={proxyUrl}
+              alt={node.title}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+            />
+          </div>
+        ) : (
+          <div
+            className="cg-ph"
+            style={{
+              background: `linear-gradient(145deg, hsl(${hue} 42% 46%), hsl(${(hue + 40) % 360} 38% 32%))`,
+            }}
+          >
+            🖼
+            <small>图片预览</small>
+          </div>
+        )}
         {node.path ? <div className="cg-card-path" title={node.path}>{node.path}</div> : null}
       </>
     )
   }
 
   if (node.type === 'media') {
+    // 后端可用 + 有路径 → 卡片直接渲染可播放的音视频（文件代理）；
+    // 否则降级静态占位。
+    const proxyUrl = backendReady && node.path ? fileProxyUrl(node.id) : ''
+    const isAudio = Boolean(node.path?.toLowerCase().match(/\.(mp3|wav|m4a|aac|ogg|flac)$/))
     return (
       <>
-        <div
-          className="cg-ph"
-          style={{
-            background: `linear-gradient(160deg, hsl(${hue} 35% 38%), hsl(${(hue + 60) % 360} 30% 22%))`,
-          }}
-        >
-          ▶
-          <small>{node.path?.toLowerCase().match(/\.(mp3|wav|m4a|aac|ogg|flac)$/) ? '音频' : '视频'}</small>
-        </div>
+        {proxyUrl ? (
+          <div className="cg-card-media-wrap">
+            {isAudio ? (
+              <audio className="cg-card-media" src={proxyUrl} controls preload="metadata" />
+            ) : (
+              <video className="cg-card-media" src={proxyUrl} controls preload="metadata" />
+            )}
+          </div>
+        ) : (
+          <div
+            className="cg-ph"
+            style={{
+              background: `linear-gradient(160deg, hsl(${hue} 35% 38%), hsl(${(hue + 60) % 360} 30% 22%))`,
+            }}
+          >
+            ▶
+            <small>{isAudio ? '音频' : '视频'}</small>
+          </div>
+        )}
         {node.path ? <div className="cg-card-path" title={node.path}>{node.path}</div> : null}
       </>
     )
@@ -176,7 +210,7 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
       ) : (
         <>
           <div className="cg-card-body">
-            <CardBody node={node} onChangeContent={props.onChangeContent} />
+            <CardBody node={node} backendReady={props.backendReady} onChangeContent={props.onChangeContent} />
           </div>
           <footer className="cg-card-foot">
             <button type="button" onClick={() => props.onPreview(node.id)}>预览</button>

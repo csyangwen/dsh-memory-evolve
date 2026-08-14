@@ -630,6 +630,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         searchActive={searchActive}
         matchIds={matchIds}
         currentSessionId={sessionId}
+        backendReady={backendReady}
         onViewportChange={applyViewport}
         onSelect={onSelect}
         onMoveNode={onMoveNode}

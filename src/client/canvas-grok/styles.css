@@ -419,6 +419,37 @@
   opacity: 0.8;
 }
 
+/* 卡片内真实媒体渲染（2026-08-14：后端可用时图片/音视频直接显示，
+   替代静态占位）。图片 cover 撑满预览区；音视频自适应高度 + 圆角。 */
+.cg-card-media-wrap {
+  flex: 1;
+  min-height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-card-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px;
+}
+
+.cg-card-media-wrap audio.cg-card-media {
+  height: 44px;
+  object-fit: contain;
+  margin: 0 8px;
+}
+
+.cg-card-media-wrap video.cg-card-media {
+  background: #000;
+}
+
 .cg-file-ext {
   align-self: flex-start;
   font-size: 11px;
