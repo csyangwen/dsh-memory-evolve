@@ -34,6 +34,7 @@ import {
   matchesQuery,
   normalizePath,
   saveTextToFile,
+  shortSessionId,
   titleFromPath,
   toReferenceText,
   viewportToNode,
@@ -568,6 +569,22 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast('归属已迁移')
   }, [backendReadyRef, sessionId, showToast])
 
+  /**
+   * 跳转到节点归属会话（2026-08-14 用户反馈：跳转太快来不及反应，要
+   * 有提示）。⚠️ 跳转会切换会话，画板组件随旧会话卸载，toast 可能
+   * 来不及显示——所以先 toast「正在跳转」，延迟 ~600ms 再执行切换，
+   * 用户看到提示后界面才变。openSession 是主会话注入的稳定函数，
+   * 闭包持有它，组件卸载后 timer 回调依然能完成跳转。
+   */
+  const openSessionWithToast = useCallback((targetSessionId: string) => {
+    const node = nodes.find((n) => n.sessionId === targetSessionId)
+    const name = node?.sessionName ?? shortSessionId(targetSessionId)
+    showToast(`正在跳转到会话：${name}`)
+    setTimeout(() => {
+      props.openSession?.(targetSessionId)
+    }, 600)
+  }, [nodes, props.openSession, showToast])
+
   const onConfirmRemove = useCallback(() => {
     if (!focusId) return
     const next = nodes.filter((n) => n.id !== focusId)
@@ -695,7 +712,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         matchIds={matchIds}
         currentSessionId={sessionId}
         backendReady={backendReady}
-        openSession={props.openSession}
+        openSession={openSessionWithToast}
         onViewportChange={applyViewport}
         onSelect={onSelect}
         onMoveNode={onMoveNode}
