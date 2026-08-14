@@ -124,6 +124,28 @@ test('tool output declares render (DSH tools.register hard requirement)', () => 
   }
 })
 
+test('tool parameters use standard JSON Schema wrapper (DSH tools.register contract)', () => {
+  // 2026-08-14 回归护栏：parameters 必须是标准 JSON Schema 包装
+  // {type:'object', properties, required}。扁平 DSL 格式
+  // （{action:{...}, title:{...}}）会让 LLM API 把 title/content 等键
+  // 当 JSON Schema 关键字解析，报「Invalid schema for function ...」，
+  // 整个会话工具面崩溃（de_canvas 曾因此导致插件整体禁用才能启动）。
+  const ctx = fakeCtx()
+  apply(ctx, { reviewEnabled: true })
+  for (const tool of ctx.state.tools) {
+    const p = tool.parameters
+    assert.equal(typeof p, 'object', `tool "${tool.name}" parameters must be an object`)
+    assert.equal(p.type, 'object', `tool "${tool.name}" parameters must declare type:'object' (got ${JSON.stringify(p.type)})`)
+    assert.equal(typeof p.properties, 'object', `tool "${tool.name}" parameters must declare properties object`)
+    if (p.required !== undefined) {
+      assert.ok(Array.isArray(p.required), `tool "${tool.name}" parameters.required must be an array`)
+      for (const key of p.required) {
+        assert.ok(key in p.properties, `tool "${tool.name}" required key "${key}" must exist in properties`)
+      }
+    }
+  }
+})
+
 test('resolveConfig defaults and validation', () => {
   const config = resolveConfig({})
   assert.equal(config.reviewEnabled, false)
