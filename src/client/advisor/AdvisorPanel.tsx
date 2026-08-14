@@ -932,7 +932,7 @@ function SettingsDisclosure({ store, snapshot }: {
   snapshot: AdvisorStoreSnapshot
 }): JSX.Element {
   const [draft, setDraft] = useState<Pick<AdvisorConfig,
-    'advisorEnabled' | 'advisorProvider' | 'advisorModel' | 'advisorSystemPrompt' | 'advisorPanelEnabled'
+    'advisorProvider' | 'advisorModel' | 'advisorSystemPrompt' | 'advisorPanelEnabled'
     | 'advisorInfoInject'
   > | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -940,7 +940,6 @@ function SettingsDisclosure({ store, snapshot }: {
   useEffect(() => {
     if (snapshot.config === null) return
     setDraft({
-      advisorEnabled: snapshot.config.advisorEnabled,
       advisorProvider: snapshot.config.advisorProvider,
       advisorModel: snapshot.config.advisorModel,
       advisorSystemPrompt: snapshot.config.advisorSystemPrompt,
@@ -977,6 +976,9 @@ function SettingsDisclosure({ store, snapshot }: {
     <div className="advisor-settings">
       <div className="advisor-settings-title">会话评审设置</div>
       <div className="advisor-settings-body">
+        {/* 2026-08-14 用户拍板：总闸开关收敛到 Memory Evolve 设置 Tab（此处
+            曾与其重复）；面板设置只保留本模块的运行参数，不再重复总闸。 */}
+        <div className="advisor-muted">模块总闸（启用/停用）在「Memory Evolve 设置」Tab 的配置区控制</div>
         {snapshot.configLoading && draft === null && <LoadingBlock text="正在加载设置…" />}
         {snapshot.configError !== null && (
           <ErrorNotice text={`设置加载失败：${snapshot.configError}`} onRetry={() => void store.refreshConfig()} />
@@ -984,14 +986,6 @@ function SettingsDisclosure({ store, snapshot }: {
         {draft !== null && (
           <>
             <div className="advisor-settings-switches">
-              <label className="advisor-check-row">
-                <input
-                  type="checkbox"
-                  checked={draft.advisorEnabled}
-                  onChange={(event) => setDraft({ ...draft, advisorEnabled: event.target.checked })}
-                />
-                <span>启用会话评审模块（总闸）</span>
-              </label>
               <label className="advisor-check-row">
                 <input
                   type="checkbox"
