@@ -992,7 +992,7 @@ function SettingsDisclosure({ store, snapshot }: {
                   checked={draft.advisorPanelEnabled}
                   onChange={(event) => setDraft({ ...draft, advisorPanelEnabled: event.target.checked })}
                 />
-                <span>显示悬浮面板</span>
+                <span>显示悬浮胶囊按钮</span>
               </label>
               {/* Q1：info 级建议默认仅记录不注入（面板可见、会话流零打扰） */}
               <label className="advisor-check-row" title="info 是最低等级建议：默认只记录不注入会话；开启后以注入（非打断）方式送达">
