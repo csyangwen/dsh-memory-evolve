@@ -85,4 +85,4 @@ export interface CanvasPersistState {
 }
 
 /** 工具条上打开的对话框种类。 */
-export type CanvasDialogKind = 'path' | 'note' | 'catalog' | 'preview' | 'remove' | null
+export type CanvasDialogKind = 'path' | 'note' | 'catalog' | 'preview' | 'remove' | 'migrate' | null

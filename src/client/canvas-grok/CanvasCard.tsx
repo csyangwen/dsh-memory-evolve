@@ -33,6 +33,8 @@ export interface CanvasCardProps {
   onOpen: (id: string) => void
   /** 保存文本/便签内容到本机文件（2026-08-14：弹系统保存对话框）。 */
   onSave: (id: string) => void
+  /** 迁移节点归属（2026-08-14：仅用户手动触发，弹归属选择框）。 */
+  onMigrate: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -225,6 +227,7 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
             {node.path ? (
               <button type="button" className="cg-open" onClick={() => props.onOpen(node.id)} title="用系统默认应用打开">打开</button>
             ) : null}
+            <button type="button" onClick={() => props.onMigrate(node.id)} title="迁移节点归属（本会话/本项目/所有项目可见）">归属</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'id')}>复制 ID</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'title')}>复制标题</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'path')} disabled={!node.path}>复制路径</button>

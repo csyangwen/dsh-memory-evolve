@@ -49,6 +49,8 @@ export interface CanvasBoardProps {
   onOpen: (id: string) => void
   /** 保存文本/便签内容到本机文件（2026-08-14）。 */
   onSave: (id: string) => void
+  /** 迁移节点归属（2026-08-14：仅用户手动触发）。 */
+  onMigrate: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -339,6 +341,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             onPreview={props.onPreview}
             onOpen={props.onOpen}
             onSave={props.onSave}
+            onMigrate={props.onMigrate}
             onCopy={props.onCopy}
             onAskRemove={props.onAskRemove}
             onChangeContent={props.onChangeContent}

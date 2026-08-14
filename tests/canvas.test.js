@@ -20,6 +20,7 @@ import {
   findNode,
   formatBytes,
   inferNodeTypeFromPath,
+  migrateNode,
   normalizeNode,
   openNodeFile,
   readCanvas,
@@ -162,6 +163,48 @@ test('打开：无路径节点拒绝', () => {
   writeCanvas(config, { nodes: [node] }, 0)
   const res = openNodeFile(config, node.id)
   assert.match(res.error ?? '', /没有路径/)
+})
+
+test('迁移归属：session → project 重写归属键（内容/位置保留）', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const { node: migrated, rev } = migrateNode(config, node.id, 'project', { sessionId: 's2', projectId: 'p2', projectLabel: 'P2' }, 1)
+  assert.equal(migrated.scope, 'project')
+  assert.equal(migrated.sessionId, undefined)
+  assert.equal(migrated.projectId, 'p2')
+  assert.equal(migrated.content, 'hi') // 内容保留
+  assert.equal(migrated.placement.x, node.placement.x) // 位置保留
+  assert.equal(rev, 2)
+})
+
+test('迁移归属：session → global 清空归属键', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'image', title: '图', scope: 'session', content: 'x' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const { node: migrated } = migrateNode(config, node.id, 'global', { sessionId: 's2', projectId: 'p2', projectLabel: 'P2' }, 1)
+  assert.equal(migrated.scope, 'global')
+  assert.equal(migrated.sessionId, undefined)
+  assert.equal(migrated.projectId, undefined)
+  assert.equal(migrated.scopeLabel, '全局')
+})
+
+test('迁移归属：project → session 挂当前会话归属', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'file', title: 'f', scope: 'project', path: '/tmp/x.txt' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const { node: migrated } = migrateNode(config, node.id, 'session', { sessionId: 's9', projectId: 'p9', projectLabel: 'P9' }, 1)
+  assert.equal(migrated.scope, 'session')
+  assert.equal(migrated.sessionId, 's9')
+  assert.equal(migrated.projectId, 'p9')
+})
+
+test('迁移归属：不存在的节点报错 / 旧 rev 冲突拒绝', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  assert.throws(() => migrateNode(config, 'canvas_nope', 'global', OWNER, 1), /不存在/)
+  assert.throws(() => migrateNode(config, node.id, 'global', OWNER, 0), (e) => e.code === 'CANVAS_CONFLICT')
 })
 
 test('de_canvas list：会话视角返回节点清单', async () => {

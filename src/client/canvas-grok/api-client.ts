@@ -207,3 +207,47 @@ export async function openNodeFileBackend(nodeId: string): Promise<{ ok: boolean
 export function fileProxyUrl(nodeId: string): string {
   return `${API_BASE}/file?nodeId=${encodeURIComponent(nodeId)}`
 }
+
+/**
+ * 迁移节点归属（2026-08-14 用户拍板：改归属只能用户手动触发；目标
+ * 会话 = 当前打开画板的会话）。后端重写 scope/sessionId/projectId，
+ * rev 乐观锁与整板保存同一机制。
+ * @param {string} nodeId
+ * @param {'session'|'project'|'global'} scope - 目标层级
+ * @param {string} sessionId - 当前会话 id（后端按它解析项目）
+ * @param {number} rev - 期望的当前 rev（冲突返回 409）
+ * @returns {Promise<{ ok: boolean; conflict?: boolean; node?: object; rev?: number; error?: string }>}
+ */
+export async function migrateNodeBackend(
+  nodeId: string,
+  scope: 'session' | 'project' | 'global',
+  sessionId: string,
+  rev: number,
+): Promise<{ ok: boolean; conflict?: boolean; node?: object; rev?: number; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/migrate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, scope, sessionId, rev }),
+    })
+    if (res.status === 409) {
+      return { ok: false, conflict: true, error: '画板已被其他会话修改，请刷新后重试' }
+    }
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => null)
+      const error = body && typeof body === 'object' && typeof (body as { error?: string }).error === 'string'
+        ? (body as { error: string }).error
+        : `HTTP ${res.status}`
+      return { ok: false, error }
+    }
+    const body: unknown = await res.json()
+    const row = body as { node?: object; rev?: unknown }
+    return {
+      ok: true,
+      node: row.node,
+      rev: typeof row.rev === 'number' ? row.rev : undefined,
+    }
+  } catch {
+    return { ok: false, error: '网络错误（宿主不可达）' }
+  }
+}

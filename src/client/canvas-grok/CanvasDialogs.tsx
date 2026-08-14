@@ -25,6 +25,8 @@ export interface CanvasDialogsProps {
   kind: CanvasDialogKind
   previewNode: CanvasNode | null
   removeNode: CanvasNode | null
+  /** 迁移归属对话框的目标节点（2026-08-14）。 */
+  migrateNode: CanvasNode | null
   /** 后端可用标记：true 时预览走宿主文件代理。 */
   backendReady: boolean
   /** 当前会话 id（真实搜索按它定位默认搜索目录=会话工作目录）。 */
@@ -37,6 +39,8 @@ export interface CanvasDialogsProps {
   onToast: (text: string) => void
   /** 系统默认应用打开上板文件（2026-08-14 接入真实实现）。 */
   onOpen: (id: string) => void
+  /** 迁移节点归属（2026-08-14 用户拍板：仅用户手动触发）。 */
+  onMigrate: (nodeId: string, scope: 'session' | 'project' | 'global') => void
 }
 
 function PathDialog(props: { onClose: () => void; onPath: (p: PathSubmit) => void }): JSX.Element {
@@ -312,6 +316,45 @@ function RemoveDialog(props: {
   )
 }
 
+/**
+ * 迁移归属对话框（2026-08-14 用户拍板：改归属只能用户手动触发；
+ * 目标会话 = 当前打开画板的会话）。三档去向：
+ *   💬 本会话 → session 级（归当前会话 + 当前项目）
+ *   📁 本项目 → project 级（项目内所有会话可见）
+ *   🌐 所有项目可见 → global 级（所有视角可见）
+ */
+function MigrateDialog(props: {
+  node: CanvasNode
+  onClose: () => void
+  onMigrate: (nodeId: string, scope: 'session' | 'project' | 'global') => void
+}): JSX.Element {
+  const [scope, setScope] = useState<'session' | 'project' | 'global'>(props.node.scope === 'global' ? 'global' : props.node.scope === 'project' ? 'project' : 'session')
+  return (
+    <div className="cg-dialog" role="dialog" aria-label="迁移归属">
+      <h3>迁移归属</h3>
+      <p>「{props.node.title}」将移动到：</p>
+      <div className="cg-migrate-opts">
+        <button type="button" className={`cg-migrate-opt${scope === 'session' ? ' cg-on' : ''}`} onClick={() => setScope('session')}>
+          <strong>💬 本会话</strong>
+          <small>归当前会话（在别的会话打开画板看不到它，除非切「所有项目」）</small>
+        </button>
+        <button type="button" className={`cg-migrate-opt${scope === 'project' ? ' cg-on' : ''}`} onClick={() => setScope('project')}>
+          <strong>📁 本项目</strong>
+          <small>项目级：当前项目内所有会话都能看到</small>
+        </button>
+        <button type="button" className={`cg-migrate-opt${scope === 'global' ? ' cg-on' : ''}`} onClick={() => setScope('global')}>
+          <strong>🌐 所有项目可见</strong>
+          <small>全局：任何会话、任何视角都能看到</small>
+        </button>
+      </div>
+      <div className="cg-dialog-actions">
+        <button type="button" className="cg-btn cg-ghost" onClick={props.onClose}>取消</button>
+        <button type="button" className="cg-btn cg-primary" onClick={() => props.onMigrate(props.node.id, scope)}>迁移</button>
+      </div>
+    </div>
+  )
+}
+
 export function CanvasDialogs(props: CanvasDialogsProps): JSX.Element | null {
   if (!props.kind) return null
   return (
@@ -331,6 +374,9 @@ export function CanvasDialogs(props: CanvasDialogsProps): JSX.Element | null {
       ) : null}
       {props.kind === 'remove' && props.removeNode ? (
         <RemoveDialog node={props.removeNode} onClose={props.onClose} onConfirm={props.onConfirmRemove} />
+      ) : null}
+      {props.kind === 'migrate' && props.migrateNode ? (
+        <MigrateDialog node={props.migrateNode} onClose={props.onClose} onMigrate={props.onMigrate} />
       ) : null}
     </div>
   )

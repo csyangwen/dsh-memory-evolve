@@ -43,6 +43,7 @@ import {
   detectBackend,
   fileProxyUrl,
   loadCanvasFromBackend,
+  migrateNodeBackend,
   openNodeFileBackend,
   saveCanvasToBackend,
   type BackendSaveResult,
@@ -535,6 +536,35 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     // canceled：用户主动取消保存对话框，不提示
   }, [nodes, showToast])
 
+  /** 打开迁移归属对话框（2026-08-14：仅用户手动触发）。 */
+  const onMigrateClick = useCallback((id: string) => {
+    setFocusId(id)
+    setDialog('migrate')
+  }, [])
+
+  /** 执行迁移：调后端重写归属键，成功后更新本地节点 + rev。 */
+  const onMigrate = useCallback(async (id: string, scope: 'session' | 'project' | 'global') => {
+    if (!backendReadyRef.current) {
+      showToast('画板未连接后端，无法迁移归属')
+      return
+    }
+    const result = await migrateNodeBackend(id, scope, sessionId, backendRevRef.current)
+    if (!result.ok) {
+      showToast(result.conflict ? '画板已被其他会话修改，请刷新后重试' : `迁移失败：${result.error ?? '未知错误'}`)
+      return
+    }
+    // 后端返回迁移后的节点：更新本地 nodes（保持位置/内容不变）
+    if (result.node && typeof result.rev === 'number') {
+      backendRevRef.current = result.rev
+      setNodes((prev) => {
+        const next = prev.map((n) => n.id === id ? { ...n, ...(result.node as Partial<CanvasNode>) } : n)
+        return next
+      })
+    }
+    setDialog(null)
+    showToast('归属已迁移')
+  }, [backendReadyRef, sessionId, showToast])
+
   const onConfirmRemove = useCallback(() => {
     if (!focusId) return
     const next = nodes.filter((n) => n.id !== focusId)
@@ -669,6 +699,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onPreview={onPreview}
         onOpen={onOpen}
         onSave={onSave}
+        onMigrate={onMigrateClick}
         onCopy={onCopy}
         onAskRemove={onAskRemove}
         onChangeContent={onChangeContent}
@@ -678,6 +709,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         kind={dialog}
         previewNode={dialog === 'preview' ? previewNode : null}
         removeNode={dialog === 'remove' ? removeNode : null}
+        migrateNode={dialog === 'migrate' ? (focusId ? nodes.find((n) => n.id === focusId) ?? null : null) : null}
         backendReady={backendReady}
         sessionId={sessionId}
         onClose={closeDialog}
@@ -687,6 +719,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onConfirmRemove={onConfirmRemove}
         onToast={showToast}
         onOpen={onOpen}
+        onMigrate={onMigrate}
       />
 
       {toast ? <div className="cg-toast" role="status">{toast}</div> : null}

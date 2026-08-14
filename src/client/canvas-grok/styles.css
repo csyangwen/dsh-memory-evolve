@@ -84,6 +84,43 @@
   margin: 2px 0 6px;
 }
 
+/* 迁移归属对话框（2026-08-14：三档去向单选卡片） */
+.cg-migrate-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cg-migrate-opt {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cg-migrate-opt:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cg-migrate-opt.cg-on {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.cg-migrate-opt small {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
 .cg-seg button:hover,
 .cg-btn:hover {
   background: var(--dsw-alias-interactive-bg-hover);
