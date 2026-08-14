@@ -410,7 +410,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast('便签已上板')
   }, [addNode, currentProjectId, sessionId, showToast])
 
-  const onCatalog = useCallback((title: string, path: string, type: CanvasNodeType) => {
+  const onCatalog = useCallback((title: string, path: string, type: CanvasNodeType, size?: string) => {
     addNode({
       type,
       title,
@@ -422,7 +422,8 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       projectId: currentProjectId,
       path,
       unverified: true,
-      meta: { size: CATALOG_SIZE[path], mtime: '示例' },
+      // 搜索结果显示真实文件大小（2026-08-14 删除内置示例 CATALOG_SIZE）
+      meta: size ? { size, mtime: '未验证' } : undefined,
     })
     setDialog(null)
     showToast(`已上板：${title}`)
@@ -596,10 +597,10 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
             <IconPlusOutline16 /> 路径上板
           </button>
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('note')}>
-            便签
+            <IconPlusOutline16 /> 便签
           </button>
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('catalog')}>
-            搜索上板
+            <IconPlusOutline16 /> 搜索上板
           </button>
         </div>
 
@@ -672,16 +673,4 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       {toast ? <div className="cg-toast" role="status">{toast}</div> : null}
     </div>
   )
-}
-
-/** 目录项尺寸，避免在 add 时再扫一遍 CATALOG。 */
-const CATALOG_SIZE: Record<string, string> = {
-  '~/Documents/合同-甲乙方.pdf': '2.4 MB',
-  '~/Downloads/首页设计稿-v3.png': '1.8 MB',
-  '~/Notes/产品需求说明.md': '28 KB',
-  '~/Recordings/会议录音-0813.mp3': '18 MB',
-  '~/Movies/演示视频-cut.mp4': '42 MB',
-  '~/Documents/项目规范文档.docx': '340 KB',
-  '~/Design/客户logo.svg': '12 KB',
-  '~/Projects/demo/README.txt': '4 KB',
 }

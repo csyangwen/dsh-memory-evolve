@@ -1,11 +1,12 @@
 /**
  * 画板浮层：路径上板 / 便签上板 / 搜索上板 / 预览 / 移除确认。
- * 搜索上板：后端可用时走宿主真实搜索（searchLocalFiles），否则用内置
- * 模拟清单（纯前端降级）。预览：后端可用时图片/文本/PDF 走文件代理，
- * 否则占位色块。
+ * 搜索上板：走宿主真实搜索（searchLocalFiles，复用 search-docs 的
+ * mdfind/rg/walk provider，与 memory_evolve_search_local_files 同源）；
+ * 范围可选本机全部（缺省）/ 当前项目。预览：后端可用时图片/文本/PDF
+ * 走文件代理，否则占位色块。
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { CATALOG, TYPE_GLYPH, TYPE_LABEL } from './constants.ts'
+import { useEffect, useRef, useState } from 'react'
+import { TYPE_GLYPH, TYPE_LABEL } from './constants.ts'
 import { inferTypeFromPath, placeholderHue } from './helpers.ts'
 import { fileProxyUrl, searchFilesBackend } from './api-client.ts'
 import type { CanvasDialogKind, CanvasNode, CanvasNodeType } from './types.ts'
@@ -31,7 +32,7 @@ export interface CanvasDialogsProps {
   onClose: () => void
   onPath: (payload: PathSubmit) => void
   onNote: (payload: NoteSubmit) => void
-  onCatalog: (title: string, path: string, type: CanvasNodeType) => void
+  onCatalog: (title: string, path: string, type: CanvasNodeType, size?: string) => void
   onConfirmRemove: () => void
   onToast: (text: string) => void
   /** 系统默认应用打开上板文件（2026-08-14 接入真实实现）。 */
@@ -120,13 +121,16 @@ function NoteDialog(props: { onClose: () => void; onNote: (p: NoteSubmit) => voi
 
 function CatalogDialog(props: {
   onClose: () => void
-  onCatalog: (title: string, path: string, type: CanvasNodeType) => void
+  onCatalog: (title: string, path: string, type: CanvasNodeType, size?: string) => void
   /** 后端可用标记：true 时走宿主真实搜索。 */
   backendReady: boolean
-  /** 当前会话 id（后端按它解析默认搜索目录）。 */
+  /** 当前会话 id（后端按它解析项目搜索范围）。 */
   sessionId: string
 }): JSX.Element {
   const [q, setQ] = useState('')
+  // 搜索范围（2026-08-14 用户反馈：默认只能搜项目目录）：
+  //   local（缺省）= 全盘搜索；project = 当前会话工作目录。
+  const [scope, setScope] = useState<'local' | 'project'>('local')
   const [remoteRows, setRemoteRows] = useState<Array<{ title: string; path: string; type: string; size: string }> | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
@@ -145,7 +149,7 @@ function CatalogDialog(props: {
     setSearchError(null)
     const seq = ++searchSeq.current
     const timer = setTimeout(() => {
-      void searchFilesBackend(needle, { sessionId: props.sessionId, limit: 20 }).then((rows) => {
+      void searchFilesBackend(needle, { sessionId: props.sessionId, scope, limit: 20 }).then((rows) => {
         if (searchSeq.current !== seq) return // 过期响应丢弃
         setSearching(false)
         setRemoteRows(rows)
@@ -153,34 +157,13 @@ function CatalogDialog(props: {
       })
     }, 350)
     return () => { clearTimeout(timer); setSearching(false) }
-  }, [q, props.backendReady, props.sessionId])
+  }, [q, props.backendReady, props.sessionId, scope])
 
-  // 降级模式：内置模拟清单本地过滤。
-  const localRows = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    if (!needle) return CATALOG
-    return CATALOG.filter((item) =>
-      item.title.toLowerCase().includes(needle)
-      || item.path.toLowerCase().includes(needle)
-      || item.hint.includes(needle)
-      || TYPE_LABEL[item.type].includes(needle),
-    )
-  }, [q])
-
-  const isRemote = props.backendReady && remoteRows !== null
-  const rows = isRemote
-    ? remoteRows
-    : props.backendReady
-      ? []
-      : localRows
+  const rows = props.backendReady && remoteRows !== null ? remoteRows : []
   return (
     <div className="cg-dialog" role="dialog" aria-label="搜索上板">
-      <h3>搜索上板{props.backendReady ? '' : '（示例）'}</h3>
-      <p>
-        {props.backendReady
-          ? '搜索本机文件，选中即上板。'
-          : '内置示例清单，选中即上板。启用画板模块后为真实本地搜索。'}
-      </p>
+      <h3>搜索上板</h3>
+      <p>搜索本机文件，选中即上板。</p>
       <div className="cg-field">
         <label htmlFor="cg-cat-q">关键字</label>
         <input
@@ -191,12 +174,20 @@ function CatalogDialog(props: {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+      <div className="cg-seg cg-scope" role="group" aria-label="搜索范围">
+        <button type="button" className={scope === 'local' ? 'cg-on' : ''} onClick={() => setScope('local')}>
+          本机全部
+        </button>
+        <button type="button" className={scope === 'project' ? 'cg-on' : ''} onClick={() => setScope('project')}>
+          当前项目
+        </button>
+      </div>
       {searching ? <div className="cg-hint">搜索中…</div> : null}
       {searchError ? <div className="cg-hint cg-hint-error">{searchError}</div> : null}
       <div className="cg-catalog">
         {!searching && rows.length === 0 ? (
           <div className="cg-hint">
-            {props.backendReady && q.trim() ? '没有匹配的文件' : '输入关键字搜索，或浏览内置示例'}
+            {q.trim() ? '没有匹配的文件' : '输入关键字搜索本机文件'}
           </div>
         ) : null}
         {rows.map((item) => (
@@ -204,7 +195,7 @@ function CatalogDialog(props: {
             key={item.path}
             type="button"
             className="cg-catalog-row"
-            onClick={() => props.onCatalog(item.title, item.path, item.type as CanvasNodeType)}
+            onClick={() => props.onCatalog(item.title, item.path, item.type as CanvasNodeType, item.size)}
           >
             <span aria-hidden>{TYPE_GLYPH[item.type as CanvasNodeType] ?? '▤'}</span>
             <span>

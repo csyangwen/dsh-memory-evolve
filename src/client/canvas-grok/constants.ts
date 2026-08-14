@@ -8,7 +8,6 @@ import type {
   CanvasPersistState,
   CanvasPlacement,
   CanvasViewport,
-  CatalogItem,
 } from './types.ts'
 
 /**
@@ -116,18 +115,6 @@ export const EXT_TYPE: Record<string, CanvasNodeType> = {
   avi: 'media',
   mkv: 'media',
 }
-
-/** 规格 §5 规定的模拟搜索清单。 */
-export const CATALOG: CatalogItem[] = [
-  { title: '合同-甲乙方.pdf', path: '~/Documents/合同-甲乙方.pdf', type: 'file', size: '2.4 MB', hint: 'PDF 合同扫描件' },
-  { title: '首页设计稿-v3.png', path: '~/Downloads/首页设计稿-v3.png', type: 'image', size: '1.8 MB', hint: '设计稿 PNG' },
-  { title: '产品需求说明.md', path: '~/Notes/产品需求说明.md', type: 'markdown', size: '28 KB', hint: '需求 Markdown' },
-  { title: '会议录音-0813.mp3', path: '~/Recordings/会议录音-0813.mp3', type: 'media', size: '18 MB', hint: '会议录音' },
-  { title: '演示视频-cut.mp4', path: '~/Movies/演示视频-cut.mp4', type: 'media', size: '42 MB', hint: '演示视频切片' },
-  { title: '项目规范文档.docx', path: '~/Documents/项目规范文档.docx', type: 'file', size: '340 KB', hint: 'Word 规范' },
-  { title: '客户logo.svg', path: '~/Design/客户logo.svg', type: 'image', size: '12 KB', hint: '矢量 logo' },
-  { title: 'README.txt', path: '~/Projects/demo/README.txt', type: 'plainText', size: '4 KB', hint: '纯文本说明' },
-]
 
 /** 默认视口：让 AI 投放区 + 预置卡片大致落在 Tab 中央偏上。 */
 export const DEFAULT_VIEWPORT: CanvasViewport = { x: 48, y: 36, scale: 0.88 }

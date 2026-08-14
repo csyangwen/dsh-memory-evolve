@@ -24,6 +24,7 @@ import {
   openNodeFile,
   readCanvas,
   resolveNodeFile,
+  searchLocalFiles,
   writeCanvas,
 } from '../lib/canvas.js'
 
@@ -189,6 +190,23 @@ test('de_canvas get：不存在的 id 报错', async () => {
   const tool = canvasToolDefinition(config, () => '/proj')
   const res = await tool.execute({ action: 'get', id: 'canvas_nope' }, { agent: { session: { id: 's1' } } })
   assert.equal(res.ok, false)
+  assert.match(res.error, /没有节点/)
+})
+
+test('searchLocalFiles：指定目录命中文件（provider 链或 walk 兜底）', async () => {
+  const { dir, config } = tempConfig()
+  writeFileSync(join(dir, '上板测试文件.txt'), 'hello')
+  const res = await searchLocalFiles(config, '上板测试', { dir, limit: 5 })
+  // provider 链（mdfind/rg）命中也算对；全 miss 才走内置 walk
+  assert.ok(['mdfind', 'es', 'rg', 'walk'].includes(res.provider), `provider=${res.provider}`)
+  assert.ok(res.items.some((it) => it.title.includes('上板测试')))
+})
+
+test('searchLocalFiles：空关键字返回空（不触发 provider）', async () => {
+  const { config } = tempConfig()
+  const res = await searchLocalFiles(config, '   ', { limit: 5 })
+  assert.equal(res.items.length, 0)
+  assert.equal(res.provider, 'none')
 })
 
 test('de_canvas add_note：放入会话板中央区（aiPlaced + scope=session）', async () => {

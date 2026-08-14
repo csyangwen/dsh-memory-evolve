@@ -79,6 +79,11 @@
   border-left: 1px solid var(--dsw-alias-interactive-bg-hover);
 }
 
+/* 搜索上板范围切换（2026-08-14 新增：本机全部 / 当前项目） */
+.cg-scope {
+  margin: 2px 0 6px;
+}
+
 .cg-seg button:hover,
 .cg-btn:hover {
   background: var(--dsw-alias-interactive-bg-hover);

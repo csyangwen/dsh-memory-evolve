@@ -84,14 +84,5 @@ export interface CanvasPersistState {
   lastAiNodeId: string | null
 }
 
-/** 模拟搜索上板用的内置素材条目。 */
-export interface CatalogItem {
-  title: string
-  path: string
-  type: CanvasNodeType
-  size: string
-  hint: string
-}
-
 /** 工具条上打开的对话框种类。 */
 export type CanvasDialogKind = 'path' | 'note' | 'catalog' | 'preview' | 'remove' | null
