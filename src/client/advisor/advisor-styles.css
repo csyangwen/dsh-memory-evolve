@@ -1054,7 +1054,12 @@
 /* ---------- 设置 disclosure ---------- */
 
 .advisor-settings {
-  flex: none;
+  /* 2026-08-14 用户反馈：设置 Tab 内容撑满面板剩余高度（原先 flex:none
+     固定在顶部，面板下方留大片空隙） */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border-top: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-1);
 }
@@ -1072,10 +1077,13 @@
 }
 
 .advisor-settings-body {
+  /* 2026-08-14 用户反馈：body 随设置 Tab 撑满面板（原 max-height:38vh 限制
+     内容高度，下方留白）；内容超长时仍可滚动 */
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 38vh;
   overflow-y: auto;
   padding: 9px 10px 11px;
 }
@@ -1122,8 +1130,10 @@
 }
 
 .advisor-prompt-textarea {
-  min-height: 96px;
-  max-height: 190px;
+  /* 2026-08-14 用户反馈：评审系统提示词输入框加高（原 96~190px 太矮，
+     下方留白），上限同步放宽 */
+  min-height: 180px;
+  max-height: 340px;
 }
 
 .advisor-settings-save {
