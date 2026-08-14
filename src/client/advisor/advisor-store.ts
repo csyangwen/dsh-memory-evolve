@@ -799,11 +799,17 @@ export function useAdvisorSessionStore(sessionId: string): {
   // 轮询（总闸可能开着，且 status.defaultEnabled 才是权威值），config 到位
   // 后若总闸关则 stop（stop 幂等；started=false 后 start 可重入，用户重开
   // 总闸时 config 变化触发本 effect，轮询自动恢复）。
+  //
+  // ⚠️ 依赖必须用**原始值**（config 是否存在 + advisorEnabled 布尔），而非
+  // config 对象引用：refreshConfig 每次 fetch 都 patch 一个新 config 对象，
+  // 若依赖对象引用，effect 会无限 stop→start→refreshAll→refreshConfig→新
+  // 引用→effect 重跑，表现为状态条「本会话未启用」开关与「待消费指令」
+  // 区反复 loading 闪动（2026-08-14 用户反馈）。
   useEffect(() => {
     const totalOff = snapshot.config !== null && snapshot.config.advisorEnabled !== true
     if (totalOff) store.stop()
     else store.start()
     return () => store.stop()
-  }, [store, snapshot.config])
+  }, [store, snapshot.config === null, snapshot.config?.advisorEnabled])
   return { store, snapshot }
 }
