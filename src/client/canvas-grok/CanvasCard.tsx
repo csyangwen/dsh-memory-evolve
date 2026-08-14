@@ -207,22 +207,7 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
         <span className="cg-badges">
           {node.aiPlaced ? <span className="cg-badge cg-badge-ai">AI 放置</span> : null}
           {node.unverified ? <span className="cg-badge cg-badge-warn">未验证</span> : null}
-          <span
-            className={`cg-badge${props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId ? ' cg-badge-jump' : ''}`}
-            title={
-              props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId
-                ? `双击跳转到该会话：${scopeBadgeText(node, props.currentSessionId)}`
-                : scopeBadgeText(node, props.currentSessionId)
-            }
-            onDoubleClick={(e) => {
-              // 双击「其他会话」徽标 → 跳转打开对应会话（2026-08-14；
-              // 自己会话的节点不跳，防误触）
-              e.stopPropagation()
-              if (props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId) {
-                props.openSession(node.sessionId)
-              }
-            }}
-          >
+          <span className="cg-badge" title={scopeBadgeText(node, props.currentSessionId)}>
             {scopeBadgeText(node, props.currentSessionId)}
           </span>
         </span>
@@ -248,6 +233,12 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
               <button type="button" className="cg-open" onClick={() => props.onOpen(node.id)} title="用系统默认应用打开">打开</button>
             ) : null}
             <button type="button" onClick={() => props.onMigrate(node.id)} title="迁移节点归属（本会话/本项目/所有项目可见）">归属</button>
+            {props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId
+              ? (
+                <button type="button" className="cg-open" onClick={() => props.openSession?.(node.sessionId!)} title="跳转到该节点所属会话">
+                  跳转
+                </button>
+              ) : null}
             <button type="button" onClick={() => props.onCopy(node.id, 'id')}>复制 ID</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'title')}>复制标题</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'path')} disabled={!node.path}>复制路径</button>
