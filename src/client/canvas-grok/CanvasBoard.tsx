@@ -78,7 +78,15 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
   const [size, setSize] = useState({ w: 800, h: 560 })
   const [visibleIds, setVisibleIds] = useState<string[]>(() => props.nodes.map((n) => n.id))
 
-  vpRef.current = props.viewport
+  // ⚠️ 手势进行中（pointer capture 未释放）不能用 props.viewport 覆盖
+  // vpRef——pan 的增量计算依赖 vpRef 保持「手势中的最新值」，而 pan 期间
+  // 虚拟化（setVisibleIds）会触发 React 重渲染；若此时用 state 旧值覆盖
+  // vpRef，画布会被弹回旧位置（用户反馈 2026-08-14：拖动画布被还原、
+  // 只能拖一小段、右下角「视口 1/2」不停闪）。手势结束后 gestureRef
+  // 置 null，恢复与 props 同步（此时 props.viewport 已是提交后的新值）。
+  if (!gestureRef.current) {
+    vpRef.current = props.viewport
+  }
   nodesRef.current = props.nodes
 
   /** 量视口尺寸，虚拟化依赖它。 */
@@ -107,6 +115,11 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
   }, [size.h, size.w])
 
   useEffect(() => {
+    // ⚠️ 手势进行中跳过：pan/resize/drag 期间 DOM transform 由手势
+    // 直改（vpRef 为准），此处若用 props.viewport（state 可能还是旧值）
+    // 覆盖会把画布弹回（2026-08-14 用户反馈拖动画布被还原）。手势结束
+    // 后 gestureRef 置 null，props.viewport 已是提交值，恢复正常同步。
+    if (gestureRef.current) return
     applyWorldTransform(worldRef.current, props.viewport)
     applyGrid(stageRef.current, props.viewport)
     refreshVisible(props.viewport, props.nodes)

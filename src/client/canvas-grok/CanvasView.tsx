@@ -112,6 +112,12 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
   })
   snapRef.current = { version: 1, nodes, viewport, viewMode, lastAiNodeId }
 
+  /** nodes 最新镜像：异步回调（文本补全 fetch 返回）必须读它而不是
+   * effect 闭包里的旧 nodes，否则会覆盖用户拖动中的卡片位置
+   * （2026-08-14 与 CanvasBoard pan 还原同模式修复）。 */
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+
   // 会话 id（后端归属键）：conversation.view 的 strict-session props 自带。
   const sessionId = typeof (props as { sessionId?: string }).sessionId === 'string'
     ? (props as { sessionId: string }).sessionId
@@ -240,8 +246,11 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
           const clipped = text.length > 120 * 1024
             ? `${text.slice(0, 120 * 1024)}\n…（内容过长，已截断）`
             : text
-          // 先算 next 再 set+persist（避免在 updater 里调用 persist 被重复执行）
-          const next = nodes.map((n) => n.id === node.id ? { ...n, content: clipped } : n)
+          // ⚠️ 必须基于 nodesRef.current（最新镜像）合并，不能用 effect
+          // 闭包里的旧 nodes——否则会覆盖用户拖动中的卡片位置
+          // （2026-08-14 修复，与 CanvasBoard pan 还原同模式）。
+          const next = nodesRef.current.map((n) => n.id === node.id ? { ...n, content: clipped } : n)
+          nodesRef.current = next
           setNodes(next)
           persist({ nodes: next })
         } catch {
