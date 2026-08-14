@@ -300,6 +300,37 @@ test('renderInjectionSnapshot: 命令式指令文案，只渲染出现轮，空�
   }
 })
 
+test('renderInjectionSnapshot: 正文变量展开 + 宿主模板残留清理（issue #6 回归）', () => {
+  const dir = tempDir()
+  try {
+    const store = new InjectionStore(dir)
+    // 直接写入未展开正文（模拟旧版本遗留/手动编辑注入数据）：{{date}}/
+    // {{time}} 渲染时展开为当前值；未知变量 {{foo}}、malformed {{a b}}
+    // 与字面 {{ 全部降级——宿主（dsh-system-prompt）会把段文本里的 {{...}}
+    // 当模板变量解析、未注册即 throw（unknown prompt variable），快照段
+    // 绝不能携带宿主可解析的 {{ 序列。
+    store.add({
+      sourcePromptId: 'p1',
+      title: '含变量',
+      content: '今天 {{date}} {{time}}\n未知 {{foo}} malformed {{a b}} 字面 {{',
+      rounds: 1,
+    })
+    const text = renderInjectionSnapshot(store)
+    assert.match(text, /今天 \d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.equal(text.includes('{{date}}'), false)
+    assert.equal(text.includes('{{time}}'), false)
+    assert.match(text, /\{foo\}/)
+    assert.match(text, /\{a b\}/)
+    assert.equal(text.includes('{{'), false) // 快照段绝不携带 {{ 序列（宿主解析入口）
+    // 已展开的正文（正常创建路径：写入时已 expandVars）重复净化幂等、不破坏内容
+    store.add({ sourcePromptId: 'p2', title: '已展开', content: '日期 2026-08-13 保留 {foo}', rounds: 1 })
+    const plain = renderInjectionSnapshot(store)
+    assert.match(plain, /日期 2026-08-13 保留 \{foo\}/)
+  } finally {
+    clean(dir)
+  }
+})
+
 // ---------- Web API ----------
 
 /** Boot a real HTTP server over installPrompts' registered handler. */
