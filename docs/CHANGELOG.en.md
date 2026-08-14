@@ -6,6 +6,17 @@ All version changes for this repository, in reverse chronological order.
 
 ---
 
+## 2026-08-14
+
+### Fixed
+
+- **"Current version" showed an old version after updating**: after a successful update and restart, the version page displayed the old version while the status said "already latest". Root cause: the update transaction fetches with `--no-tags` (the new tag lives only in private refs, never in local `refs/tags`), while the local version label relied on `git describe`, which could only find the nearest reachable ancestor tag. Now the label is derived from commit SHAs: when HEAD exactly matches any published commit, the published tag of that commit is used (the latest tag when the dev branch already contains the release); `git describe` results are no longer trusted; the transaction checkpoint persists the new version and "latest" status together.
+- **Update red dot could persist after a failed post-checkout recheck**: a failed remote recheck after a successful checkout no longer reverts the status to `outdated` (the local version relationship is already verified by SHA; a recheck failure only records the error).
+- **Stale state after manual checkout / dev-branch restore within cache TTL**: the 24h cache-hit path now validates the local HEAD; a changed HEAD immediately invalidates the cache and triggers a recheck, eliminating up-to-24h stale status or a bogus "restart required" banner.
+- **Self-healing of stale cached version labels**: devices already carrying an incorrect cached version show the correct version as soon as the version page is opened after upgrade, without waiting for the next automatic recheck.
+
+---
+
 ## 2026-08-13
 
 ### Added

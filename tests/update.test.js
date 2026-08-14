@@ -902,3 +902,207 @@ test('[P2-2-v3] fallback 标记延续：重启后新实例仍用 fallback 状态
   // 恢复：删掉占位文件，避免污染后续。
   rmSync(meDir, { force: true })
 })
+
+// ---------------------------------------------------------------------------
+// [2026-08-14 回归] 真实设备场景：clone 之后才发布的新 tag
+// ---------------------------------------------------------------------------
+
+/**
+ * 真实设备基建：consumer 在 v1.0.0 发布时 clone（本地只有 v1.0.0 tag），
+ * 之后 dev 才创建 v1.1.0 并 push——模拟用户设备安装旧版后才出新版的现场
+ * （与 setupRepo 的区别：setupRepo 的 clone 发生在全部 tag 已发布之后，
+ * 本地 refs/tags 自带 v1.1.0，掩盖了 describe 缺陷）。
+ * origin 历史：c1(v1.0.0) → c2(v1.1.0)，均在 main。
+ */
+function setupRepoLateTag() {
+  const root = tempRoot()
+  const origin = join(root, 'origin.git')
+  const dev = join(root, 'dev')
+  const consumer = join(root, 'consumer')
+  sh(root, ['init', '--bare', '-q', origin])
+  mkdirSync(dev)
+  sh(dev, ['init', '-q'])
+  sh(dev, ['config', 'user.email', 't@t'])
+  sh(dev, ['config', 'user.name', 't'])
+  sh(dev, ['remote', 'add', 'origin', origin])
+  writeFileSync(join(dev, 'a.txt'), 'v1')
+  sh(dev, ['add', '.'])
+  sh(dev, ['commit', '-q', '-m', 'c1'])
+  sh(dev, ['tag', '-a', 'v1.0.0', '-m', 'first release'])
+  sh(dev, ['push', '-q', 'origin', 'main', 'v1.0.0'])
+  // —— 设备在旧版时代 clone（本地 tags 只有 v1.0.0）——
+  sh(root, ['clone', '-q', origin, consumer])
+  sh(consumer, ['checkout', '-q', '--detach', 'v1.0.0'])
+  // —— 之后才发布 v1.1.0 ——
+  writeFileSync(join(dev, 'a.txt'), 'v2')
+  sh(dev, ['add', '.'])
+  sh(dev, ['commit', '-q', '-m', 'c2'])
+  sh(dev, ['tag', '-a', 'v1.1.0', '-m', 'second release'])
+  sh(dev, ['push', '-q', 'origin', 'main', 'v1.1.0'])
+  return { root, origin, dev, consumer }
+}
+
+test('[2026-08-14 回归] clone 后才发布新 tag：更新后 localTag 显示新版本（describe 缺陷）', async () => {
+  const { consumer, dev } = setupRepoLateTag()
+  const checker = createUpdateChecker({ repoDir: consumer, now: advancingClock() })
+  // 更新前：outdated，localTag = v1.0.0（describe 此时正确）。
+  const before = await checker.status()
+  assert.equal(before.status, 'outdated')
+  assert.equal(before.localTag, 'v1.0.0')
+  // 更新成功全链路。
+  const outcome = await checker.update('v1.1.0')
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.tag, 'v1.1.0')
+  // 真实磁盘 HEAD 已切到 v1.1.0 的 commit（SHA 核验 == dev 侧 tag 指向的
+  // peeled commit；annotated tag 的 rev-parse 需 ^{} 剥皮）。
+  const expectedSha = sh(dev, ['rev-parse', 'v1.1.0^{}'])
+  assert.equal(sh(consumer, ['rev-parse', 'HEAD']), expectedSha)
+  // fetch 的 --no-tags 语义保持：本地 refs/tags 仍没有 v1.1.0（不污染 tag
+  // 命名空间），describe 必然返回旧祖先 tag——这正是历史缺陷的现场。
+  assert.equal(sh(consumer, ['tag', '--list', 'v1.1.0']), '', '本地不应出现 v1.1.0 tag')
+  assert.equal(sh(consumer, ['describe', '--tags', '--match', 'v*', '--abbrev=0']), 'v1.0.0')
+  // —— 修复断言：status 的 localTag 必须显示新版本（此前是 v1.0.0）——
+  const s = await checker.status()
+  assert.equal(s.status, 'latest')
+  assert.equal(s.localTag, 'v1.1.0', '当前版本应显示 v1.1.0，而非 describe 的旧祖先 tag')
+  // 落盘缓存同样是新版本（重启后不依赖读时修正也能显示对）。
+  assert.equal((await readCacheState(checker)).localTag, 'v1.1.0')
+})
+
+test('[2026-08-14 回归] 读时一致性修正：旧 bug 写入的错误 localTag 缓存自愈', async () => {
+  const { consumer, dev } = setupRepoLateTag()
+  const clock = advancingClock()
+  const checker = createUpdateChecker({ repoDir: consumer, now: clock })
+  // 构造旧版代码写出的错误缓存：headSha 已是最新发布 commit（= latestSha），
+  // 但 localTag 是 describe 的旧祖先 tag（2026-08-14 生产现场）。
+  const sha = sh(dev, ['rev-parse', 'v1.1.0^{}'])
+  // 现场必须真实：磁盘 HEAD 已切到最新发布 commit（旧 bug 的更新事务
+  // checkout 成功了，只是 localTag 落盘错）——先拉对象（私有 refspec，
+  // 不新增本地 tag）再 checkout，否则 P1-2 的 HEAD 校验会正确判缓存失效。
+  sh(consumer, ['fetch', '-q', 'origin', `refs/tags/v1.1.0:refs/remotes/origin/v1.1.0`])
+  sh(consumer, ['checkout', '-q', '--detach', sha])
+  const remoteUrl = sh(consumer, ['config', '--get', 'remote.origin.url'])
+  // 时间字段必须来自同一个 clock 实例：写入「当前」时刻，status() 的
+  // now() 比它大 1ms → t - lastSuccessAt = 1ms < 24h TTL，命中缓存
+  // （写 0 会得到 ~17 亿 ms 差值 > TTL 被判定过期；写 Date.now() 会因
+  // advancingClock 基准固定而成为未来时间戳，两者都会强制重检）。
+  const tWrite = clock()
+  const cachePath = join(await stateDirOf(checker), 'dsh-memory-evolve', 'update-state.json')
+  mkdirSync(dirname(cachePath), { recursive: true })
+  writeFileSync(cachePath, JSON.stringify({
+    schemaVersion: 1,
+    repoPath: consumer,
+    remoteUrl, // 与真实 config 一致 → 走 24h 缓存命中路径（不触发 git 检测）
+    status: 'latest',
+    latestTag: 'v1.1.0',
+    latestSha: sha,
+    localTag: 'v1.0.0', // 错误字段（旧 bug 产物）
+    headSha: sha,
+    noteCode: 'latest-exact',
+    lastAttemptAt: tWrite,
+    lastSuccessAt: tWrite,
+    lastError: null,
+  }), 'utf8')
+  const s = await checker.status()
+  assert.equal(s.status, 'latest')
+  assert.equal(s.localTag, 'v1.1.0', '读时修正应把 localTag 纠正为最新发布版本')
+})
+
+// ---------------------------------------------------------------------------
+// [2026-08-14 Codex 复核 P1] 一致性补充修复
+// ---------------------------------------------------------------------------
+
+test('[Codex P1-1] checkout 成功后远端重检失败：状态/badge 不回退 outdated', async () => {
+  const { consumer } = setupRepoLateTag()
+  let lsCount = 0
+  const checker = createUpdateChecker({
+    repoDir: consumer,
+    now: advancingClock(),
+    run: async (cmd, args, opts) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') {
+        lsCount++
+        if (lsCount === 2) {
+          // 更新事务内的第二次 ls-remote（checkout 后重检）模拟网络失败。
+          const err = new Error('network down')
+          err.stderr = 'fatal: unable to access: could not resolve host'
+          throw err
+        }
+      }
+      return realRun(cmd, args, opts)
+    },
+  })
+  const outcome = await checker.update('v1.1.0')
+  assert.equal(outcome.ok, true)
+  assert.equal(lsCount, 2, '锁内重检 + 更新后重检各一次')
+  // checkout 成功时本地版本关系已由 SHA 确定并落盘；重检失败只追加
+  // lastError，不得回退状态（P1-1：否则 UI 显示当前版本=最新、红点不消失）。
+  const cache = await readCacheState(checker)
+  assert.equal(cache.status, 'latest')
+  assert.equal(cache.noteCode, 'latest-exact')
+  assert.equal(cache.localTag, 'v1.1.0')
+  assert.equal(cache.lastError?.kind, 'network')
+  // status() 走失败退避（30min 内不重试）→ 返回缓存状态，必须是 latest。
+  const s = await checker.status()
+  assert.equal(s.status, 'latest')
+  assert.equal(s.localTag, 'v1.1.0')
+  // badge 红点依据缓存 status：latest → 0（红点消失）。
+  assert.equal(await checker.badgeUpdate(), 0)
+})
+
+test('[Codex P1-2] 缓存有效期内本地 HEAD 变化：缓存失效并重检', async () => {
+  const { consumer, dev } = setupRepoLateTag()
+  const checker = createUpdateChecker({ repoDir: consumer, now: advancingClock() })
+  // 首次检测落缓存（outdated，HEAD = v1.0.0 commit）。
+  const s1 = await checker.status()
+  assert.equal(s1.status, 'outdated')
+  // 缓存有效期内（24h TTL 未到）用户手动 checkout 到最新发布 commit
+  // （模拟手动切换/开发轨恢复后本地 HEAD 变化——远端没变，仅本地变了）。
+  const latestSha = sh(dev, ['rev-parse', 'v1.1.0^{}'])
+  // 先拉对象（私有 refspec，不新增本地 tag），consumer 从未 fetch 过新版本。
+  sh(consumer, ['fetch', '-q', 'origin', `refs/tags/v1.1.0:refs/remotes/origin/v1.1.0`])
+  sh(consumer, ['checkout', '-q', '--detach', latestSha])
+  // 命中缓存路径因 HEAD 变化而失效 → 重检 → 状态立即更新为 latest。
+  const s2 = await checker.status()
+  assert.equal(s2.status, 'latest')
+  assert.equal(s2.localTag, 'v1.1.0')
+})
+
+test('[Codex P1-2] 读时修正与重启派生交互：旧进程保留重启提示、新进程清除', async () => {
+  const { consumer, dev } = setupRepoLateTag()
+  const clock = advancingClock()
+  // 旧进程：创建于更新之前（运行 HEAD = v1.0.0 commit，即 runningHeadSha
+  // 捕获于 v1.0.0）。
+  const oldChecker = createUpdateChecker({ repoDir: consumer, now: clock })
+  const sha = sh(dev, ['rev-parse', 'v1.1.0^{}'])
+  const remoteUrl = sh(consumer, ['config', '--get', 'remote.origin.url'])
+  // 模拟更新事务已完成：磁盘 checkout 到新 commit、缓存 headSha 落盘、
+  // 事务文件 restartRequired=true（旧版代码可能落盘错误的 localTag）。
+  // 先拉对象（私有 refspec，不新增本地 tag），consumer 从未 fetch 过新版本。
+  sh(consumer, ['fetch', '-q', 'origin', `refs/tags/v1.1.0:refs/remotes/origin/v1.1.0`])
+  sh(consumer, ['checkout', '-q', '--detach', sha])
+  const tWrite = clock()
+  const meDir = join(await stateDirOf(oldChecker), 'dsh-memory-evolve')
+  mkdirSync(meDir, { recursive: true })
+  writeFileSync(join(meDir, 'update-state.json'), JSON.stringify({
+    schemaVersion: 1, repoPath: consumer, remoteUrl,
+    status: 'latest', latestTag: 'v1.1.0', latestSha: sha,
+    localTag: 'v1.0.0', // 旧 bug 产物（describe 旧祖先 tag）
+    headSha: sha, noteCode: 'latest-exact',
+    lastAttemptAt: tWrite, lastSuccessAt: tWrite, lastError: null,
+  }), 'utf8')
+  writeFileSync(join(meDir, 'update-tx.json'), JSON.stringify({
+    restartRequired: true,
+    lastUpdated: { tag: 'v1.1.0', sha, at: tWrite, result: 'ok', notes: '' },
+  }), 'utf8')
+  // 旧进程：运行 HEAD（v1.0.0）≠ 磁盘 HEAD（v1.1.0）→ 等待重启提示保留，
+  // 同时 localTag 读时修正。
+  const sOld = await oldChecker.status()
+  assert.equal(sOld.restartRequired, true, '旧进程应保留等待重启提示')
+  assert.equal(sOld.localTag, 'v1.1.0', '旧进程 localTag 读时修正')
+  // 新进程（模拟重启后）：运行 HEAD = 磁盘 HEAD = v1.1.0 → 横幅清除，
+  // localTag 依旧修正（不依赖旧的错误落盘）。
+  const newChecker = createUpdateChecker({ repoDir: consumer, now: clock })
+  const sNew = await newChecker.status()
+  assert.equal(sNew.restartRequired, false, '重启后等待重启提示应清除')
+  assert.equal(sNew.localTag, 'v1.1.0', '新进程 localTag 读时修正')
+})
