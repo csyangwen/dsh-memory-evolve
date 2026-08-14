@@ -18,7 +18,6 @@ import type { NoteSubmit, PathSubmit } from './CanvasDialogs.tsx'
 import {
   CURRENT_PROJECT_ID,
   CURRENT_PROJECT_LABEL,
-  CURRENT_SESSION_ID,
   CURRENT_SESSION_LABEL,
   DEFAULT_SIZE,
   DEFAULT_VIEWPORT,
@@ -357,7 +356,9 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       title: titleFromPath(path),
       scope: 'session',
       scopeLabel: CURRENT_SESSION_LABEL,
-      sessionId: CURRENT_SESSION_ID,
+      // 归属必须用真实查看者会话 id（曾写死模拟常量 CURRENT_SESSION_ID，
+      // 导致新节点归属到假会话、其他会话视角过滤看不到——2026-08-14 修复）
+      sessionId,
       projectId: CURRENT_PROJECT_ID,
       path,
       unverified: true,
@@ -365,7 +366,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     })
     setDialog(null)
     showToast(`已上板：${titleFromPath(path)}`)
-  }, [addNode, showToast])
+  }, [addNode, sessionId, showToast])
 
   const onNote = useCallback((payload: NoteSubmit) => {
     addNode({
@@ -373,13 +374,14 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       title: payload.title,
       scope: 'session',
       scopeLabel: CURRENT_SESSION_LABEL,
-      sessionId: CURRENT_SESSION_ID,
+      // 归属用真实查看者会话 id（2026-08-14 修复，见 onPath 注释）
+      sessionId,
       projectId: CURRENT_PROJECT_ID,
       content: payload.content,
     })
     setDialog(null)
     showToast('便签已上板')
-  }, [addNode, showToast])
+  }, [addNode, sessionId, showToast])
 
   const onCatalog = useCallback((title: string, path: string, type: CanvasNodeType) => {
     addNode({
@@ -387,7 +389,8 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
       title,
       scope: 'session',
       scopeLabel: CURRENT_SESSION_LABEL,
-      sessionId: CURRENT_SESSION_ID,
+      // 归属用真实查看者会话 id（2026-08-14 修复，见 onPath 注释）
+      sessionId,
       projectId: CURRENT_PROJECT_ID,
       path,
       unverified: true,
@@ -395,7 +398,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     })
     setDialog(null)
     showToast(`已上板：${title}`)
-  }, [addNode, showToast])
+  }, [addNode, sessionId, showToast])
 
   // 「跳到最近 AI 写入」：真实 AI 写入（de_canvas add_note，后端已接入）
   // 落会话板中央区并记 lastAiNodeId，此按钮定位到那张便签。
@@ -599,6 +602,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         highlightIds={highlightIds}
         searchActive={searchActive}
         matchIds={matchIds}
+        currentSessionId={sessionId}
         onViewportChange={applyViewport}
         onSelect={onSelect}
         onMoveNode={onMoveNode}

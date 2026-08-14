@@ -18,6 +18,8 @@ export interface CanvasCardProps {
   flashing: boolean
   dimmed: boolean
   highlighted: boolean
+  /** 查看者会话 id：归属徽标按它判断「当前会话 / 其他会话」（2026-08-14）。 */
+  currentSessionId?: string
   onSelect: (id: string) => void
   onDragStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
   /** 右下角缩放：id + 起始 pointer 事件（手势在 CanvasBoard 层统一管理）。 */
@@ -162,7 +164,7 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
         <span className="cg-badges">
           {node.aiPlaced ? <span className="cg-badge cg-badge-ai">AI 放置</span> : null}
           {node.unverified ? <span className="cg-badge cg-badge-warn">未验证</span> : null}
-          <span className="cg-badge" title={scopeBadgeText(node)}>{scopeBadgeText(node)}</span>
+          <span className="cg-badge" title={scopeBadgeText(node, props.currentSessionId)}>{scopeBadgeText(node, props.currentSessionId)}</span>
         </span>
       </header>
 
