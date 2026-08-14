@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { installCanvas } from '../lib/canvas.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
 
 /** Whether `git` is available in this environment (skip git tests otherwise). */
@@ -40,7 +41,15 @@ function fakeCtx(overrides = {}) {
   const state = { tools: [], contexts: [], commands: [], listeners: [], routes: [] }
   const services = {
     tools: {
-      register: (def) => { state.tools.push(def); return () => {} },
+      register: (def) => {
+        state.tools.push(def)
+        // 返回真正移除的 disposer（与 DSH tools.register 一致）：测试
+        // installCanvas().dispose() 注销工具需要它（2026-08-14 PR #8）。
+        return () => {
+          const i = state.tools.indexOf(def)
+          if (i >= 0) state.tools.splice(i, 1)
+        }
+      },
       get: () => undefined, // no extra tools (e.g. agent_session_read) by default
     },
     systemPrompt: { context: (def) => { state.contexts.push(def); return () => {} } },
@@ -144,6 +153,24 @@ test('tool parameters use standard JSON Schema wrapper (DSH tools.register contr
       }
     }
   }
+})
+
+test('installCanvas：de_canvas 注册 + dispose 注销（PR #8 回归护栏）', () => {
+  // 2026-08-14 回归护栏（PR #8）：de_canvas 必须经 ctx.effect 直接注册
+  // ——ctx.inject(['tools'], cb) 是 ctx.plugin({inject, apply}) 简写，创建
+  // 子 fiber 等待 'tools' 在 cordis 服务注册表解析；但 DSH 的 ctx.tools
+  // 不是 cordis registry 服务（靠插件声明式 inject 挂载），子 fiber 永远
+  // PENDING、回调永不触发，工具从未注册（与 session-orch.js 2026-08-09
+  // 「ctx.inject 动态注入不可靠」教训同源）。
+  // 且 installCanvas().dispose() 必须注销工具——否则用户关闭 canvasEnabled
+  // 后 de_canvas 仍残留到插件重载，违反「关闭时 Tab 与工具完全不可见」。
+  const ctx = fakeCtx()
+  const installed = installCanvas(ctx, { memoryDir: 'tmp' }, () => null, () => null)
+  const names = () => ctx.state.tools.map((t) => t.name)
+  assert.ok(names().includes('de_canvas'), '安装后 de_canvas 必须已注册')
+  assert.ok(ctx.state.routes.some((r) => r.kind === 'prefix'), '安装后画板 HTTP API 必须已注册')
+  installed.dispose()
+  assert.ok(!names().includes('de_canvas'), 'dispose 后 de_canvas 必须已注销（开关关闭场景）')
 })
 
 test('resolveConfig defaults and validation', () => {
