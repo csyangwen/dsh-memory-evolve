@@ -2350,9 +2350,12 @@ export function apply(ctx: Context): void {
   // 注册参数 id: canvas-hub / label: 画板 / order: 80（正式值）。
   // ctx 断言为 CanvasTabHost：cordis Context 类型缺 slots（项目既有类型
   // 环境问题，全部 slots 调用同源），运行时由客户端运行时注入。
+  // openSession（2026-08-14）：双击「其他会话」徽标跳转对应会话——
+  // 与 web 通知铃铛同款路径 ctx.sessions.open(sessionId)（官方唯一
+  // 切换入口）。
   const disposeCanvasTab = registerCanvasTab(
     ctx as unknown as import('./canvas-grok/index.ts').CanvasTabHost,
-    { t },
+    { t, openSession: (sessionId) => { ctx.sessions.open(sessionId) } },
   )
   ctx.effect(() => () => {
     disposeCanvasTab?.()

@@ -49,6 +49,9 @@ export interface CanvasNode {
   scopeLabel: string
   /** 归属到哪一次会话（scope=session 时有意义）。 */
   sessionId?: string
+  /** 归属会话的显示名（后端实时解析：别名→会话标题→undefined；
+   * 2026-08-14 徽标显示会话名称而非长 sessionId）。仅展示层，不落盘。 */
+  sessionName?: string
   /** 归属到哪个项目（scope=session|project 时有意义）。 */
   projectId?: string
   /** 路径上板留下的本地路径（不校验是否存在）。 */

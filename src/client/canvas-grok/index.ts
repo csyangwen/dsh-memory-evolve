@@ -41,6 +41,9 @@ export interface RegisterCanvasTabOpts {
   label?: string
   /** 可选覆盖：排序（默认 80） */
   order?: number
+  /** 跳转到指定会话（2026-08-14：双击「其他会话」徽标调用；
+   * 主会话注入 ctx.sessions.open，与 web 通知铃铛同款路径）。 */
+  openSession?: (sessionId: string) => void
 }
 
 /** 注入 cg- 前缀样式。已存在则跳过，避免热更重复挂。 */
@@ -72,7 +75,7 @@ export function registerCanvasTab(ctx: CanvasTabHost, opts: RegisterCanvasTabOpt
       id: slotId,
       order: slotOrder,
       label: () => slotLabel,
-    }, (props) => CanvasView({ ...props, t: opts.t })))
+    }, (props) => CanvasView({ ...props, t: opts.t, openSession: opts.openSession })))
   return () => {
     disposeSlot()
     disposeStyle()

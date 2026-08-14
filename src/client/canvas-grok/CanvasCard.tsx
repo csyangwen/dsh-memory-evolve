@@ -24,6 +24,9 @@ export interface CanvasCardProps {
   /** 后端可用：true 时图片/音视频卡片直接走文件代理渲染真实内容
    * （2026-08-14 用户反馈：卡片只有静态填充，至少图片要直接显示）。 */
   backendReady: boolean
+  /** 双击「其他会话」徽标跳转对应会话（2026-08-14：主会话注入
+   * ctx.sessions.open，与 web 通知铃铛同款路径）。 */
+  openSession?: (sessionId: string) => void
   onSelect: (id: string) => void
   onDragStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
   /** 右下角缩放：id + 起始 pointer 事件（手势在 CanvasBoard 层统一管理）。 */
@@ -204,7 +207,24 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
         <span className="cg-badges">
           {node.aiPlaced ? <span className="cg-badge cg-badge-ai">AI 放置</span> : null}
           {node.unverified ? <span className="cg-badge cg-badge-warn">未验证</span> : null}
-          <span className="cg-badge" title={scopeBadgeText(node, props.currentSessionId)}>{scopeBadgeText(node, props.currentSessionId)}</span>
+          <span
+            className={`cg-badge${props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId ? ' cg-badge-jump' : ''}`}
+            title={
+              props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId
+                ? `双击跳转到该会话：${scopeBadgeText(node, props.currentSessionId)}`
+                : scopeBadgeText(node, props.currentSessionId)
+            }
+            onDoubleClick={(e) => {
+              // 双击「其他会话」徽标 → 跳转打开对应会话（2026-08-14；
+              // 自己会话的节点不跳，防误触）
+              e.stopPropagation()
+              if (props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId) {
+                props.openSession(node.sessionId)
+              }
+            }}
+          >
+            {scopeBadgeText(node, props.currentSessionId)}
+          </span>
         </span>
       </header>
 

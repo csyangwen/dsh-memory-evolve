@@ -63,12 +63,15 @@ export function scopeBadgeText(node: CanvasNode, currentSessionId?: string): str
   // 其他会话看全局筛选时会出现「这张不是我的便签却标着当前会话」的迷惑。
   // 这里用节点归属 sessionId 与查看者 sessionId 比对：
   //   相同 → 我自己会话的便签，显示「当前会话」；
-  //   不同 → 其他会话放的，显示「其他会话」+ 短 id（可追溯来源）。
+  //   不同 → 其他会话放的，显示「其他会话」+ **会话显示名**（后端
+  //     解析：别名→会话标题；2026-08-14 用户要求不再显示长 sessionId，
+  //     解析不到才兜底短 id）。
   if (currentSessionId && node.sessionId && node.sessionId === currentSessionId) {
     return `💬 当前会话`
   }
   if (node.sessionId) {
-    return `💬 其他会话 ${shortSessionId(node.sessionId)}`
+    const name = node.sessionName || shortSessionId(node.sessionId)
+    return `💬 其他会话 ${name}`
   }
   return `💬 ${node.scopeLabel || '会话'}`
 }

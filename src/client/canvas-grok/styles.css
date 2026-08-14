@@ -383,6 +383,17 @@
   white-space: nowrap;
 }
 
+/* 「其他会话」徽标可双击跳转（2026-08-14） */
+.cg-badge.cg-badge-jump {
+  cursor: pointer;
+  border: 1px dashed var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.cg-badge.cg-badge-jump:hover {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+}
+
 .cg-badge-ai {
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
   color: var(--dsw-alias-brand-primary);
