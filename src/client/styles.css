@@ -594,11 +594,19 @@
 
 .me-actions {
   display: flex;
-  justify-content: flex-end;
+  /* 2026-08-14 用户反馈：保存按钮居中对齐 */
+  justify-content: center;
   gap: 8px;
   margin-top: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* 配置保存按钮加大（2026-08-14 用户反馈：大一点更醒目） */
+.me-actions .me-btn {
+  font-size: 14px;
+  padding: 9px 32px;
+  border-radius: 8px;
 }
 
 /* ---------- Open-files button grid ---------- */

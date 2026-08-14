@@ -403,6 +403,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               </span>
             </div>
             <div className="me-guide-row">
+              <span className="me-guide-icon">🖼️</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.canvas.title')}</strong>
+                <span>{t('panel.guide.canvas.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
               <span className="me-guide-icon">🛡️</span>
               <span className="me-guide-body">
                 <strong>{t('panel.guide.confirm.title')}</strong>
