@@ -180,8 +180,27 @@ export async function searchFilesBackend(
  * @returns {Promise<{ ok: boolean; error?: string }>}
  */
 export async function openNodeFileBackend(nodeId: string): Promise<{ ok: boolean; error?: string }> {
+  return openNodePathBackend('/open', nodeId)
+}
+
+/**
+ * 在系统文件管理器中打开已上板节点**所在文件夹**（2026-08-14 用户
+ * 要求：文件类型便签一键直达所在目录；后端对目录节点打开自身）。
+ * 安全边界同 /open：只允许已上板节点。
+ * @param {string} nodeId
+ * @returns {Promise<{ ok: boolean; error?: string }>}
+ */
+export async function openNodeFolderBackend(nodeId: string): Promise<{ ok: boolean; error?: string }> {
+  return openNodePathBackend('/open-dir', nodeId)
+}
+
+/** openNodeFileBackend / openNodeFolderBackend 的公共实现。 */
+async function openNodePathBackend(
+  endpoint: '/open' | '/open-dir',
+  nodeId: string,
+): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/open`, {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ nodeId }),

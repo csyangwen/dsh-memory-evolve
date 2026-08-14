@@ -34,6 +34,9 @@ export interface CanvasCardProps {
   onPreview: (id: string) => void
   /** 系统默认应用打开上板文件（2026-08-14：路径上板/搜索上板的一键打开）。 */
   onOpen: (id: string) => void
+  /** 在系统文件管理器中打开上板文件**所在文件夹**（2026-08-14 用户
+   * 要求：文件类型便签一键直达其所在目录）。 */
+  onOpenFolder: (id: string) => void
   /** 保存文本/便签内容到本机文件（2026-08-14：弹系统保存对话框）。 */
   onSave: (id: string) => void
   /** 迁移节点归属（2026-08-14：仅用户手动触发，弹归属选择框）。 */
@@ -231,6 +234,9 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
               ) : null}
             {node.path ? (
               <button type="button" className="cg-open" onClick={() => props.onOpen(node.id)} title="用系统默认应用打开">打开</button>
+            ) : null}
+            {node.path ? (
+              <button type="button" className="cg-open" onClick={() => props.onOpenFolder(node.id)} title="在系统文件管理器中打开该文件所在的文件夹（Finder / 资源管理器）">所在文件夹</button>
             ) : null}
             <button type="button" onClick={() => props.onMigrate(node.id)} title="迁移节点归属（本会话/本项目/所有项目可见）">归属</button>
             {props.openSession && node.scope === 'session' && node.sessionId && node.sessionId !== props.currentSessionId

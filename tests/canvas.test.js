@@ -23,6 +23,7 @@ import {
   migrateNode,
   normalizeNode,
   openNodeFile,
+  openNodeFolder,
   readCanvas,
   resolveNodeFile,
   searchLocalFiles,
@@ -162,6 +163,53 @@ test('打开：无路径节点拒绝', () => {
   const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
   writeCanvas(config, { nodes: [node] }, 0)
   const res = openNodeFile(config, node.id)
+  assert.match(res.error ?? '', /没有路径/)
+})
+
+test('打开所在文件夹：真实文件打开其父目录（darwin 返回 ok，spawn 不阻塞）', () => {
+  const { dir, config } = tempConfig()
+  const realFile = join(dir, 'sub', 'open-me.txt')
+  mkdirSync(join(dir, 'sub'))
+  writeFileSync(realFile, 'hello')
+  const node = normalizeNode({ type: 'file', title: '打开', scope: 'session', path: realFile }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFolder(config, node.id)
+  assert.equal(res.error, undefined)
+  assert.equal(res.ok, true)
+})
+
+test('打开所在文件夹：节点路径是目录时打开自身（不取上级）', () => {
+  const { dir, config } = tempConfig()
+  const realDir = join(dir, 'sub')
+  mkdirSync(realDir)
+  const node = normalizeNode({ type: 'file', title: '目录', scope: 'session', path: realDir }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFolder(config, node.id)
+  assert.equal(res.error, undefined)
+  assert.equal(res.ok, true)
+})
+
+test('打开所在文件夹：敏感路径拒绝', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'file', title: 'ssh', scope: 'session', path: join(dirname(config.memoryDir), '.ssh', 'id_rsa') }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFolder(config, node.id)
+  assert.match(res.error ?? '', /敏感/)
+})
+
+test('打开所在文件夹：不存在路径友好报错', () => {
+  const { dir, config } = tempConfig()
+  const node = normalizeNode({ type: 'file', title: 'gone', scope: 'session', path: join(dir, 'sub', 'nope.txt') }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFolder(config, node.id)
+  assert.match(res.error ?? '', /不存在/)
+})
+
+test('打开所在文件夹：无路径节点拒绝', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFolder(config, node.id)
   assert.match(res.error ?? '', /没有路径/)
 })
 

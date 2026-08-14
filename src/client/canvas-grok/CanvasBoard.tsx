@@ -49,6 +49,8 @@ export interface CanvasBoardProps {
   onPreview: (id: string) => void
   /** 系统默认应用打开上板文件（2026-08-14）。 */
   onOpen: (id: string) => void
+  /** 在系统文件管理器中打开上板文件所在文件夹（2026-08-14）。 */
+  onOpenFolder: (id: string) => void
   /** 保存文本/便签内容到本机文件（2026-08-14）。 */
   onSave: (id: string) => void
   /** 迁移节点归属（2026-08-14：仅用户手动触发）。 */
@@ -343,6 +345,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             onResizeStart={onResizeStart}
             onPreview={props.onPreview}
             onOpen={props.onOpen}
+            onOpenFolder={props.onOpenFolder}
             onSave={props.onSave}
             onMigrate={props.onMigrate}
             onCopy={props.onCopy}

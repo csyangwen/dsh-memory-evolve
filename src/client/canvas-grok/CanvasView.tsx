@@ -45,6 +45,7 @@ import {
   loadCanvasFromBackend,
   migrateNodeBackend,
   openNodeFileBackend,
+  openNodeFolderBackend,
   saveCanvasToBackend,
   type BackendSaveResult,
 } from './api-client.ts'
@@ -511,6 +512,18 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     showToast(result.ok ? `已用默认应用打开：${node.title}` : `打开失败：${result.error ?? '未知错误'}`)
   }, [nodes, showToast])
 
+  /** 在系统文件管理器中打开上板文件**所在文件夹**（2026-08-14 用户
+   *  要求：文件类型便签一键直达所在目录；后端对目录节点打开自身）。 */
+  const onOpenFolder = useCallback(async (id: string) => {
+    const node = nodes.find((n) => n.id === id)
+    if (!node?.path) {
+      showToast('该节点没有本地路径可打开')
+      return
+    }
+    const result = await openNodeFolderBackend(id)
+    showToast(result.ok ? `已在文件管理器中打开所在文件夹：${node.title}` : `打开失败：${result.error ?? '未知错误'}`)
+  }, [nodes, showToast])
+
   /** 保存文本/便签内容到本机（2026-08-14：弹系统保存对话框，AI 与
    *  用户加的 markdown/纯文本标签都能落地到实机文件）。 */
   const onSave = useCallback(async (id: string) => {
@@ -707,6 +720,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onResizeNode={onResizeNode}
         onPreview={onPreview}
         onOpen={onOpen}
+        onOpenFolder={onOpenFolder}
         onSave={onSave}
         onMigrate={onMigrateClick}
         onCopy={onCopy}
