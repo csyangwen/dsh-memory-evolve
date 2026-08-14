@@ -34,6 +34,8 @@ export interface CanvasDialogsProps {
   onCatalog: (title: string, path: string, type: CanvasNodeType) => void
   onConfirmRemove: () => void
   onToast: (text: string) => void
+  /** 系统默认应用打开上板文件（2026-08-14 接入真实实现）。 */
+  onOpen: (id: string) => void
 }
 
 function PathDialog(props: { onClose: () => void; onPath: (p: PathSubmit) => void }): JSX.Element {
@@ -225,6 +227,8 @@ function PreviewDialog(props: {
   backendReady: boolean
   onClose: () => void
   onToast: (text: string) => void
+  /** 系统默认应用打开上板文件（2026-08-14 接入真实实现）。 */
+  onOpen: (id: string) => void
 }): JSX.Element {
   const { node } = props
   const light = node.type === 'markdown' || node.type === 'plainText' || node.type === 'image' || node.type === 'media'
@@ -279,13 +283,15 @@ function PreviewDialog(props: {
       {!light ? (
         <div>
           <p>此类素材暂不在浏览器内渲染（Word / PDF / 文件夹等）。</p>
-          <button
-            type="button"
-            className="cg-btn cg-ghost"
-            onClick={() => props.onToast('用默认应用打开：暂未支持')}
-          >
-            用默认应用打开
-          </button>
+          {node.path ? (
+            <button
+              type="button"
+              className="cg-btn cg-ghost"
+              onClick={() => props.onOpen(node.id)}
+            >
+              用默认应用打开
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div className="cg-dialog-actions">
@@ -330,7 +336,7 @@ export function CanvasDialogs(props: CanvasDialogsProps): JSX.Element | null {
         <CatalogDialog onClose={props.onClose} onCatalog={props.onCatalog} backendReady={props.backendReady} sessionId={props.sessionId} />
       ) : null}
       {props.kind === 'preview' && props.previewNode ? (
-        <PreviewDialog node={props.previewNode} onClose={props.onClose} onToast={props.onToast} backendReady={props.backendReady} />
+        <PreviewDialog node={props.previewNode} onClose={props.onClose} onToast={props.onToast} backendReady={props.backendReady} onOpen={props.onOpen} />
       ) : null}
       {props.kind === 'remove' && props.removeNode ? (
         <RemoveDialog node={props.removeNode} onClose={props.onClose} onConfirm={props.onConfirmRemove} />

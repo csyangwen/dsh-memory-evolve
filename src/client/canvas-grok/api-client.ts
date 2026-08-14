@@ -171,6 +171,33 @@ export async function searchFilesBackend(
 }
 
 /**
+ * 用系统注册的默认应用打开已上板节点路径（2026-08-14 用户要求：
+ * 路径上板/搜索上板的本地文件一键打开。安全边界同 /file：
+ * 只允许已上板节点）。
+ * @param {string} nodeId
+ * @returns {Promise<{ ok: boolean; error?: string }>}
+ */
+export async function openNodeFileBackend(nodeId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    })
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => null)
+      const error = body && typeof body === 'object' && typeof (body as { error?: string }).error === 'string'
+        ? (body as { error: string }).error
+        : `HTTP ${res.status}`
+      return { ok: false, error }
+    }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: '网络错误（宿主不可达）' }
+  }
+}
+
+/**
  * 文件代理预览 URL（只读已上板节点路径；MIME 白名单由后端校验）。
  * @param {string} nodeId
  * @returns {string}

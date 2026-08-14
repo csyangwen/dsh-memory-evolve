@@ -508,6 +508,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* 「打开」按钮：主操作强调（2026-08-14 新增系统默认应用打开） */
+.cg-card-foot button.cg-open {
+  color: var(--dsw-alias-brand-primary);
+  font-weight: 600;
+}
+
 .cg-card-foot button.cg-danger:hover {
   color: var(--dsw-alias-state-error-primary);
 }

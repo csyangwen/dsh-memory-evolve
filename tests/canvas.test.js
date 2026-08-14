@@ -12,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   CANVAS_NOTE_MAX_BYTES,
   aiSlotPlacement,
@@ -21,6 +21,7 @@ import {
   formatBytes,
   inferNodeTypeFromPath,
   normalizeNode,
+  openNodeFile,
   readCanvas,
   resolveNodeFile,
   writeCanvas,
@@ -124,6 +125,41 @@ test('文件代理：无路径节点拒绝', () => {
   const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
   writeCanvas(config, { nodes: [node] }, 0)
   const res = resolveNodeFile(config, node.id)
+  assert.match(res.error ?? '', /没有路径/)
+})
+
+test('打开：真实文件可打开（darwin 返回 ok，spawn 不阻塞）', () => {
+  const { dir, config } = tempConfig()
+  const realFile = join(dir, 'open-me.txt')
+  writeFileSync(realFile, 'hello')
+  const node = normalizeNode({ type: 'file', title: '打开', scope: 'session', path: realFile }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFile(config, node.id)
+  assert.equal(res.error, undefined)
+  assert.equal(res.ok, true)
+})
+
+test('打开：敏感路径拒绝', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'file', title: 'ssh', scope: 'session', path: join(dirname(config.memoryDir), '.ssh', 'id_rsa') }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFile(config, node.id)
+  assert.match(res.error ?? '', /敏感/)
+})
+
+test('打开：不存在路径友好报错', () => {
+  const { dir, config } = tempConfig()
+  const node = normalizeNode({ type: 'file', title: 'gone', scope: 'session', path: join(dir, 'nope.txt') }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFile(config, node.id)
+  assert.match(res.error ?? '', /不存在/)
+})
+
+test('打开：无路径节点拒绝', () => {
+  const { config } = tempConfig()
+  const node = normalizeNode({ type: 'markdown', title: '便签', scope: 'session', content: 'hi' }, OWNER)
+  writeCanvas(config, { nodes: [node] }, 0)
+  const res = openNodeFile(config, node.id)
   assert.match(res.error ?? '', /没有路径/)
 })
 

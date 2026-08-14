@@ -42,6 +42,7 @@ import {
   detectBackend,
   fileProxyUrl,
   loadCanvasFromBackend,
+  openNodeFileBackend,
   saveCanvasToBackend,
   type BackendSaveResult,
 } from './api-client.ts'
@@ -504,6 +505,17 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
     setDialog('remove')
   }, [])
 
+  /** 系统默认应用打开上板文件（2026-08-14：路径上板/搜索上板一键打开）。 */
+  const onOpen = useCallback(async (id: string) => {
+    const node = nodes.find((n) => n.id === id)
+    if (!node?.path) {
+      showToast('该节点没有本地路径可打开')
+      return
+    }
+    const result = await openNodeFileBackend(id)
+    showToast(result.ok ? `已用默认应用打开：${node.title}` : `打开失败：${result.error ?? '未知错误'}`)
+  }, [nodes, showToast])
+
   const onConfirmRemove = useCallback(() => {
     if (!focusId) return
     const next = nodes.filter((n) => n.id !== focusId)
@@ -636,6 +648,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onMoveNode={onMoveNode}
         onResizeNode={onResizeNode}
         onPreview={onPreview}
+        onOpen={onOpen}
         onCopy={onCopy}
         onAskRemove={onAskRemove}
         onChangeContent={onChangeContent}
@@ -653,6 +666,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         onCatalog={onCatalog}
         onConfirmRemove={onConfirmRemove}
         onToast={showToast}
+        onOpen={onOpen}
       />
 
       {toast ? <div className="cg-toast" role="status">{toast}</div> : null}

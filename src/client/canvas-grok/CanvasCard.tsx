@@ -29,6 +29,8 @@ export interface CanvasCardProps {
   /** 右下角缩放：id + 起始 pointer 事件（手势在 CanvasBoard 层统一管理）。 */
   onResizeStart: (id: string, event: ReactPointerEvent<HTMLElement>) => void
   onPreview: (id: string) => void
+  /** 系统默认应用打开上板文件（2026-08-14：路径上板/搜索上板的一键打开）。 */
+  onOpen: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -214,6 +216,9 @@ function CanvasCardInner(props: CanvasCardProps): JSX.Element {
           </div>
           <footer className="cg-card-foot">
             <button type="button" onClick={() => props.onPreview(node.id)}>预览</button>
+            {node.path ? (
+              <button type="button" className="cg-open" onClick={() => props.onOpen(node.id)} title="用系统默认应用打开">打开</button>
+            ) : null}
             <button type="button" onClick={() => props.onCopy(node.id, 'id')}>复制 ID</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'title')}>复制标题</button>
             <button type="button" onClick={() => props.onCopy(node.id, 'path')} disabled={!node.path}>复制路径</button>

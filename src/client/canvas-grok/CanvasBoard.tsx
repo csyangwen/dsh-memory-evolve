@@ -45,6 +45,8 @@ export interface CanvasBoardProps {
   /** 卡片缩放：id + 新宽高（世界坐标）+ 是否持久化。 */
   onResizeNode: (id: string, width: number, height: number, persist: boolean) => void
   onPreview: (id: string) => void
+  /** 系统默认应用打开上板文件（2026-08-14）。 */
+  onOpen: (id: string) => void
   onCopy: (id: string, kind: 'id' | 'title' | 'path' | 'ref') => void
   onAskRemove: (id: string) => void
   onChangeContent: (id: string, content: string) => void
@@ -333,6 +335,7 @@ export function CanvasBoard(props: CanvasBoardProps): JSX.Element {
             onDragStart={onDragStart}
             onResizeStart={onResizeStart}
             onPreview={props.onPreview}
+            onOpen={props.onOpen}
             onCopy={props.onCopy}
             onAskRemove={props.onAskRemove}
             onChangeContent={props.onChangeContent}
