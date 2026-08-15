@@ -527,6 +527,15 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     // 工具随模块安装注册（name 来自配置 promptToolName 默认 de_prompts）
     assert.ok(promptTool, 'de_prompts tool registered by installPrompts')
     assert.equal(promptTool.name, 'de_prompts')
+    // Code Mode serializes tool schema text into the `tools:sdk` prompt section.
+    // Raw `{{...}}` groups are interpreted as strict host prompt variables, so
+    // plugin-owned schema prose must never expose that syntax.
+    const modelFacingSchema = JSON.stringify({
+      description: promptTool.description,
+      parameters: promptTool.parameters,
+      output: promptTool.output.schema,
+    })
+    assert.equal(modelFacingSchema.includes('{{'), false, 'tool schema must be safe for Code Mode prompt rendering')
     // list：seed 13 条全启用
     const listed = await promptTool.execute({ action: 'list' }, exec())
     assert.equal(listed.ok, true)
