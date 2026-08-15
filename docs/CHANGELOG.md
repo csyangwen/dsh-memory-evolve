@@ -10,7 +10,7 @@
 
 ### 修复
 
-- **Code Mode 启用提示词管理器后整轮失败**：`de_prompts` 工具参数说明不再携带宿主可解析的双花括号语法；此前工具 Schema 被序列化进 `tools:sdk` 系统提示词后，说明文字中的 date/time 模板示例会被误当作未注册的 prompt variable，触发 `unknown prompt variable "{{date}}"` 并阻断后续回合。新增回归测试确保模型可见的工具 Schema 不再泄漏该语法。
+- **Code Mode 启用提示词管理器后整轮失败**：`de_prompts` 工具参数说明不再携带宿主可解析的双花括号语法；此前工具 Schema 被序列化进 `tools:sdk` 系统提示词后，说明文字中的 date/time 模板示例会被误当作未注册的 prompt variable，触发 `unknown prompt variable "{{date}}"` 并阻断后续回合。同批清理 `de_session` 工具描述中的同类残留（`model` 变量示例）。新增回归测试确保模型可见的工具 Schema 不再泄漏该语法。
 
 ---
 

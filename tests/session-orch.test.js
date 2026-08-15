@@ -164,6 +164,23 @@ test('SessionOrchStore: spawn 记录落盘/查找/列表', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('de_session schema: Code Mode 安全——模型可见文本不含 {{ 模板语法', () => {
+  const dir = tempDir()
+  const ctx = makeCtx(makeFakeAgents())
+  const orch = new SessionOrch(ctx, { store: new SessionOrchStore(dir), getBroadcastStore: () => undefined })
+  const tool = sessionToolDefinition(orch)
+  // Code Mode 把工具 schema 文本序列化进 tools:sdk 提示词段，宿主渲染器将
+  // {{...}} 当模板变量解析（未注册即 throw unknown prompt variable）——
+  // 插件侧 schema 文本绝不能泄漏该语法（与 de_prompts 同款回归）。
+  const modelFacingSchema = JSON.stringify({
+    description: tool.description,
+    parameters: tool.parameters,
+    output: tool.output.schema,
+  })
+  assert.equal(modelFacingSchema.includes('{{'), false, 'de_session schema must be safe for Code Mode prompt rendering')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', async () => {
   const dir = tempDir()
   const agents = makeFakeAgents()

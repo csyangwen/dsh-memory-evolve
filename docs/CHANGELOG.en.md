@@ -10,7 +10,7 @@ All version changes for this repository, in reverse chronological order.
 
 ### Fixed
 
-- **Enabling Prompt Manager no longer breaks Code Mode turns**: the `de_prompts` parameter description no longer exposes double-brace syntax that the host can interpret. Previously, once the tool schema was serialized into the `tools:sdk` system-prompt section, its date/time template example was mistaken for an unregistered prompt variable, raising `unknown prompt variable "{{date}}"` and blocking every subsequent step. A regression test now keeps model-facing tool schema text free of that syntax.
+- **Enabling Prompt Manager no longer breaks Code Mode turns**: the `de_prompts` parameter description no longer exposes double-brace syntax that the host can interpret. Previously, once the tool schema was serialized into the `tools:sdk` system-prompt section, its date/time template example was mistaken for an unregistered prompt variable, raising `unknown prompt variable "{{date}}"` and blocking every subsequent step. The same leftover was also cleaned from the `de_session` tool description. A regression test now keeps model-facing tool schema text free of that syntax.
 
 ---
 
