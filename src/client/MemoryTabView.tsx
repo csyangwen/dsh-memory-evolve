@@ -136,6 +136,13 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
         dshOnly = true
         text = text.replace(DSH_ONLY_RE, '')
       }
+      // 「摘要」标记 [summary:...]（dsh-only 之后、正文之前）：程序元数据，
+      // 仅供摘要模式注入；卡片显示完整正文时不再展示（2026-08-15，与快照
+      // 全量注入同规则）。raw 原文保留（删除/编辑匹配用）。
+      // 审查修复：此处时间戳/[git …]/[branch:…]/[dsh-only] 已在上方各自
+      // 剥离，直接 ^ 锚定剥头部 summary 即可——原 head 前缀正则恒匹配空串
+      // （死代码），且正文中出现的 [summary:…] 文本因不在行首不被误剥。
+      text = text.replace(/^\[summary:[^\]]*\]\s*/, '')
     }
     entries.push({ time, tag, branch, text, branches, dshOnly, raw: rawText })
   }
