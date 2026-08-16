@@ -300,30 +300,28 @@ DSH 会话之间传递消息的轻量子功能，**独立于 COI 调度框架**�
 
 ### 标准安装（DSH 08-06+ profiles 架构，推荐）
 
-插件以包形式安装进 profile（`web` / `tui` / `headless` 等），由 profile 的
-`cordis.patch.yml` 组合。以 web profile 为例：
+插件以包形式安装进 profile（`web` / `tui` / `headless` 等）。包内自带
+`cordis.patch.yml`，`dsh plugin add` 安装后 bundle patch 会自动注册 host 行，
+不需要再往 profile patch 里手动 `insert`（重复 insert 同 id 会导致加载器
+报 duplicate loader entry id）：
 
 ```sh
-# 1. 安装到 profile（本地目录用 link:，也可用 git/registry 包地址）
+# 安装到 profile（本地目录用 link:，也可用 git/registry 包地址）
 dsh plugin --profile web add link:/path/to/dsh-memory-evolve
-
-# 2. 在 profile 的 patch 层注册（编辑 ~/.dsh/profiles/web/cordis.patch.yml）：
 ```
+
+如需修改默认配置（如开启回合内记忆审查），在 profile 的 patch 层做 id 覆盖
+（编辑 `~/.dsh/profiles/web/cordis.patch.yml`）：
 
 ```yaml
-- insert:
-    - id: dsh-memory-evolve
-      name: dsh-memory-evolve
-      config:
-        reviewEnabled: true      # 开启回合内记忆审查（默认关）
-        reviewInterval: 10       # 每 10 个用户回合审查一次
+- id: dsh-memory-evolve
+  config:
+    reviewEnabled: true      # 开启回合内记忆审查（默认关）
+    reviewInterval: 10       # 每 10 个用户回合审查一次
 ```
 
-重启 `dsh web` 即生效。卸载：删除 patch 中的 insert 行 + `dsh plugin --profile web remove dsh-memory-evolve`，一切效果随插件卸载自动清理。
-
-> 注意：client bundle 注册 ID 取自 `package.json` 的 `name`，patch 行的
-> `name` 必须与之完全一致（`dsh-memory-evolve`），不要加 `@dsh-local/`
-> 前缀——那是 08-06 之前旧机制的软链命名空间。
+重启 `dsh web` 即生效。卸载：`dsh plugin --profile web remove dsh-memory-evolve`，
+一切效果随插件卸载自动清理。
 
 ### 旧机制（DSH 08-06 之前，不再推荐）
 
