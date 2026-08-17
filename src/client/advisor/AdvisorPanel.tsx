@@ -38,8 +38,10 @@ type PanelTab = 'scopes' | 'live' | 'history' | 'settings'
 
 /**
  * 悬浮胶囊位置持久化键（2026-08-17 issue #11 评论反馈：位置写死不可调）。
- * 拖拽结束后把 {x, y}（viewport 坐标 = fixed 定位坐标）写入 localStorage，
- * 刷新/重启后恢复；清除键值或删除该 key 即回到默认位置（top 42% / right 0）。
+ * 2026-08-17 用户拍板：胶囊**只能吸附右边缘**、沿最右边上下移动（不允许
+ * 拖到页面中间）——因此只持久化 top（垂直位置），水平方向固定贴右
+ * （CSS right: 0），拖动时不做任何水平位移。清除键值/删除 key 即回默认
+ * 位置（top 42%）。
  */
 const CAPSULE_POS_KEY = 'dsh-memory-evolve:advisor-capsule-pos'
 
@@ -141,13 +143,13 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const preferredExpanded = useRef(true)
   const manuallyExpanded = useRef(false)
 
-  // ---- 悬浮胶囊拖拽（2026-08-17 issue #11 评论反馈） ----
-  // capsulePos：null = 未拖过（用 CSS 默认 top 42%/right 0）；否则存
-  // viewport 坐标 {x, y}，渲染为 left/top（inline style 覆盖 CSS）。
-  // capsulePosRef 同步镜像最新值：pointerup 持久化时 state 可能尚未
+  // ---- 悬浮胶囊拖拽（2026-08-17 issue #11 评论反馈；用户拍板吸附右边缘） ----
+  // capsuleTop：null = 未拖过（用 CSS 默认 top 42%）；否则存垂直位置 top
+  // （水平固定贴右边缘 right: 0，不允许拖到页面中间——用户 2026-08-17 拍板）。
+  // capsuleTopRef 同步镜像最新值：pointerup 持久化时 state 可能尚未
   // flush，读 ref 保证拿到最后一次 move 的位置。
-  const [capsulePos, setCapsulePos] = useState<{ x: number; y: number } | null>(null)
-  const capsulePosRef = useRef<{ x: number; y: number } | null>(null)
+  const [capsuleTop, setCapsuleTop] = useState<number | null>(null)
+  const capsuleTopRef = useRef<number | null>(null)
   const capsuleDragRef = useRef<CapsuleDragState | null>(null)
   /** 拖拽刚结束的标记：click 事件在 pointerup 之后触发，用它抑制"拖拽完
    *  误触展开面板"（React 的 onClick 无法直接取消，只能检查标记后跳过）。 */
@@ -155,17 +157,21 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const [capsuleDragging, setCapsuleDragging] = useState(false)
   const capsuleRef = useRef<HTMLButtonElement | null>(null)
 
-  // 初始化：从 localStorage 恢复上次拖拽位置（数据损坏/不可用则静默用默认位置）
+  // 初始化：从 localStorage 恢复上次拖拽的垂直位置（数据损坏/不可用则
+  // 静默用默认位置）。兼容首版 {x, y} 旧数据：只取 y（x 无意义，水平
+  // 固定贴右），新版只存 {top}。
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
       const raw = window.localStorage.getItem(CAPSULE_POS_KEY)
       if (raw === null) return
-      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
-      if (typeof parsed.x === 'number' && Number.isFinite(parsed.x)
-        && typeof parsed.y === 'number' && Number.isFinite(parsed.y)) {
-        capsulePosRef.current = { x: parsed.x, y: parsed.y }
-        setCapsulePos({ x: parsed.x, y: parsed.y })
+      const parsed = JSON.parse(raw) as { top?: unknown; y?: unknown }
+      const top = typeof parsed.top === 'number' && Number.isFinite(parsed.top)
+        ? parsed.top
+        : (typeof parsed.y === 'number' && Number.isFinite(parsed.y) ? parsed.y : null)
+      if (top !== null) {
+        capsuleTopRef.current = top
+        setCapsuleTop(top)
       }
     } catch {
       // localStorage 不可用或数据损坏：静默回退默认位置
@@ -196,14 +202,12 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     if (!drag.dragged && Math.hypot(dx, dy) < 4) return
     drag.dragged = true
     if (!capsuleDragging) setCapsuleDragging(true)
-    const width = event.currentTarget.offsetWidth
     const height = event.currentTarget.offsetHeight
-    // clamp 到视口内：以胶囊中心跟随指针，禁止拖出屏幕外导致拿不回来
-    const x = Math.min(Math.max(0, event.clientX - width / 2), window.innerWidth - width)
-    const y = Math.min(Math.max(0, event.clientY - height / 2), window.innerHeight - height)
-    const pos = { x, y }
-    capsulePosRef.current = pos
-    setCapsulePos(pos)
+    // 吸附右边缘：只取垂直位移（水平一律贴右，right: 0 由 CSS 保证），
+    // clamp 到视口内，禁止拖出屏幕上下缘导致拿不回来
+    const top = Math.min(Math.max(0, event.clientY - height / 2), window.innerHeight - height)
+    capsuleTopRef.current = top
+    setCapsuleTop(top)
   }
 
   // 拖拽结束：释放指针捕获；拖过 → 标记供 click 抑制 + 持久化位置
@@ -215,9 +219,9 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* 已释放则忽略 */ }
     if (drag.dragged) {
       capsuleDraggedRef.current = true
-      const pos = capsulePosRef.current
-      if (pos !== null) {
-        try { window.localStorage.setItem(CAPSULE_POS_KEY, JSON.stringify(pos)) } catch { /* 存储失败静默 */ }
+      const top = capsuleTopRef.current
+      if (top !== null) {
+        try { window.localStorage.setItem(CAPSULE_POS_KEY, JSON.stringify({ top })) } catch { /* 存储失败静默 */ }
       }
     }
   }
@@ -325,14 +329,14 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
         type="button"
         ref={capsuleRef}
         className={`advisor-capsule ${capsuleStateClass}${capsuleDragging ? ' advisor-capsule-dragging' : ''}`}
-        style={capsulePos !== null ? { left: capsulePos.x, top: capsulePos.y, right: 'auto' } : undefined}
+        style={capsuleTop !== null ? { top: capsuleTop } : undefined}
         onClick={onCapsuleClick}
         onPointerDown={onCapsulePointerDown}
         onPointerMove={onCapsulePointerMove}
         onPointerUp={finishCapsuleDrag}
         onPointerCancel={finishCapsuleDrag}
         aria-label="展开会话评审面板"
-        title="展开会话评审面板（按住可拖动位置）"
+        title="展开会话评审面板（按住可沿右边缘上下拖动）"
       >
         <span className="advisor-capsule-icon" aria-hidden="true">◉</span>
         <span className="advisor-capsule-label">Advisor</span>

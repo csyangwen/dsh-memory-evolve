@@ -85,9 +85,11 @@
   color: var(--dsw-alias-label-primary);
   box-shadow: 0 8px 24px var(--dsw-alias-border-l4);
   cursor: pointer;
-  /* 2026-08-17 issue #11 评论反馈：胶囊可拖拽（Pointer Events 改 left/top
-     并记忆到 localStorage）——grab 提示可拖、user-select 防止拖拽中选中
-     文字、touch-action 禁止触屏上拖拽时滚动页面 */
+  /* 2026-08-17 issue #11 评论反馈：胶囊可拖拽（2026-08-17 用户拍板：
+     **只能吸附右边缘、沿最右边上下移动**——Pointer Events 只改 top，
+     水平方向由 right: 0 固定贴右，不允许拖到页面中间；位置记忆到
+     localStorage）。grab 提示可拖、user-select 防止拖拽中选中文字、
+     touch-action 禁止触屏上拖拽时滚动页面 */
   cursor: grab;
   user-select: none;
   touch-action: none;

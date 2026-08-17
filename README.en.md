@@ -10,33 +10,37 @@
 
 ## Quick Start (Installation)
 
-> ⚠️ **Running `dsh plugin add` alone is NOT enough**: on DSH 08-06+ (profiles architecture) the loader only activates plugins registered via a patch-layer `insert` — with `add` only, the client loads but the host side (memory/skills/todos/settings — i.e. all real capabilities) never starts and no tabs appear in the UI. See the [detailed guide](README-详细说明.md) "标准安装" section for the full story.
-
-Using the web profile as an example, three steps:
+The plugin ships its own `cordis.patch.yml` (declared via `dsh.bundle.patch`), so after `dsh plugin add` the **host side registers automatically — no manual configuration needed**. Using the web profile as an example, two steps:
 
 ```sh
 # 1. Install into the profile (use link: for a local directory; git/registry
 #    package addresses also work)
 dsh plugin --profile web add github:csyangwen/dsh-memory-evolve
+
+# 2. Restart dsh web — done
 ```
 
-```sh
-# 2. Edit ~/.dsh/profiles/web/cordis.patch.yml and append the registration
-#    (the ID comes from the "name" field in package.json and must match
-#    exactly — no @dsh-local/ prefix):
-```
+> ⚠️ **Do NOT manually `insert` this plugin into `~/.dsh/profiles/web/cordis.patch.yml`**: the bundle patch already registers it; a duplicate insert with the same id crashes the loader with a duplicate loader entry id error. See the [detailed guide](README-详细说明.md) "标准安装" section for the full story.
+
+**Changing default config** (e.g. turning on per-turn memory review): override by id in the profile's `cordis.patch.yml` (top-level form, not an insert):
 
 ```yaml
-- insert:
-    - id: dsh-memory-evolve
-      name: dsh-memory-evolve
+- id: dsh-memory-evolve
+  config:
+    reviewEnabled: true      # enable per-turn memory review (off by default)
+    reviewInterval: 10       # review every 10 user turns
 ```
 
-```sh
-# 3. Restart dsh web — done
+**Temporarily disabling the plugin when it breaks DSH startup** (until the fix lands): add one line to the profile's `cordis.patch.yml` — no uninstall needed:
+
+```yaml
+- id: dsh-memory-evolve
+  disabled: true
 ```
 
-To uninstall: remove the `insert` line from the patch, then run `dsh plugin --profile web remove dsh-memory-evolve`. Everything is cleaned up automatically.
+**Upgrading from an older version**: if you previously inserted this plugin manually per older docs, delete that insert block from your profile patch (it now duplicates the bundle registration).
+
+To uninstall: `dsh plugin --profile web remove dsh-memory-evolve`. Everything is cleaned up automatically.
 
 ---
 
