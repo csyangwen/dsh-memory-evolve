@@ -1,0 +1,10 @@
+# dsh-memory-evolve bundle patch: inserts the host row into the profile's
+# plugin roster. The browser half rides the package's `dsh.client` manifest
+# (the client registry serves lib/client.js), and this row materializes the
+# memory / skills / todos / CLI-dispatch host plugin on boot.
+# Install with `dsh plugin --profile <name> add <path-or-git-url>`; the bundle
+# patch is applied automatically, so do NOT insert this row again in the
+# profile patch (duplicate ids crash the loader).
+- insert:
+    - id: dsh-memory-evolve
+      name: 'dsh-memory-evolve'
