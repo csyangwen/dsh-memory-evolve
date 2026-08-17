@@ -522,6 +522,7 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
       { icon: '📥', title: t('broadcast.guide.inbox.title'), body: t('broadcast.guide.inbox.body'), items: [t('broadcast.guide.inbox.item1'), t('broadcast.guide.inbox.item2'), t('broadcast.guide.inbox.item3')] },
       { icon: '👥', title: t('broadcast.guide.room.title'), body: t('broadcast.guide.room.body'), items: [t('broadcast.guide.room.item1'), t('broadcast.guide.room.item2'), t('broadcast.guide.room.item3')] },
       { icon: '🏷️', title: t('broadcast.guide.alias.title'), body: t('broadcast.guide.alias.body'), items: [t('broadcast.guide.alias.item1'), t('broadcast.guide.alias.item2')] },
+      { icon: '🛡️', title: t('broadcast.guide.wscoord.title'), body: t('broadcast.guide.wscoord.body'), items: [t('broadcast.guide.wscoord.item1'), t('broadcast.guide.wscoord.item2'), t('broadcast.guide.wscoord.item3')] },
       { icon: '⚙️', title: t('broadcast.guide.switch.title'), body: t('broadcast.guide.switch.body') },
     ]} />
   )

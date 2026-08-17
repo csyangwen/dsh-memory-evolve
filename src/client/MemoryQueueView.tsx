@@ -419,6 +419,13 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
               </span>
             </div>
             <div className="me-guide-row">
+              <span className="me-guide-icon">🔁</span>
+              <span className="me-guide-body">
+                <strong>{t('panel.guide.sync.title')}</strong>
+                <span>{t('panel.guide.sync.desc')}</span>
+              </span>
+            </div>
+            <div className="me-guide-row">
               <span className="me-guide-icon">🛡️</span>
               <span className="me-guide-body">
                 <strong>{t('panel.guide.confirm.title')}</strong>
