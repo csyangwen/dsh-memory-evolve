@@ -6,6 +6,14 @@ All version changes for this repository, in reverse chronological order.
 
 ---
 
+## 2026-08-17
+
+### Fixed
+
+- **Enabling Prompt Manager no longer breaks Code Mode turns (issue #13)**: the `de_prompts` parameter description no longer exposes double-brace syntax the host can interpret. Once the tool schema is serialized into the `tools:sdk` system-prompt section, its date/time template example was mistaken for an unregistered prompt variable, raising `unknown prompt variable "{{date}}"` and blocking every subsequent step. The description now uses single-brace wording (behavior unchanged: `{{date}}`/`{{time}}` expansion in user prompt bodies is unaffected). The same leftover was also cleaned from the `de_session` tool description (`{{model}}` example changed to plain text). A regression test now keeps model-facing tool schema text free of that syntax.
+
+---
+
 ## 2026-08-14
 
 ### Fixed
