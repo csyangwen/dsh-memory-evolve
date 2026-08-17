@@ -8,6 +8,36 @@
 
 ---
 
+## 快速开始（安装）
+
+> ⚠️ **只执行 `dsh plugin add` 不会生效**：DSH 08-06+（profiles 架构）的 loader 只加载 patch 层 insert 注册的插件——只 add 的话 client 会加载，但 host 端（记忆/技能/待办/设置等全部能力）不工作，界面上看不到任何标签。完整说明见 [详细功能说明](README-详细说明.md)「标准安装」章节。
+
+以 web profile 为例，三步装好：
+
+```sh
+# 1. 安装到 profile（本地目录用 link:，也可用 git/registry 包地址）
+dsh plugin --profile web add github:csyangwen/dsh-memory-evolve
+```
+
+```sh
+# 2. 编辑 ~/.dsh/profiles/web/cordis.patch.yml，追加注册（client bundle 注册
+#    ID 取自 package.json 的 name，必须完全一致，不要加 @dsh-local/ 前缀）：
+```
+
+```yaml
+- insert:
+    - id: dsh-memory-evolve
+      name: dsh-memory-evolve
+```
+
+```sh
+# 3. 重启 dsh web 即生效
+```
+
+卸载：删除 patch 中的 insert 行 + `dsh plugin --profile web remove dsh-memory-evolve`，一切效果随插件卸载自动清理。
+
+---
+
 ## 认识它（30 秒）
 
 装上插件后，打开任意会话，你会多出一排能力标签：**记忆 · 技能 · 待办 · 无限画板 · COI 调度 · 会话广播 · 提示词 · 记忆同步 · 模型设置 · 书签 · 会话评审 · Web UI 设置 · Memory Evolve 设置**。AI 侧则多了一批工具：记忆读写、待办、技能管理、本地文件搜索、会话编排、会话广播、外部 AI 派单、提示词注入、模型查询……

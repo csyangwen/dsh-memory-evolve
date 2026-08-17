@@ -8,6 +8,38 @@
 
 ---
 
+## Quick Start (Installation)
+
+> ⚠️ **Running `dsh plugin add` alone is NOT enough**: on DSH 08-06+ (profiles architecture) the loader only activates plugins registered via a patch-layer `insert` — with `add` only, the client loads but the host side (memory/skills/todos/settings — i.e. all real capabilities) never starts and no tabs appear in the UI. See the [detailed guide](README-详细说明.md) "标准安装" section for the full story.
+
+Using the web profile as an example, three steps:
+
+```sh
+# 1. Install into the profile (use link: for a local directory; git/registry
+#    package addresses also work)
+dsh plugin --profile web add github:csyangwen/dsh-memory-evolve
+```
+
+```sh
+# 2. Edit ~/.dsh/profiles/web/cordis.patch.yml and append the registration
+#    (the ID comes from the "name" field in package.json and must match
+#    exactly — no @dsh-local/ prefix):
+```
+
+```yaml
+- insert:
+    - id: dsh-memory-evolve
+      name: dsh-memory-evolve
+```
+
+```sh
+# 3. Restart dsh web — done
+```
+
+To uninstall: remove the `insert` line from the patch, then run `dsh plugin --profile web remove dsh-memory-evolve`. Everything is cleaned up automatically.
+
+---
+
 ## Meet It (30 Seconds)
 
 After installing the plugin, open any session and you'll get a row of capability tabs: **Memory · Skills · Todos · Infinite Canvas · COI Scheduling · Session Broadcast · Prompts · Memory Sync · Model Settings · Bookmarks · Session Review · Web UI Settings · Memory Evolve Settings**. On the AI side, you get a batch of tools: memory read/write, todos, skill management, local file search, session orchestration, session broadcast, external-AI dispatch, prompt injection, model query, and more.

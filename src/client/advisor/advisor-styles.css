@@ -85,6 +85,18 @@
   color: var(--dsw-alias-label-primary);
   box-shadow: 0 8px 24px var(--dsw-alias-border-l4);
   cursor: pointer;
+  /* 2026-08-17 issue #11 评论反馈：胶囊可拖拽（Pointer Events 改 left/top
+     并记忆到 localStorage）——grab 提示可拖、user-select 防止拖拽中选中
+     文字、touch-action 禁止触屏上拖拽时滚动页面 */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+/* 拖拽进行中：手势提示 + 高亮描边，让用户知道正在移动 */
+.advisor-capsule.advisor-capsule-dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px var(--dsw-alias-border-l4), 0 0 0 1px var(--dsw-alias-state-business-primary);
 }
 
 .advisor-capsule:hover {

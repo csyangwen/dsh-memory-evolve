@@ -5,7 +5,7 @@
  * createPortal 到 document.body，从而避开会话子树可能形成的 containing block。
  * AdvisorPanel 只负责五区 UI；数据与副作用全部由 advisor-store.ts 管理。
  */
-import { Component, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Component, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { PropsRuntime, Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -35,6 +35,22 @@ export interface AdvisorPanelProps {
 }
 
 type PanelTab = 'scopes' | 'live' | 'history' | 'settings'
+
+/**
+ * 悬浮胶囊位置持久化键（2026-08-17 issue #11 评论反馈：位置写死不可调）。
+ * 拖拽结束后把 {x, y}（viewport 坐标 = fixed 定位坐标）写入 localStorage，
+ * 刷新/重启后恢复；清除键值或删除该 key 即回到默认位置（top 42% / right 0）。
+ */
+const CAPSULE_POS_KEY = 'dsh-memory-evolve:advisor-capsule-pos'
+
+/** 单次指针会话的拖拽状态：记录起点用于区分"点击"与"拖拽"。 */
+interface CapsuleDragState {
+  pointerId: number
+  startX: number
+  startY: number
+  /** 位移是否已超过阈值（4px）：超过才算拖拽，松手时才会持久化并抑制点击 */
+  dragged: boolean
+}
 
 const STATUS_META: Record<AdvisorRuntimeStatus, { icon: string; label: string; cls: string }> = {
   disabled: { icon: '✖', label: '已停用', cls: 'advisor-status-disabled' },
@@ -124,6 +140,96 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
   const [userToggled, setUserToggled] = useState(false)
   const preferredExpanded = useRef(true)
   const manuallyExpanded = useRef(false)
+
+  // ---- 悬浮胶囊拖拽（2026-08-17 issue #11 评论反馈） ----
+  // capsulePos：null = 未拖过（用 CSS 默认 top 42%/right 0）；否则存
+  // viewport 坐标 {x, y}，渲染为 left/top（inline style 覆盖 CSS）。
+  // capsulePosRef 同步镜像最新值：pointerup 持久化时 state 可能尚未
+  // flush，读 ref 保证拿到最后一次 move 的位置。
+  const [capsulePos, setCapsulePos] = useState<{ x: number; y: number } | null>(null)
+  const capsulePosRef = useRef<{ x: number; y: number } | null>(null)
+  const capsuleDragRef = useRef<CapsuleDragState | null>(null)
+  /** 拖拽刚结束的标记：click 事件在 pointerup 之后触发，用它抑制"拖拽完
+   *  误触展开面板"（React 的 onClick 无法直接取消，只能检查标记后跳过）。 */
+  const capsuleDraggedRef = useRef(false)
+  const [capsuleDragging, setCapsuleDragging] = useState(false)
+  const capsuleRef = useRef<HTMLButtonElement | null>(null)
+
+  // 初始化：从 localStorage 恢复上次拖拽位置（数据损坏/不可用则静默用默认位置）
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(CAPSULE_POS_KEY)
+      if (raw === null) return
+      const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+      if (typeof parsed.x === 'number' && Number.isFinite(parsed.x)
+        && typeof parsed.y === 'number' && Number.isFinite(parsed.y)) {
+        capsulePosRef.current = { x: parsed.x, y: parsed.y }
+        setCapsulePos({ x: parsed.x, y: parsed.y })
+      }
+    } catch {
+      // localStorage 不可用或数据损坏：静默回退默认位置
+    }
+  }, [])
+
+  // 拖拽开始：记录起点并捕获指针（指针移出按钮后 move/up 仍派发到按钮）
+  const onCapsulePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    // 鼠标只响应左键；触屏/笔第一触点 button 恒为 0，不额外过滤
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    capsuleDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragged: false,
+    }
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* 捕获失败不阻塞 */ }
+    // 阻止拖拽中触发原生行为（文本选择/图片拖拽等）
+    event.preventDefault()
+  }
+
+  const onCapsulePointerMove = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const drag = capsuleDragRef.current
+    if (drag === null || drag.pointerId !== event.pointerId) return
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    // 位移未超过 4px 视为纯点击（可能微抖），不移动也不进入拖拽态
+    if (!drag.dragged && Math.hypot(dx, dy) < 4) return
+    drag.dragged = true
+    if (!capsuleDragging) setCapsuleDragging(true)
+    const width = event.currentTarget.offsetWidth
+    const height = event.currentTarget.offsetHeight
+    // clamp 到视口内：以胶囊中心跟随指针，禁止拖出屏幕外导致拿不回来
+    const x = Math.min(Math.max(0, event.clientX - width / 2), window.innerWidth - width)
+    const y = Math.min(Math.max(0, event.clientY - height / 2), window.innerHeight - height)
+    const pos = { x, y }
+    capsulePosRef.current = pos
+    setCapsulePos(pos)
+  }
+
+  // 拖拽结束：释放指针捕获；拖过 → 标记供 click 抑制 + 持久化位置
+  const finishCapsuleDrag = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const drag = capsuleDragRef.current
+    if (drag === null || drag.pointerId !== event.pointerId) return
+    capsuleDragRef.current = null
+    setCapsuleDragging(false)
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* 已释放则忽略 */ }
+    if (drag.dragged) {
+      capsuleDraggedRef.current = true
+      const pos = capsulePosRef.current
+      if (pos !== null) {
+        try { window.localStorage.setItem(CAPSULE_POS_KEY, JSON.stringify(pos)) } catch { /* 存储失败静默 */ }
+      }
+    }
+  }
+
+  // 点击展开面板；拖拽刚结束（pointerup 后触发的 click）直接跳过
+  const onCapsuleClick = (): void => {
+    if (capsuleDraggedRef.current) {
+      capsuleDraggedRef.current = false
+      return
+    }
+    toggle()
+  }
 
   const panelEnabled = snapshot.config?.advisorPanelEnabled
     ?? snapshot.status?.panelEnabled
@@ -217,10 +323,16 @@ export function AdvisorHost(props: AdvisorHostProps): JSX.Element {
       // 而非用「显不显示」表达。
       <button
         type="button"
-        className={`advisor-capsule ${capsuleStateClass}`}
-        onClick={toggle}
+        ref={capsuleRef}
+        className={`advisor-capsule ${capsuleStateClass}${capsuleDragging ? ' advisor-capsule-dragging' : ''}`}
+        style={capsulePos !== null ? { left: capsulePos.x, top: capsulePos.y, right: 'auto' } : undefined}
+        onClick={onCapsuleClick}
+        onPointerDown={onCapsulePointerDown}
+        onPointerMove={onCapsulePointerMove}
+        onPointerUp={finishCapsuleDrag}
+        onPointerCancel={finishCapsuleDrag}
         aria-label="展开会话评审面板"
-        title="展开会话评审面板"
+        title="展开会话评审面板（按住可拖动位置）"
       >
         <span className="advisor-capsule-icon" aria-hidden="true">◉</span>
         <span className="advisor-capsule-label">Advisor</span>
