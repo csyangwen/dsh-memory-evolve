@@ -122,6 +122,12 @@ interface RuntimeConfig {
   advisorEnabled: boolean
   /** 无限画板（独立子模块，默认关）：素材集中台 + de_canvas 双向。 */
   canvasEnabled: boolean
+  /** key 轨渐进式披露模式：auto（小数据量全量/大数据量摘要）/ off（始终全量）/ on（始终摘要）。 */
+  keyProgressiveDisclosure: 'auto' | 'off' | 'on'
+  /** auto 模式下条目数阈值：条目数 ≤ 此值时全量注入。 */
+  keyFullInjectThreshold: number
+  /** auto 模式下字符数阈值：总字符数 ≤ 此值时全量注入。 */
+  keyFullInjectCharLimit: number
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -266,6 +272,9 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       notifyEnabled: draft.notifyEnabled,
       syncEnabled: draft.syncEnabled,
       canvasEnabled: draft.canvasEnabled,
+      keyProgressiveDisclosure: draft.keyProgressiveDisclosure,
+      keyFullInjectThreshold: draft.keyFullInjectThreshold,
+      keyFullInjectCharLimit: draft.keyFullInjectCharLimit,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -683,6 +692,60 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.perTurnKeyWrites}
                     onChange={(event) => patchDraft({ perTurnKeyWrites: event.target.checked })}
+                  />
+                </label>
+              </div>
+              {/* key 轨渐进式披露配置组 */}
+              <div className="me-group">
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.keyProgressiveDisclosure')}
+                    <em className="me-field-hint">{t('panel.config.keyProgressiveDisclosure.hint')}</em>
+                  </span>
+                  <select
+                    className="me-todo-select"
+                    value={draft.keyProgressiveDisclosure ?? 'off'}
+                    onChange={(event) => patchDraft({ keyProgressiveDisclosure: event.target.value })}
+                  >
+                    <option value="auto">{t('panel.config.keyProgressiveDisclosure.auto')}</option>
+                    <option value="off">{t('panel.config.keyProgressiveDisclosure.off')}</option>
+                    <option value="on">{t('panel.config.keyProgressiveDisclosure.on')}</option>
+                  </select>
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.keyFullInjectThreshold')}
+                    <em className="me-field-hint">{t('panel.config.keyFullInjectThreshold.hint')}</em>
+                  </span>
+                  <input
+                    type="number"
+                    className="me-input"
+                    min={1}
+                    value={draft.keyFullInjectThreshold ?? 3}
+                    onChange={(event) => {
+                      // 审查修复：清空输入框 Number('')=0 会违反服务端 value<1
+                      // 校验（保存必失败）——clamp 到最小值 1。
+                      const n = Number(event.target.value)
+                      patchDraft({ keyFullInjectThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 })
+                    }}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.keyFullInjectCharLimit')}
+                    <em className="me-field-hint">{t('panel.config.keyFullInjectCharLimit.hint')}</em>
+                  </span>
+                  <input
+                    type="number"
+                    className="me-input"
+                    min={100}
+                    value={draft.keyFullInjectCharLimit ?? 1500}
+                    onChange={(event) => {
+                      // 审查修复：清空输入框 Number('')=0 违反 min:100 与服务端
+                      // 正整数校验——clamp 到最小值 100。
+                      const n = Number(event.target.value)
+                      patchDraft({ keyFullInjectCharLimit: Number.isFinite(n) && n >= 100 ? Math.floor(n) : 100 })
+                    }}
                   />
                 </label>
               </div>

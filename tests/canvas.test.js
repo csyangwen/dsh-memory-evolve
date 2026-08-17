@@ -8,7 +8,7 @@
  *
  * 测试用独立临时目录，不触碰真实记忆目录。
  */
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -27,13 +27,41 @@ import {
   readCanvas,
   resolveNodeFile,
   searchLocalFiles,
+  setOpenSpawner,
   writeCanvas,
 } from '../lib/canvas.js'
 
-/** 每个测试独立临时目录。 */
+/**
+ * 每个测试独立临时目录；测试后统一清理（不留 /tmp/canvas-test-* 垃圾）。
+ * 目录不清理曾导致 /tmp 堆积，且「真实打开」测试弹出的文件管理器窗口在
+ * /tmp 被清后报「文件夹 /tmp/xxx/sub 不存在」。
+ */
+const tempDirs = []
 function tempConfig() {
   const dir = mkdtempSync(join(tmpdir(), 'canvas-test-'))
+  tempDirs.push(dir)
   return { dir, config: { memoryDir: join(dir, 'board') } }
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+/** 记录 spawn 调用的 fake 执行器（替换真实 spawn，避免测试弹系统窗口）。 */
+let spawnCalls = []
+function installFakeSpawn() {
+  spawnCalls = []
+  setOpenSpawner((command, args, opts) => {
+    spawnCalls.push({ command, args, opts })
+    return { unref() {} }
+  })
+}
+
+/** 打开命令的期望可执行名（与 openNodePath 平台分支一致）。 */
+function openCommand() {
+  if (process.platform === 'darwin') return 'open'
+  if (process.platform === 'win32') return 'cmd'
+  return 'xdg-open'
 }
 
 const OWNER = { sessionId: 's1', projectId: 'p1', projectLabel: 'p', sessionLabel: 's' }
@@ -131,15 +159,19 @@ test('文件代理：无路径节点拒绝', () => {
   assert.match(res.error ?? '', /没有路径/)
 })
 
-test('打开：真实文件可打开（darwin 返回 ok，spawn 不阻塞）', () => {
+test('打开：真实文件可打开（fake spawn 断言打开文件自身，不真实弹窗）', () => {
   const { dir, config } = tempConfig()
   const realFile = join(dir, 'open-me.txt')
   writeFileSync(realFile, 'hello')
   const node = normalizeNode({ type: 'file', title: '打开', scope: 'session', path: realFile }, OWNER)
   writeCanvas(config, { nodes: [node] }, 0)
+  installFakeSpawn()
   const res = openNodeFile(config, node.id)
   assert.equal(res.error, undefined)
   assert.equal(res.ok, true)
+  assert.equal(spawnCalls.length, 1)
+  assert.equal(spawnCalls[0].command, openCommand())
+  assert.ok(spawnCalls[0].args.some((a) => typeof a === 'string' && a.endsWith('open-me.txt')))
 })
 
 test('打开：敏感路径拒绝', () => {
@@ -166,27 +198,38 @@ test('打开：无路径节点拒绝', () => {
   assert.match(res.error ?? '', /没有路径/)
 })
 
-test('打开所在文件夹：真实文件打开其父目录（darwin 返回 ok，spawn 不阻塞）', () => {
+test('打开所在文件夹：真实文件打开其父目录（fake spawn 断言打开 sub，不真实弹窗）', () => {
   const { dir, config } = tempConfig()
   const realFile = join(dir, 'sub', 'open-me.txt')
   mkdirSync(join(dir, 'sub'))
   writeFileSync(realFile, 'hello')
   const node = normalizeNode({ type: 'file', title: '打开', scope: 'session', path: realFile }, OWNER)
   writeCanvas(config, { nodes: [node] }, 0)
+  installFakeSpawn()
   const res = openNodeFolder(config, node.id)
   assert.equal(res.error, undefined)
   assert.equal(res.ok, true)
+  assert.equal(spawnCalls.length, 1)
+  const { command, args } = spawnCalls[0]
+  assert.equal(command, openCommand())
+  // 打开的是父目录（realpath 后的 sub），不是文件本身
+  assert.ok(args.some((a) => typeof a === 'string' && a.endsWith('sub')))
+  assert.ok(!args.some((a) => typeof a === 'string' && a.endsWith('open-me.txt')))
 })
 
-test('打开所在文件夹：节点路径是目录时打开自身（不取上级）', () => {
+test('打开所在文件夹：节点路径是目录时打开自身（fake spawn 断言打开 sub 自身，不取上级）', () => {
   const { dir, config } = tempConfig()
   const realDir = join(dir, 'sub')
   mkdirSync(realDir)
   const node = normalizeNode({ type: 'file', title: '目录', scope: 'session', path: realDir }, OWNER)
   writeCanvas(config, { nodes: [node] }, 0)
+  installFakeSpawn()
   const res = openNodeFolder(config, node.id)
   assert.equal(res.error, undefined)
   assert.equal(res.ok, true)
+  assert.equal(spawnCalls.length, 1)
+  assert.equal(spawnCalls[0].command, openCommand())
+  assert.ok(spawnCalls[0].args.some((a) => typeof a === 'string' && a.endsWith('sub')))
 })
 
 test('打开所在文件夹：敏感路径拒绝', () => {
