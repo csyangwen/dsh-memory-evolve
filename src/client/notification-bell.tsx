@@ -300,6 +300,50 @@ function previewText(item: NotificationItem): string {
   return text
 }
 
+/* ------------------------------------------------------------------ */
+/* 正文链接化（markdown 链接 + 裸 URL → 可点击 <a>）                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 正文里的链接识别正则（一次匹配两种形态，交替捕获组）：
+ *   1) markdown 链接：[标题](https://...)
+ *   2) 裸 URL：https://...
+ * URL 只接受 http(s) 且排除空白/尖括号/引号/括号字符（防 XSS 属性注入、
+ * 防吞掉相邻标点）；标题允许任意字符（除 ] 与换行）。
+ */
+const NOTIFY_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()"'\]]+)/g
+
+/**
+ * 把通知正文渲染为可点击链接：
+ * - 命中 markdown 链接 / 裸 URL 时返回 React 节点数组（<a target="_blank"
+ *   rel="noreferrer">，href 恒为 http(s)，文本经 React 转义，无 XSS）；
+ * - 未命中任何链接时原样返回字符串（仅移除 markdown 加粗符 **），
+ *   调用方可直接当 children 渲染（字符串/数组 React 都接受）。
+ * 返回类型 string | ReactNode[]：preview 与详情弹窗两处复用。
+ */
+function linkify(text: string | null | undefined): string | React.ReactNode[] {
+  const s = String(text ?? '')
+  NOTIFY_LINK_RE.lastIndex = 0 // 全局正则跨调用复用，必须重置游标
+  const parts: (string | { u: string; l: string })[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = NOTIFY_LINK_RE.exec(s)) !== null) {
+    if (m.index > last) parts.push(s.slice(last, m.index))
+    if (m[1] !== undefined) parts.push({ u: m[2], l: m[1] }) // markdown 链接：u=URL l=标题
+    else parts.push({ u: m[3], l: m[3] }) // 裸 URL：u 与 l 都是 URL 本身
+    last = NOTIFY_LINK_RE.lastIndex
+  }
+  if (last < s.length) parts.push(s.slice(last))
+  if (parts.length === 0) return s.replace(/\*\*/g, '')
+  return parts.map((p, k) =>
+    p && typeof p === 'object' ? (
+      <a key={k} href={p.u} target="_blank" rel="noreferrer">{p.l}</a>
+    ) : (
+      String(p).replace(/\*\*/g, '')
+    )
+  )
+}
+
 /** 时间显示：当天 HH:mm，跨天 MM-DD HH:mm。 */
 function fmtTime(ts: number): string {
   const d = new Date(ts)
@@ -643,10 +687,10 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
                   >
                     {displaySubject(item)}
                   </button>
-                  {/* 内容：已去重主题、折叠空行；长文截断 + 「查看详情」。 */}
+                  {/* 内容：已去重主题、折叠空行；长文截断 + 「查看详情」。正文链接化（linkify）。 */}
                   {preview ? (
                     <div className={`me-notify-content${item.isLong ? ' me-notify-content-clamped' : ''}`}>
-                      {preview}
+                      {linkify(preview)}
                     </div>
                   ) : null}
                   {item.attachments.length > 0 && <AttachmentList item={item} />}
@@ -706,7 +750,7 @@ function Bell({ openSession, t }: NotificationBellOpts): JSX.Element {
                   )}
                 </div>
               ) : (
-                <pre className="me-notify-modal-content">{collapseBlank(modal.content)}</pre>
+                <pre className="me-notify-modal-content">{linkify(collapseBlank(modal.content))}</pre>
               )}
               {modal.item.attachments.length > 0 && <AttachmentList item={modal.item} />}
               <div className="me-notify-detail-actions">
