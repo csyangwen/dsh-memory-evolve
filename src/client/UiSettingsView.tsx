@@ -120,10 +120,11 @@ export function UiSettingsTabView(props: ConvViewProps & UiSettingsTabViewProps)
     </section>
   )
 
-  /** 「指南」子 tab：模块简介（精简版，不细讲每个小功能怎么用）。 */
+  /** 「指南」子 tab：模块简介 + 功能介绍（让用户知道每个小开关是干什么的）。 */
   const renderGuide = (): JSX.Element => (
     <TabGuideView sections={[
       { icon: '🎨', title: t('uiSettingsTab.guide.what.title'), body: t('uiSettingsTab.guide.what.body') },
+      { icon: '🧩', title: t('uiSettingsTab.guide.features.title'), body: t('uiSettingsTab.guide.features.body'), items: [t('uiSettingsTab.guide.features.item1'), t('uiSettingsTab.guide.features.item2'), t('uiSettingsTab.guide.features.item3'), t('uiSettingsTab.guide.features.item4'), t('uiSettingsTab.guide.features.item5')] },
       { icon: '🪄', title: t('uiSettingsTab.guide.switch.title'), body: t('uiSettingsTab.guide.switch.body') },
     ]} />
   )

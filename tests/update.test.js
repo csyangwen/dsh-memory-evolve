@@ -319,6 +319,30 @@ test('信任校验：tag 不在 origin/main 历史 → untrusted', async () => {
   assert.equal(outcome.code, 'untrusted')
 })
 
+test('信任校验：本地对象缺失（浅克隆/裁剪）时明确提示，不误报 untrusted', async () => {
+  const { consumer } = setupRepo()
+  // 注入：仅 cat-file 命令模拟失败（对象缺失），其余走真实 git。
+  const checker = createUpdateChecker({
+    repoDir: consumer,
+    now: advancingClock(),
+    run: async (cmd, args, opts) => {
+      if (cmd === 'git' && args[0] === 'cat-file') {
+        const err = new Error('missing object')
+        err.status = 128
+        err.stderr = 'fatal: git cat-file: could not get object info'
+        throw err
+      }
+      return realRun(cmd, args, opts)
+    },
+  })
+  const outcome = await checker.update('v1.1.0')
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.code, 'error')
+  // 关键：必须是"对象缺失"提示（含修复指引），而不是 untrusted 误报。
+  assert.match(outcome.error, /缺少发布提交|缺少 origin\/main 提交对象/)
+  assert.doesNotMatch(outcome.error, /不在 origin\/main 的历史上/)
+})
+
 test('checkout 失败：不乐观写状态，返回 error', async () => {
   const { consumer } = setupRepo()
   // 注入：仅 checkout 命令模拟失败（抛非零退出）。
