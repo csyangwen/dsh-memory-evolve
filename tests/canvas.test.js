@@ -31,6 +31,10 @@ import {
   writeCanvas,
 } from '../lib/canvas.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /**
  * 每个测试独立临时目录；测试后统一清理（不留 /tmp/canvas-test-* 垃圾）。
  * 目录不清理曾导致 /tmp 堆积，且「真实打开」测试弹出的文件管理器窗口在

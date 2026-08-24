@@ -2,6 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AdvisorRuntime, extractAdviceNote, ADVISOR_NOTE_MAX_CHARS } from '../lib/advisor/runtime.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 静默 logger（测试不刷屏）。 */
 const silent = { debug() {}, warn() {} }
 

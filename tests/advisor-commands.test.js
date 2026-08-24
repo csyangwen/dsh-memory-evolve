@@ -6,6 +6,10 @@ import { join } from 'node:path'
 import { installAdvisor } from '../lib/advisor/index.js'
 import { validateRuntimePatch } from '../lib/index.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 最小 cordis ctx（commands 注册捕获）。 */
 function makeCtx() {
   const listeners = {}
