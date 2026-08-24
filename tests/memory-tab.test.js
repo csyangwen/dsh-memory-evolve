@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MemoryStore } from '../lib/store.js'
 import { buildMemoryFiles } from '../lib/memory-tab.js'
+import { setLocale, getLocale } from '../lib/i18n.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-tab-test-'))
@@ -47,6 +48,38 @@ test('buildMemoryFiles lists all nine tracks with content', () => {
     assert.equal(byKey['archive-key'].available, true)
     assert.equal(byKey['archive-key'].exists, false)
   } finally {
+    process.env.DSH_HOME = prevHome
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('buildMemoryFiles localizes row titles with the active locale', () => {
+  const { dir, config, store } = setup()
+  const prevHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dir
+  const prevLocale = getLocale()
+  try {
+    // English (default): titles must not be the legacy Chinese strings.
+    setLocale('en')
+    let files = buildMemoryFiles(config, store, '/work/p')
+    assert.equal(files.length, 9)
+    const enByTitle = Object.fromEntries(files.map((f) => [f.title, f]))
+    assert.deepEqual(
+      Object.keys(enByTitle).sort(),
+      ['AGENTS.md', 'Archived key facts KEY-archive.md', 'Archived long-term memory MEMORY-archive.md',
+        'Archived user profile USER-archive.md', 'Daily log', 'Key project facts KEY.md',
+        'Long-term memory MEMORY.md', 'Project log', 'User profile USER.md'].sort(),
+    )
+    // Chinese: legacy contract titles stay byte-identical.
+    setLocale('zh')
+    files = buildMemoryFiles(config, store, '/work/p')
+    const zhByTitle = Object.fromEntries(files.map((f) => [f.title, f]))
+    assert.equal(zhByTitle['项目日志'] !== undefined, true)
+    assert.equal(zhByTitle['今日日志'] !== undefined, true)
+    assert.equal(zhByTitle['长期记忆 MEMORY.md'] !== undefined, true)
+    assert.equal(zhByTitle['全局规则 AGENTS.md'] !== undefined, true)
+  } finally {
+    setLocale(prevLocale)
     process.env.DSH_HOME = prevHome
     rmSync(dir, { recursive: true, force: true })
   }
