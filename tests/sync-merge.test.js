@@ -13,6 +13,10 @@ import { mergeEntries } from '../lib/sync/merge.js'
 import { isCanonical, parseEntries, serializeEntries } from '../lib/store.js'
 import { extractEntryId, ensureEntryIds } from '../lib/sync/entryid.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 快速构造一条带 ID 的条目（ID 补齐为 8 位 hex——身份证格式硬约束）。 */
 const E = (id, text) => `[id:${String(id).padEnd(8, '0')}] [2026-08-11] ${text}`
 const KEY = 'KEY.md'

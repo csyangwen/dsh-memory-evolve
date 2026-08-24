@@ -475,8 +475,8 @@ const DICT = {
 
 type DictKey = keyof (typeof DICT)['zh']
 
-/** 当前语言（默认中文；无切换 UI）。 */
-const LANG: keyof typeof DICT = 'zh'
+/** 当前语言：浏览器为英文时用 en，否则 zh（与 PromptView 同规则）。 */
+const LANG: keyof typeof DICT = (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')) ? 'en' : 'zh'
 
 /** 字典查询：当前语言 → en 兜底 → key 本身。 */
 function t(key: DictKey): string {

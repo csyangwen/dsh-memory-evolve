@@ -27,6 +27,10 @@ import { TemplateStore } from '../lib/coi/templates.js'
 import { CoiScheduler } from '../lib/coi/scheduler.js'
 import { resolveAttachments } from '../lib/coi/attachments.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
 const schedulers = []
 after(() => {

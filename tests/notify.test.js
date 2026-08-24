@@ -30,6 +30,10 @@ import {
 import { buildNotify, buildChannelContent } from '../lib/coi/index.js'
 import { resolveConfig, validateRuntimePatch, RUNTIME_KEYS } from '../lib/index.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 const REGISTRY_KEY = '__dshChannelNotify'
 
 // 每个用例前后清理注册表，防止测试间相互污染

@@ -15,6 +15,10 @@ import {
   searchDocsCommand, searchDocsToolDefinition, searchFileContents,
 } from '../lib/search-docs.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 快速构造一个已解析的插件配置。 */
 function baseConfig(overrides = {}) {
   return {

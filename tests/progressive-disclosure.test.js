@@ -11,6 +11,10 @@ import { approveSuggestions } from '../lib/review.js'
 import { SuggestionQueue } from '../lib/store.js'
 import { TodoStore } from '../lib/todo.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** Whether `git` is available in this environment (skip git tests otherwise). */
 function gitAvailable() {
   try {
@@ -62,7 +66,9 @@ function fakeCtx(overrides = {}) {
       return { dispose: disposer ?? (() => {}) }
     },
     effect: (fn) => { const disposer = fn(); return disposer ?? (() => {}) },
-    get: (key) => services[key],
+    // apply() re-resolves the locale at boot; without a settings service it
+    // would fall back to 'en'. This suite pins Chinese output.
+    get: (key) => services[key] ?? (key === 'settings' ? { get: (ns) => (ns === 'locale' ? { preference: 'zh' } : undefined) } : undefined),
     logger: { warn: () => {}, info: () => {}, error: () => {} },
     ...overrides,
   }

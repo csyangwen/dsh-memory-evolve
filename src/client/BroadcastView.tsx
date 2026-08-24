@@ -69,7 +69,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 function errText(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
-  return text !== undefined && text.trim() !== '' ? text : '操作失败（无错误详情）'
+  return text !== undefined && text.trim() !== '' ? text : (isEn() ? 'Operation failed (no error detail)' : '操作失败（无错误详情）')
 }
 
 function fmtTime(ts: number): string {
@@ -197,6 +197,9 @@ function WsCoordSettings({ t }: { t: Translate }): JSX.Element {
     </div>
   )
 }
+
+/** English browser → English inline text. */
+const isEn = (): boolean => typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')
 
 export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Element {
   const { t, sessionId } = props
@@ -385,7 +388,7 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
     try {
       const res = await fetchJson<{ ok: boolean; message?: string }>(`/rooms/${encodeURIComponent(room.id)}/dissolve`, { method: 'POST' })
       if (res.ok !== true) {
-        setNotice({ kind: 'error', text: res.message ?? '操作失败' })
+        setNotice({ kind: 'error', text: res.message ?? (isEn() ? 'Operation failed' : '操作失败') })
         return
       }
       setNotice({ kind: 'ok', text: t('broadcast.room.dissolved') })
@@ -404,14 +407,14 @@ export function BroadcastView(props: ConvViewProps & { t: Translate }): JSX.Elem
 
   /** 消息卡片（消息列表与房间消息共用）。 */
   const renderMsgCard = (m: Msg, expandId: string, setExpandId: (id: string | null) => void): JSX.Element => {
-    const from = m.sender === 'system' ? '系统' : displayName(m.sender, aliases)
+    const from = m.sender === 'system' ? (isEn() ? 'System' : '系统') : displayName(m.sender, aliases)
     const to = m.recipients.map((r) => recipientLabel(r, roomMap, aliases)).join(', ')
     const unread = m.readBy.length === 0 // 超管视角：无人读过 = 未读
     const isOpen = expandId === m.id
     return (
       <div key={m.id} className="bb-card">
         <div className="bb-row">
-          <span className="bb-strong">{m.subject || '（无主题）'}</span>
+          <span className="bb-strong">{m.subject || (isEn() ? '(no subject)' : '（无主题）')}</span>
           <span className={`bb-badge${unread ? ' bb-badge-unread' : ' bb-badge-read'}`}>
             {unread ? t('broadcast.msg.unread') : t('broadcast.msg.read')}
           </span>

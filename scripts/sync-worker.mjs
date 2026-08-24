@@ -18,6 +18,10 @@
  */
 
 import { runStatus, runSync } from '../lib/sync/worker.js'
+import { setLocale, resolveLocale } from '../lib/i18n.js'
+
+// Inherit the spawning host's language (spawnWorker passes DSH_LOCALE).
+setLocale(resolveLocale(undefined))
 import { decideModeBBranch, ensureGlobalRepo } from '../lib/sync/repo.js'
 
 const [, , sub, dir, arg3, ...rest] = process.argv

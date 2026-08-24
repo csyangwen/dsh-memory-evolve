@@ -1,13 +1,18 @@
 import { test } from 'node:test'
+import { setLocale } from '../lib/i18n.js'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { todayStamp,
+
   ArchiveStore, MemoryStore, SuggestionQueue, isCanonical, parseEntries,
   parseEntryBranches, parseEntryDshOnly, projectHash, serializeEntries, splitEntryHead,
 } from '../lib/store.js'
+
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+setLocale('zh')
 
 /** Whether `git` is available in this environment (skip git tests otherwise). */
 function gitAvailable() {

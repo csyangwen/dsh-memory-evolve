@@ -36,7 +36,9 @@ function fakeCtx() {
       return { dispose: disposer ?? (() => {}) }
     },
     effect: (fn) => { const disposer = fn(); return disposer ?? (() => {}) },
-    get: (key) => services[key],
+    // This suite pins Chinese snapshot output: expose a zh locale preference
+    // so apply()'s boot-time resolveLocale() resolves to 'zh'.
+    get: (key) => services[key] ?? (key === 'settings' ? { get: (ns) => (ns === 'locale' ? { preference: 'zh' } : undefined) } : undefined),
     logger: { warn: () => {}, info: () => {}, error: () => {} },
   }
   return ctx

@@ -9,6 +9,10 @@ import { ArchiveStore, MemoryStore, SuggestionQueue, projectHash, todayStamp } f
 import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived } from '../lib/review.js'
 import { installApi } from '../lib/api.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-todo-test-'))
 }
@@ -240,6 +244,24 @@ test('dtodo tool: add targets project with cwd, work without; list/done/update/r
 
     const badAction = await tool.execute({ action: 'explode' }, exec('/proj/x'))
     assert.equal(badAction.ok, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('dtodo tool exposes every parameter as a JSON Schema object', () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const properties = todoToolDefinition({ todoToolName: 'dtodo' }, store).parameters.properties
+    const expected = ['action', 'target', 'content', 'important', 'urgent', 'quadrant', 'due', 'cat', 'status', 'id', 'date', 'all', 'past', 'expired', 'cwd']
+
+    assert.deepEqual(Object.keys(properties), expected)
+    for (const key of expected) {
+      assert.equal(typeof properties[key], 'object', `${key} must be a JSON Schema object`)
+      assert.equal(typeof properties[key].type, 'string', `${key} must declare a JSON Schema type`)
+      assert.equal(typeof properties[key].description, 'string', `${key} must describe the parameter`)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

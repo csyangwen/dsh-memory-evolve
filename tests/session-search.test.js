@@ -20,6 +20,10 @@ import {
 import { discoverCodexFiles, parseCodexFile } from '../lib/search/codex.js'
 import { runSessionSearch, sessionSearchToolDefinition, installSessionSearch } from '../lib/search/index.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 清理所有临时目录。 */
 const temps = []
 after(() => {

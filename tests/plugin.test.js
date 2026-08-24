@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
+
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+setLocale('zh')
 import { MemoryStore, projectHash } from '../lib/store.js'
 
 /** Whether `git` is available in this environment (skip git tests otherwise). */
@@ -57,6 +61,9 @@ function fakeCtx(overrides = {}) {
     webServer: { register: (route) => { state.routes.push(route); return () => {} } },
     ...(overrides.services ?? {}),
   }
+  // Locale settings service: this suite pins Chinese output, so apply()'s
+  // boot-time resolveLocale() must see preference 'zh' explicitly.
+  const settingsService = { get: (ns) => (ns === 'locale' ? { preference: 'zh' } : undefined) }
   const ctx = {
     state,
     tools: services.tools,
@@ -78,7 +85,7 @@ function fakeCtx(overrides = {}) {
       const disposer = fn()
       return disposer ?? (() => {})
     },
-    get: (key) => services[key],
+    get: (key) => services[key] ?? (key === 'settings' ? settingsService : undefined),
     logger: { warn: () => {}, info: () => {}, error: () => {} },
     ...overrides,
   }

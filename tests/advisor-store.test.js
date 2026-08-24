@@ -7,6 +7,10 @@ import { appendFile } from 'node:fs/promises'
 import { InstructionQueue, INSTRUCTION_MAX_CHARS, PENDING_MAX } from '../lib/advisor/instructions.js'
 import { ReviewStore, RING_CAPACITY, RECORDS_MAX_LIMIT } from '../lib/advisor/store.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir(tag) {
   return mkdtempSync(join(tmpdir(), `dsh-advisor-${tag}-`))
 }

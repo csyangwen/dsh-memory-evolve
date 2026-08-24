@@ -16,6 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { installApi } from '../lib/api.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-sync-api-'))
 }
