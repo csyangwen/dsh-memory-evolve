@@ -195,7 +195,7 @@ function writeDock(dock: BellDock): void {
 /* ------------------------------------------------------------------ */
 
 /** 邮件字段行：📮 主题：xxx / 📝 简介：xxx / 📄 内容（值可空，正文在后续行）。 */
-const MAIL_FIELD_RE = /^(📮|📝|👤|🕐|📄)\s*(主题|简介|发送人|时间|内容)\s*[：:]?\s*(.*)$/
+const MAIL_FIELD_RE = /^(📮|📝|👤|🕐|📄)\s*(主题|简介|发送人|时间|内容|Subject|Intro|Sender|Time|Content)\s*[：:]?\s*(.*)$/
 /** 纯装饰分隔线（━ / ─ / — / - / = 重复），展示时丢掉。 */
 const SEP_RE = /^[━─—\-_=]{4,}\s*$/
 
@@ -209,7 +209,7 @@ function collapseBlank(text: string): string {
 
 /** 去掉「📮 主题：」这类字段前缀，避免主题栏再显示一遍「主题」。 */
 function stripSubjectPrefix(s: string): string {
-  return String(s ?? '').replace(/^[📮📝👤🕐📄]\s*(主题|简介|发送人|时间|内容)\s*[：:]\s*/, '').trim()
+  return String(s ?? '').replace(/^[📮📝👤🕐📄]\s*(主题|简介|发送人|时间|内容|Subject|Intro|Sender|Time|Content)\s*[：:]\s*/, '').trim()
 }
 
 /**
@@ -244,11 +244,11 @@ function parseNotifyContent(raw: string): MailFields {
       result.mail = true
       const key = m[2]
       const val = (m[3] ?? '').trim()
-      if (key === '主题') result.subject = val
-      else if (key === '简介') result.intro = val
-      else if (key === '发送人') result.sender = val
-      else if (key === '时间') result.time = val
-      else if (key === '内容') {
+      if (key === '主题' || key === 'Subject') result.subject = val
+      else if (key === '简介' || key === 'Intro') result.intro = val
+      else if (key === '发送人' || key === 'Sender') result.sender = val
+      else if (key === '时间' || key === 'Time') result.time = val
+      else if (key === '内容' || key === 'Content') {
         inBody = true
         if (val) bodyLines.push(val)
       }
