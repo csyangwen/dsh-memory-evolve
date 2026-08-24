@@ -900,3 +900,50 @@ test('de_prompts tool: promptsEnabled 开关注册/注销，list/get/inject 与�
   assert.ok(!ctx2.state.tools.some((t) => t.name === 'de_prompts'))
   clean(dir2)
 })
+
+test('systemPrompt context duplicate registration is tolerated (issue #23 idempotent guard)', async () => {
+  // 模拟宿主重复装配（DSH 0.1.x loader 曾把插件在无 scope 标签的 ctx 上
+  // apply 两次）：systemPrompt.context 第二次插入同名时抛 exactly
+  // dsh-system-prompt 的 global 层 duplicate 错误。修复前 apply 会整体抛错，
+  // 连带快照注入失效 + /memory-evolve/api/* 404。
+  const duplicateMessage = 'prompt context "memory:snapshot" is already registered (for a per-agent override, register through that agent\'s `agent.ctx` instead)'
+
+  // 场景 1：memory:snapshot 重复 → apply 不抛错，其余装配照常
+  const dir = tempDir()
+  const ctx = fakeCtx({
+    services: {
+      systemPrompt: {
+        context: () => { throw new Error(duplicateMessage) },
+      },
+    },
+  })
+  apply(ctx, { memoryDir: dir })
+  assert.ok(ctx.state.tools.some((t) => t.name === 'memory'), 'memory tool still registered after duplicate guard')
+  assert.ok(ctx.state.tools.some((t) => t.name === 'skill_manage'), 'skill tool still registered after duplicate guard')
+  clean(dir)
+
+  // 场景 2：prompt:injections 重复（prompts 模块开启时同款保护）
+  const dir2 = tempDir()
+  const ctx2 = fakeCtx({
+    services: {
+      systemPrompt: {
+        context: () => { throw new Error('prompt context "prompt:injections" is already registered in this scope') },
+      },
+    },
+  })
+  apply(ctx2, { memoryDir: dir2, promptsEnabled: true })
+  assert.ok(ctx2.state.tools.some((t) => t.name === 'de_prompts'), 'prompts tool still registered after duplicate guard')
+  clean(dir2)
+
+  // 场景 3：非 duplicate 的系统性错误必须照抛（保护只吞 "already registered"）
+  const dir3 = tempDir()
+  const ctx3 = fakeCtx({
+    services: {
+      systemPrompt: {
+        context: () => { throw new Error('systemPrompt exploded for another reason') },
+      },
+    },
+  })
+  assert.throws(() => apply(ctx3, { memoryDir: dir3 }), /systemPrompt exploded for another reason/)
+  clean(dir3)
+})
