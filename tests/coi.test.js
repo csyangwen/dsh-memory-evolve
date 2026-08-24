@@ -20,6 +20,10 @@ import { validateCoiRuntimePatch } from '../lib/coi/index.js'
 import { buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 所有测试创建的调度器：统一 dispose，避免 flush 定时器挂住事件循环。 */
 const schedulers = []
 after(() => {

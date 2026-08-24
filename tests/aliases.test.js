@@ -11,6 +11,10 @@ import { AliasStore, readAliases } from '../lib/aliases.js'
 import { resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-alias-test-'))
 }
