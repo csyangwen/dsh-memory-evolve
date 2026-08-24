@@ -2,4 +2,5 @@
 *.log
 docs-local/
 node_modules/
+.worktrees/
 lib.bak-0812/
