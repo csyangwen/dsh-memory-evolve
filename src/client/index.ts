@@ -53,6 +53,7 @@ import mobileCss from './mobile.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
 import { createNotificationBell } from './notification-bell.tsx'
 import notificationStyles from './notification-styles.css'
+import { createTodoTabLifecycle, RUNTIME_CONFIG_CHANGED } from './todo-tab-lifecycle.js'
 
 /** Locale namespace owned by this plugin. */
 const NS = 'memory-evolve'
@@ -517,6 +518,8 @@ export const zh = {
   'panel.guide.bookmark.desc': '给每轮打星标记，列表一键跳回，并支持从任意轮创建官方分支（含接管官方中间轮分支按钮）。独立开关，默认关。',
   'panel.config.bookmarkEnabled': '会话书签',
   'panel.config.bookmarkEnabled.hint': '启用会话书签：每个已完成轮尾出现 ☆ 星标按钮 + 「书签」Tab 列表与跳转；支持从任意轮创建官方分支（列表「分支」按钮，或直接点官方分支按钮——中间轮会被接管并弹确认）。数据存在 <memoryDir>/session-bookmarks.json（按会话隔离，按轮 seq 定位）。**独立子模块**（默认关闭，纯 UI + 宿主 API，不注册 AI 工具）；关闭时星标与 Tab 隐藏，数据文件保留。',
+  'panel.config.todoEnabled': '待办功能',
+  'panel.config.todoEnabled.hint': '启用 dtodo 工具、待办 Tab 和到期提醒。关闭后立即隐藏 Tab、停止待办写入；现有待办数据和同步轨保持不变。',
   // 以下键保留兼容（旧 memory tab 合并布局的遗留，新 UI 不再引用）：
   'memoryTab.feature.config': '配置',
   'memoryTab.feature.todoSuggestions': '待确认待办建议',
@@ -1321,6 +1324,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'panel.guide.bookmark.desc': 'Star any turn and jump back from the list; fork official branch sessions from any turn (including taking over official mid-turn branch buttons). Independent switch, off by default.',
   'panel.config.bookmarkEnabled': 'Session bookmarks',
   'panel.config.bookmarkEnabled.hint': 'Enable session bookmarks: a ☆ star on each completed turn tail + a Bookmarks tab for the list and jump; fork official branch sessions from any turn (list "Fork" button, or click the official branch button — mid-turn buttons are taken over with a confirm dialog). Data lives in <memoryDir>/session-bookmarks.json (per-session, keyed by turn seq). **Independent submodule** (off by default; pure UI + host API, no AI tools); when off, stars and the tab hide, the data file is kept.',
+  'panel.config.todoEnabled': 'Todos',
+  'panel.config.todoEnabled.hint': 'Enable the dtodo tool, Todos tab, and due reminders. When off, the tab hides immediately and todo writes stop; existing data and the sync track stay intact.',
   // Legacy keys kept for compatibility (old merged memory-tab layout).
   'memoryTab.feature.config': 'Config',
   'memoryTab.feature.todoSuggestions': 'Todo suggestions',
@@ -1903,7 +1908,6 @@ export function apply(ctx: Context): void {
   let todosBadgeCount = 0
   let disposeMemoryTab: (() => void) | undefined
   let disposeSkillsTab: (() => void) | undefined
-  let disposeTodosTab: (() => void) | undefined
 
   const registerMemoryTab = (): void => {
     disposeMemoryTab?.()
@@ -1925,16 +1929,19 @@ export function apply(ctx: Context): void {
         label: () => (skillsBadgeCount > 0 ? t('skillsTab.label.pending', { count: skillsBadgeCount }) : t('skillsTab.label')),
       }, (props) => SkillsTabView({ ...props, t })))
   }
-  const registerTodosTab = (): void => {
-    disposeTodosTab?.()
-    disposeTodosTab = ctx.slots.inject('conversation.view', () =>
+  const todoTabLifecycle = createTodoTabLifecycle(() => ctx.slots.inject('conversation.view', () =>
       ctx.slots.register({
         name: 'conversation.view',
         id: 'todos-hub',
         order: 30,
         label: () => (todosBadgeCount > 0 ? t('todosTab.label.pending', { count: todosBadgeCount }) : t('todosTab.label')),
-      }, (props) => TodosTabView({ ...props, t })))
+      }, (props) => TodosTabView({ ...props, t }))))
+  const onRuntimeConfigChanged = (event: Event): void => {
+    const detail = (event as CustomEvent<{ todoEnabled?: boolean }>).detail
+    todoTabLifecycle.setEnabled(detail?.todoEnabled !== false)
   }
+  window.addEventListener(RUNTIME_CONFIG_CHANGED, onRuntimeConfigChanged)
+  ctx.effect(() => () => window.removeEventListener(RUNTIME_CONFIG_CHANGED, onRuntimeConfigChanged), 'memory-evolve: todo tab runtime listener')
   // 设置 Tab（Memory Evolve 设置，order 120 放最后）：整体指南 + 配置 + 版本。
   // 红点：检测到新发布版本时 label 变 🔴 变体（updateBadgeCount 驱动，重注册
   // 生效；无红点时注册一次即可，badge 变化才重注册）。
@@ -2003,7 +2010,7 @@ export function apply(ctx: Context): void {
         }
         if (todoSuggestions !== todosBadgeCount) {
           todosBadgeCount = todoSuggestions
-          registerTodosTab()
+          todoTabLifecycle.refresh()
         }
       })
       .catch(() => { /* badge is best-effort; the tab still works */ })
@@ -2011,7 +2018,7 @@ export function apply(ctx: Context): void {
 
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-    .then((data: { config?: { memoryTabEnabled?: boolean; modelsEnabled?: boolean } }) => {
+    .then((data: { config?: { memoryTabEnabled?: boolean; modelsEnabled?: boolean; syncEnabled?: boolean; todoEnabled?: boolean } }) => {
       // 模型设置 tab：跟随 modelsEnabled 运行时开关（默认开，与其他模块
       // 同款独立开关，在「设置」Tab 的「配置」里切换；开启后刷新页面出现）。
       if (!tabCancelled && data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
@@ -2029,7 +2036,7 @@ export function apply(ctx: Context): void {
       // 四个核心 tab 一起注册：记忆 / 技能 / 待办 / 设置（顺序 10/20/30/120）。
       registerMemoryTab()
       registerSkillsTab()
-      registerTodosTab()
+      todoTabLifecycle.setEnabled(data.config?.todoEnabled !== false)
       registerSettingsTab()
       pollBadge()
       const timer = setInterval(pollBadge, BADGE_POLL_MS)
@@ -2060,7 +2067,7 @@ export function apply(ctx: Context): void {
     tabCancelled = true
     disposeMemoryTab?.()
     disposeSkillsTab?.()
-    disposeTodosTab?.()
+    todoTabLifecycle.dispose()
     disposeSettingsTab?.()
   }, 'memory-evolve: memory tabs')
 

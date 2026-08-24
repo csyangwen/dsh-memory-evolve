@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+import { RUNTIME_CONFIG_CHANGED } from './todo-tab-lifecycle.js'
 
 /** Which feature sub-tab is active. */
 export type MemoryFeature = 'guide' | 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
@@ -114,6 +115,8 @@ interface RuntimeConfig {
   uiSettingsEnabled: boolean
   /** 会话书签（独立子模块，默认关）。 */
   bookmarkEnabled: boolean
+  /** 待办能力（默认开；关闭时工具、Tab 和提示词一并退出）。 */
+  todoEnabled: boolean
   /** 渠道通知（de_notify，独立子模块，默认关）：AI 完成任务后经 IM 渠道主动发通知。 */
   notifyEnabled: boolean
   /** 项目记忆跨设备同步（/memory_sync，独立子模块，默认关）：Git 对账。 */
@@ -269,6 +272,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       modelsEnabled: draft.modelsEnabled,
       uiSettingsEnabled: draft.uiSettingsEnabled,
       bookmarkEnabled: draft.bookmarkEnabled,
+      todoEnabled: draft.todoEnabled,
       notifyEnabled: draft.notifyEnabled,
       syncEnabled: draft.syncEnabled,
       canvasEnabled: draft.canvasEnabled,
@@ -282,6 +286,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     }).then((res) => {
       setConfig(res.config)
       setDraft(res.config)
+      window.dispatchEvent(new CustomEvent(RUNTIME_CONFIG_CHANGED, { detail: res.config }))
       setNotice({ kind: 'ok', text: t('panel.config.saved') })
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
@@ -923,6 +928,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.bookmarkEnabled}
                     onChange={(event) => patchDraft({ bookmarkEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.todoEnabled')}
+                    <em className="me-field-hint">{t('panel.config.todoEnabled.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.todoEnabled}
+                    onChange={(event) => patchDraft({ todoEnabled: event.target.checked })}
                   />
                 </label>
               </div>
