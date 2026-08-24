@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { TodoStore, TODO_HEADER, TODO_TARGETS, stampTodoLine, todoToolDefinition } from '../lib/todo.js'
 import { ArchiveStore, MemoryStore, SuggestionQueue, projectHash, todayStamp } from '../lib/store.js'
-import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived } from '../lib/review.js'
+import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived, suggestToolDefinition } from '../lib/review.js'
 import { installApi } from '../lib/api.js'
 
 // This suite pins the legacy Chinese output contract; i18n.test.js covers English.
@@ -570,7 +570,7 @@ test('todo suggestions: archive keeps origin track, promote writes it back', () 
 })
 
 /** Boot the real API handler with a todo store over a real HTTP server. */
-async function bootTodoApi() {
+async function bootTodoApi(runtime = {}) {
   const dir = tempDir()
   const todoStore = new TodoStore(dir)
   const archive = new ArchiveStore(dir)
@@ -586,7 +586,7 @@ async function bootTodoApi() {
   installApi(ctx, {
     store: { add: () => ({ ok: true, message: 'ok' }) },
     archive, queue, todoStore,
-    getRuntime: () => ({}),
+    getRuntime: () => runtime,
     updateRuntime: (patch) => patch,
     config: { memoryDir: dir, skillDir: join(dir, 'skills') },
     resolveCwd: (sessionId) => (sessionId === 's1' ? '/proj/api' : undefined),
@@ -644,4 +644,130 @@ test('todo API: list/add/done/update/remove over HTTP', async () => {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })
   }
+})
+
+test('todoEnabled: default is enabled and accepts only booleans', async () => {
+  const { DEFAULTS, RUNTIME_KEYS, resolveConfig, validateRuntimePatch } = await import('../lib/index.js')
+  assert.equal(DEFAULTS?.todoEnabled, true)
+  assert.ok(RUNTIME_KEYS?.includes('todoEnabled'))
+  assert.throws(() => resolveConfig({ todoEnabled: 'false' }), /todoEnabled 必须是布尔值/)
+  assert.doesNotThrow(() => validateRuntimePatch?.('todoEnabled', false))
+  assert.throws(() => validateRuntimePatch?.('todoEnabled', 'false'), /todoEnabled 必须是布尔值/)
+})
+
+test('dtodo: a stale tool refuses to write after todoEnabled switches off', async () => {
+  const dir = tempDir()
+  try {
+    const store = new TodoStore(dir)
+    const tool = todoToolDefinition({ todoToolName: 'dtodo' }, store, () => false)
+    const result = await tool.execute({ action: 'add', target: 'work', content: '不得写入' }, {})
+    assert.deepEqual(result, { ok: false, code: 'TODO_DISABLED', message: '待办功能未启用' })
+    assert.equal(store.itemsOf('work').length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('dtodo: output schema permits the disabled error code', () => {
+  const dir = tempDir()
+  try {
+    const tool = todoToolDefinition({ todoToolName: 'dtodo' }, new TodoStore(dir))
+    assert.equal(tool.output.schema.properties.code.type, 'string')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo controller: toggling registers, disposes, then restores dtodo', async () => {
+  const dir = tempDir()
+  try {
+    const { createTodoController } = await import('../lib/todo.js')
+    assert.equal(typeof createTodoController, 'function')
+    const registered = []
+    let disposals = 0
+    let runtime = {}
+    const ctx = {
+      tools: {
+        register(definition) {
+          registered.push(definition.name)
+          return () => { disposals += 1 }
+        },
+      },
+    }
+    const ctrl = createTodoController(ctx, { todoToolName: 'dtodo' }, () => runtime, new TodoStore(dir))
+    assert.deepEqual(registered, ['dtodo'])
+    runtime = { todoEnabled: false }
+    ctrl.sync()
+    ctrl.sync()
+    assert.equal(disposals, 1)
+    runtime = { todoEnabled: true }
+    ctrl.sync()
+    assert.deepEqual(registered, ['dtodo', 'dtodo'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo disabled: API rejects reads and writes without changing stored todos', async () => {
+  const api = await bootTodoApi({ todoEnabled: false })
+  try {
+    api.todoStore.addTodo('work', '既有待办', {}, undefined)
+    const before = readFileSync(join(api.dir, 'TODOS-work.md'), 'utf8')
+    const read = await api.request('GET', '/memory-evolve/api/todo')
+    const write = await api.request('POST', '/memory-evolve/api/todo', { action: 'add', target: 'work', content: '不得写入' })
+    const promote = await api.request('POST', '/memory-evolve/api/archive/promote', { target: 'todo-archive', match: '不得转正' })
+    assert.equal(read.status, 503)
+    assert.equal(write.status, 503)
+    assert.equal(promote.status, 503)
+    assert.equal(read.data.code, 'TODO_DISABLED')
+    assert.equal(write.data.code, 'TODO_DISABLED')
+    assert.equal(promote.data.code, 'TODO_DISABLED')
+    assert.equal(readFileSync(join(api.dir, 'TODOS-work.md'), 'utf8'), before)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('todo disabled: approval keeps todo suggestions while approving memory suggestions', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    const todoStore = new TodoStore(dir)
+    const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+    enqueueSuggestion(queue, 'memory', '可写入的记忆', 'r')
+    enqueueSuggestion(queue, 'todo-work', '不得写入的待办', 'r')
+    const report = approveSuggestions(store, todoStore, queue, [1, 2], undefined, undefined, undefined, { isTodoEnabled: () => false })
+    assert.equal(store.entriesOf('memory').length, 1)
+    assert.equal(todoStore.itemsOf('work').length, 0)
+    assert.equal(report.remaining, 1)
+    assert.match(report.lines[1], /TODO_DISABLED/)
+    assert.equal(queue.read()[0].target, 'todo-work')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo disabled: memory_suggest refuses new todo suggestions', async () => {
+  const dir = tempDir()
+  try {
+    const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
+    const tool = suggestToolDefinition({ suggestToolName: 'memory_suggest' }, queue, () => false)
+    const result = await tool.execute({ target: 'todo-work', content: '不得入队', reason: 'r' }, {})
+    assert.deepEqual(result, { ok: false, code: 'TODO_DISABLED', message: '待办功能未启用' })
+    assert.equal(queue.read().length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('todo disabled: snapshot omits dtodo guidance', async () => {
+  const { renderSnapshot } = await import('../lib/index.js')
+  const store = { entriesOf: () => [] }
+  const disabled = renderSnapshot({ todoEnabled: false }, store, undefined, undefined)
+  const enabled = renderSnapshot({ todoEnabled: true }, store, undefined, undefined)
+  assert.ok(!disabled.includes('dtodo'))
+  assert.ok(enabled.includes('dtodo'))
+  assert.ok(enabled.includes('\n- 待办（dtodo）：'))
+  assert.ok(!enabled.includes('\n\n待办（dtodo）：'))
 })
