@@ -12,6 +12,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SessionOrch, SessionOrchStore, sessionToolDefinition, installSession } from '../lib/session-orch.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** 独立临时目录（每个测试隔离）。 */
 function tempDir() {
   return join(tmpdir(), `dsh-session-orch-test-${process.pid}-${Math.random().toString(36).slice(2, 10)}`)

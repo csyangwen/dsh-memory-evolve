@@ -132,7 +132,9 @@ function statusLabel(t: Translate, status: string): string {
 /** 'YYYY-MM-DD' → '8月5日'（过往分组标题）。 */
 function dayLabel(day: string): string {
   const [, month, date] = day.split('-')
-  return `${Number(month)}月${Number(date)}日`
+  return typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')
+      ? `${Number(month)}/${Number(date)}`
+      : `${Number(month)}月${Number(date)}日`
 }
 
 /**

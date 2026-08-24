@@ -20,6 +20,10 @@ import { ensureMemoryRepo, deviceBConnect } from '../lib/sync/repo.js'
 import { resolveProjectId } from '../lib/sync/identity.js'
 import { runSync, resolveConflict, countConflicts } from '../lib/sync/worker.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function gitAvailable() {
   try {
     return spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0

@@ -9,6 +9,10 @@ import { ArchiveStore, MemoryStore, SuggestionQueue, projectHash, todayStamp } f
 import { approveSuggestions, archiveSuggestions, enqueueSuggestion, promoteArchived } from '../lib/review.js'
 import { installApi } from '../lib/api.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-todo-test-'))
 }

@@ -26,10 +26,10 @@ export interface MemoryQueueViewProps {
 /** 待办建议 target 的展示名（todo-life → 待办·生活）。 */
 function todoTargetLabel(t: Translate, target: string): string {
   const track = target.slice(5)
-  if (track === 'life') return `待办·${t('todo.track.life')}`
-  if (track === 'work') return `待办·${t('todo.track.work')}`
-  if (track === 'project') return `待办·${t('todo.track.project')}`
-  if (track === 'daily') return `待办·${t('todo.track.daily')}`
+  if (track === 'life') return `${isEn() ? 'Todo' : '待办'}·${t('todo.track.life')}`
+  if (track === 'work') return `${isEn() ? 'Todo' : '待办'}·${t('todo.track.work')}`
+  if (track === 'project') return `${isEn() ? 'Todo' : '待办'}·${t('todo.track.project')}`
+  if (track === 'daily') return `${isEn() ? 'Todo' : '待办'}·${t('todo.track.daily')}`
   return target
 }
 
@@ -145,8 +145,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Summarize an approve/reject report into one line. */
 function summarizeReport(report: { lines?: string[]; removed?: number; remaining: number }): string {
-  const head = report.lines?.join('；') ?? `已处理 ${report.removed ?? 0} 条`
-  return `${head}（剩余 ${report.remaining} 条）`
+  const head = report.lines?.join(isEn() ? '; ' : '；') ?? (isEn() ? `${report.removed ?? 0} handled` : `已处理 ${report.removed ?? 0} 条`)
+  return isEn() ? `${head} (${report.remaining} remaining)` : `${head}（剩余 ${report.remaining} 条）`
 }
 
 /** Display-side formatting of the ISO timestamp; falls back to the raw string. */
@@ -157,6 +157,9 @@ function formatTime(iso: string): string {
 }
 
 /** The three feature panels (suggestions / skills / config). */
+/** English browser → English inline text. */
+const isEn = (): boolean => typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')
+
 export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
   const { t, feature, onChanged } = props
   const [entries, setEntries] = useState<SuggestionRow[] | null>(null)

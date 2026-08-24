@@ -9,6 +9,10 @@ import { installApi } from '../lib/api.js'
 import { validateRuntimePatch } from '../lib/index.js'
 import { TodoStore } from '../lib/todo.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-api-test-'))
 }

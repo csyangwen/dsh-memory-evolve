@@ -13,6 +13,10 @@ import { join } from 'node:path'
 import { installAdvisor } from '../lib/advisor/index.js'
 import { validateRuntimePatch } from '../lib/index.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 let seq = 0
 const nextSeq = () => seq++
 

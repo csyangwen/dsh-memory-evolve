@@ -97,7 +97,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** 截断长文本（冲突三方片段展示用）。 */
 function clamp(text: string | null, max = 60): string {
-  if (text === null) return '（无）'
+  if (text === null) {
+    return typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en') ? '(none)' : '（无）'
+  }
   const flat = text.replace(/\s+/g, ' ')
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }

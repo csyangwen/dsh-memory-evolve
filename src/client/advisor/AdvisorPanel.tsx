@@ -54,25 +54,31 @@ interface CapsuleDragState {
   dragged: boolean
 }
 
+/** English browser → English panel labels; anything else keeps Chinese. */
+const isEn = (): boolean => typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')
+
 const STATUS_META: Record<AdvisorRuntimeStatus, { icon: string; label: string; cls: string }> = {
-  disabled: { icon: '✖', label: '已停用', cls: 'advisor-status-disabled' },
-  idle: { icon: '●', label: '空闲', cls: 'advisor-status-idle' },
-  reviewing: { icon: '◐', label: '评审中', cls: 'advisor-status-reviewing' },
-  quota_exhausted: { icon: '⏸', label: '已暂停', cls: 'advisor-status-paused' },
-  halted: { icon: '⚠', label: '已终止', cls: 'advisor-status-halted' },
+  get disabled() { return { icon: '✖', label: isEn() ? 'Disabled' : '已停用', cls: 'advisor-status-disabled' } },
+  get idle() { return { icon: '●', label: isEn() ? 'Idle' : '空闲', cls: 'advisor-status-idle' } },
+  get reviewing() { return { icon: '◐', label: isEn() ? 'Reviewing' : '评审中', cls: 'advisor-status-reviewing' } },
+  get quota_exhausted() { return { icon: '⏸', label: isEn() ? 'Paused' : '已暂停', cls: 'advisor-status-paused' } },
+  get halted() { return { icon: '⚠', label: isEn() ? 'Halted' : '已终止', cls: 'advisor-status-halted' } },
 }
 
 const SEVERITY_META: Record<AdvisorNoteSeverity, { label: string; cls: string }> = {
   // Q1：info 最低等级（默认仅记录不注入，面板照常展示）
-  info: { label: 'info · 记录', cls: 'advisor-severity-info' },
-  nit: { label: 'nit · 建议', cls: 'advisor-severity-nit' },
-  concern: { label: 'concern · 关注', cls: 'advisor-severity-concern' },
-  blocker: { label: 'blocker · 阻断', cls: 'advisor-severity-blocker' },
+  info: { get label() { return isEn() ? 'info · note' : 'info · 记录' }, cls: 'advisor-severity-info' },
+  nit: { get label() { return isEn() ? 'nit · suggestion' : 'nit · 建议' }, cls: 'advisor-severity-nit' },
+  concern: { get label() { return isEn() ? 'concern · watch' : 'concern · 关注' }, cls: 'advisor-severity-concern' },
+  blocker: { get label() { return isEn() ? 'blocker · blocking' : 'blocker · 阻断' }, cls: 'advisor-severity-blocker' },
   // Q4：问答回复（用户提问的直接回答，非评审建议）
-  answer: { label: '回答', cls: 'advisor-severity-answer' },
+  answer: { get label() { return isEn() ? 'answer' : '回答' }, cls: 'advisor-severity-answer' },
 }
 
-const OUTCOME_LABEL = {
+function outcomeLabel(outcome: keyof typeof OUTCOME_ZH): string {
+  return isEn() ? OUTCOME_EN[outcome] : OUTCOME_ZH[outcome]
+}
+const OUTCOME_ZH = {
   delivered: '已送达',
   // Q1：info 级默认仅记录（事件照发、面板可见，会话流不受打扰）
   recorded: '已记录',
@@ -83,6 +89,16 @@ const OUTCOME_LABEL = {
   dropped: '已丢弃',
   failed: '评审失败',
   cancelled: '已取消',
+} as const
+const OUTCOME_EN = {
+  delivered: 'Delivered',
+  recorded: 'Recorded',
+  answered: 'Answered',
+  suppressed: 'Suppressed',
+  'no-note': 'No note',
+  dropped: 'Dropped',
+  failed: 'Review failed',
+  cancelled: 'Cancelled',
 } as const
 
 function pad2(value: number): string {
@@ -827,7 +843,7 @@ function ReviewCard(props: {
         {terminal !== null && <span>{formatElapsed(terminal.elapsedMs)}</span>}
         {terminal?.delivery === 'steer' && <span className="advisor-delivery">已送达 ✓</span>}
         {terminal?.delivery === 'inject' && <span className="advisor-delivery">已注入 ✓</span>}
-        {terminal !== null && terminal.delivery === null && <span>{OUTCOME_LABEL[terminal.outcome]}</span>}
+        {terminal !== null && terminal.delivery === null && <span>{outcomeLabel(terminal.outcome)}</span>}
       </div>
 
       {identity !== null && <div className="advisor-record-owner" title={identity}>{identity}</div>}
@@ -877,7 +893,7 @@ function ReviewCard(props: {
           {note.text}
         </div>
       ) : (
-        <div className="advisor-outcome-empty">{OUTCOME_LABEL[terminal.outcome]}</div>
+        <div className="advisor-outcome-empty">{outcomeLabel(terminal.outcome)}</div>
       )}
 
       {terminal?.error !== null && terminal?.error !== undefined && (
