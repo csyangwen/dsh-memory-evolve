@@ -9,6 +9,10 @@ import {
 } from '../lib/advisor/observer.js'
 import { ADVISOR_SOURCE_KIND } from '../lib/advisor/kinds.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 // ---------------------------------------------------------------------------
 // 事件与消息构造
 // ---------------------------------------------------------------------------

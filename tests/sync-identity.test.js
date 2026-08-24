@@ -22,6 +22,10 @@ import {
 } from '../lib/sync/identity.js'
 import { projectHash, projectLabel } from '../lib/store.js'
 
+// This suite pins the legacy Chinese output contract; i18n.test.js covers English.
+import { setLocale } from '../lib/i18n.js'
+setLocale('zh')
+
 /** Whether `git` is available in this environment (skip git tests otherwise). */
 function gitAvailable() {
   try {
