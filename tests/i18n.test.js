@@ -78,11 +78,11 @@ test('resolveLocale: en only when DSH Language preference is explicitly en; lega
   })
   setLocale('en') // reset singleton to the plugin default
   assert.deepEqual(LOCALES, ['zh', 'en'])
-  assert.equal(resolveLocale(undefined), 'en', 'no settings service → default en')
-  assert.equal(resolveLocale(makeCtx(undefined)), 'en', 'settings without a locale section → en')
-  assert.equal(resolveLocale(makeCtx({ preference: 'auto' })), 'en', 'auto → en')
+  assert.equal(resolveLocale(undefined), 'zh', 'no settings service → default zh')
+  assert.equal(resolveLocale(makeCtx(undefined)), 'zh', 'settings without a locale section → zh')
+  assert.equal(resolveLocale(makeCtx({ preference: 'auto' })), 'zh', 'auto → zh')
   assert.equal(resolveLocale(makeCtx({ preference: 'zh' })), 'zh', 'explicit zh → zh')
-  assert.equal(resolveLocale(makeCtx({ preference: 'en' })), 'en')
+  assert.equal(resolveLocale(makeCtx({ preference: 'en' })), 'en', 'explicit en → en')
 })
 
 test('setLocale/getLocale round-trip and ignore invalid ids', () => {
