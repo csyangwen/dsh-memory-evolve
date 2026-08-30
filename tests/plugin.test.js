@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
 import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
 
@@ -220,6 +220,19 @@ test('apply registers memory tool and snapshot context by default', () => {
   assert.ok(!ctx.state.tools.some((t) => t.name === 'memory_suggest'), 'suggest tool off by default')
   assert.ok(ctx.state.commands.some((c) => c.name === 'memory_review'), 'review command registered')
   clean(dir)
+})
+
+test('headless host activation does not require the web-only workspaceRegistry service', () => {
+  assert.equal(inject.includes('workspaceRegistry'), false)
+  const dir = tempDir()
+  try {
+    const ctx = fakeCtx()
+    apply(ctx, { memoryDir: dir })
+    assert.ok(ctx.state.tools.some((tool) => tool.name === 'memory'))
+    assert.ok(ctx.state.contexts.some((context) => context.name === 'memory:snapshot'))
+  } finally {
+    clean(dir)
+  }
 })
 
 test('search docs tool: 默认禁用不注册；配置/运行时 state 开启后注册；命令始终注册', () => {

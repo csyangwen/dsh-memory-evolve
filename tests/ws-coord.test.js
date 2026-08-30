@@ -521,13 +521,18 @@ test('buildWsCoordBlock：observed 锁 30s 过期/重登记不改变文本（not
 function makeWsCtx(agentsMap) {
   const listeners = {}
   const registered = []
+  const workspaceRegistry = { archivedSessionIds: [] }
   const ctx = {
     listeners,
-    get: (name) => (name === 'agents' ? { get: (sid) => agentsMap.get(sid) ?? null } : undefined),
+    get: (name) => {
+      if (name === 'agents') return { get: (sid) => agentsMap.get(sid) ?? null }
+      if (name === 'workspaceRegistry') return workspaceRegistry
+      return undefined
+    },
     on: (event, fn) => { (listeners[event] ??= []).push(fn); return () => {} },
     effect: (fn) => { const out = fn(); return typeof out === 'function' ? out : () => {} },
     tools: { register: () => () => {} },
-    workspaceRegistry: { archivedSessionIds: [] },
+    workspaceRegistry,
   }
   return ctx
 }

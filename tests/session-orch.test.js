@@ -168,6 +168,54 @@ test('SessionOrchStore: spawn 记录落盘/查找/列表', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('SessionOrch resolves an optional workspace service lazily', () => {
+  const dir = tempDir()
+  const ctx = makeCtx(makeFakeAgents())
+  const workspace = ctx.workspaceRegistry
+  let published
+  ctx.get = (name) => (name === 'workspaceRegistry' ? published : undefined)
+  const orch = new SessionOrch(ctx, {
+    store: new SessionOrchStore(dir),
+    getBroadcastStore: () => undefined,
+  })
+
+  assert.equal(orch.workspace, undefined, 'headless starts without workspaceRegistry')
+  published = workspace
+  assert.equal(orch.workspace, workspace, 'a later web-host service is observed on demand')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('attachWorkspace keeps one optional-service generation per attempt', async () => {
+  const dir = tempDir()
+  const ctx = makeCtx(makeFakeAgents())
+  let published
+  let created = 0
+  let attached = null
+  const firstGeneration = {
+    resolveByPath: async () => {
+      published = undefined
+      return undefined
+    },
+    create: async () => {
+      created += 1
+      return { id: 'ws-stable', title: 'stable', attachSession: async (sid) => { attached = sid } }
+    },
+  }
+  published = firstGeneration
+  ctx.get = (name) => (name === 'workspaceRegistry' ? published : undefined)
+  const orch = new SessionOrch(ctx, {
+    store: new SessionOrchStore(dir),
+    getBroadcastStore: () => undefined,
+    attachDelays: [0],
+  })
+
+  const result = await orch.attachWorkspace('session-child', dir)
+  assert.equal(result.ok, true)
+  assert.equal(created, 1, 'create must use the same provider captured before resolveByPath')
+  assert.equal(attached, 'session-child')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('de_session schema: Code Mode 安全——模型可见文本不含 {{ 模板语法', () => {
   const dir = tempDir()
   const ctx = makeCtx(makeFakeAgents())
