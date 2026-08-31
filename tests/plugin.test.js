@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { apply, gitBranch, gitBranchList, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath, RUNTIME_KEYS, validateRuntimePatch } from '../lib/index.js'
 import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
 
@@ -649,6 +649,123 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(!sub.includes('memory_review_status'))
   assert.ok(sub.includes('独立成果'))
   clean(dir)
+})
+
+test('renderSnapshot write watchdog: warns past the threshold, static text, switches respected', () => {
+  const dir = tempDir()
+  const config = resolveConfig({ memoryDir: dir })
+  const store = new MemoryStore(config.memoryDir, config)
+  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
+  const gap = (n) => ({ gapOf: () => n, noteWrite: () => {} })
+  // below threshold (default 2): the fixed duty text stays, no warning
+  const fresh = renderSnapshot(config, store, agent, undefined, null, gap(1))
+  assert.ok(!fresh.includes('记忆写入遗漏提醒'))
+  assert.ok(fresh.includes('每轮收尾'), 'fixed duty hint stays')
+  // at/above threshold: sticky warning appended after the turn-end block
+  const due1 = renderSnapshot(config, store, agent, undefined, null, gap(2))
+  assert.ok(due1.includes('⚠️ **记忆写入遗漏提醒**'))
+  assert.ok(due1.includes('补写'))
+  assert.ok(due1.includes('每轮一条'))
+  // static text per config (no live count baked in) — cache-friendly: the
+  // warning reads identical at gap 2 and gap 9, so an open gap costs at most
+  // two snapshot tails (appear + disappear)
+  const due9 = renderSnapshot(config, store, agent, undefined, null, gap(9))
+  const sliceFrom = (text) => text.slice(text.indexOf('⚠️ **记忆写入遗漏提醒**'))
+  assert.equal(sliceFrom(due1), sliceFrom(due9))
+  // guard off → silent regardless of the gap
+  const off = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnWriteGuard: false }), store, agent, undefined, null, gap(9))
+  assert.ok(!off.includes('记忆写入遗漏提醒'))
+  // custom threshold respected on both sides
+  const cfg5 = resolveConfig({ memoryDir: dir, writeGuardThreshold: 5 })
+  assert.ok(!renderSnapshot(cfg5, store, agent, undefined, null, gap(4)).includes('记忆写入遗漏提醒'))
+  assert.ok(renderSnapshot(cfg5, store, agent, undefined, null, gap(5)).includes('记忆写入遗漏提醒'))
+  // write duty fully off (both tracks) → nothing to be overdue about
+  const noDuty = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent, undefined, null, gap(9))
+  assert.ok(!noDuty.includes('记忆写入遗漏提醒'))
+  // subagent sessions never get the watchdog warning
+  const sub = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } }, undefined, null, gap(9))
+  assert.ok(!sub.includes('记忆写入遗漏提醒'))
+  // legacy callers without a counter → never warns, never throws
+  const legacy = renderSnapshot(config, store, agent)
+  assert.ok(!legacy.includes('记忆写入遗漏提醒'))
+  // config plumbing: runtime keys + validation (convention shared with the
+  // perTurn* switches)
+  assert.ok(RUNTIME_KEYS.includes('perTurnWriteGuard'))
+  assert.ok(RUNTIME_KEYS.includes('writeGuardThreshold'))
+  validateRuntimePatch('perTurnWriteGuard', true)
+  validateRuntimePatch('perTurnWriteGuard', false)
+  assert.throws(() => validateRuntimePatch('perTurnWriteGuard', 'yes'), /布尔/)
+  validateRuntimePatch('writeGuardThreshold', 1)
+  assert.throws(() => validateRuntimePatch('writeGuardThreshold', 0), /writeGuardThreshold/)
+  assert.throws(() => validateRuntimePatch('writeGuardThreshold', 2.5), /writeGuardThreshold/)
+  clean(dir)
+})
+
+test('write watchdog counter: counts turns, resets on daily/project writes, honors switches', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir })
+  // review counter + write watchdog both listen on agent/turn-stopping; fire
+  // all listeners like a real dispatch would (the review one early-returns,
+  // reviewEnabled is off here)
+  const listeners = ctx.state.listeners['agent/turn-stopping'] ?? []
+  assert.ok(listeners.length >= 2, 'review counter + write watchdog both registered')
+  const fire = (payload) => { for (const listener of listeners) listener(payload) }
+  const agent = (id, origin) => ({
+    id,
+    session: {
+      header: { origin, cwd: '/proj/x' },
+      events: [{ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } }],
+    },
+  })
+  const contextDef = ctx.state.contexts.find((c) => c.name === 'memory:snapshot')
+  assert.ok(contextDef, 'memory snapshot context registered')
+  const renderFor = (a) => contextDef.text({ agent: a })
+  const main = agent('w1')
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'fresh session: no warning')
+  fire({ agent: main, turn: 1 })
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'gap 1 < threshold 2: no warning yet')
+  fire({ agent: main, turn: 2 })
+  assert.ok(renderFor(main).includes('⚠️ **记忆写入遗漏提醒**'), 'gap 2 >= threshold: warning appears')
+  // a successful daily/project write through the memory tool resets the gap
+  const memory = ctx.state.tools.find((t) => t.name === 'memory')
+  assert.ok(memory, 'memory tool registered')
+  const exec = { agent: main, callId: 'c1', signal: new AbortController().signal }
+  const wrote = await memory.execute({
+    action: 'add',
+    entries: [
+      { target: 'daily', content: '补写遗漏轮次的进展' },
+      { target: 'project', content: '补写项目侧进展' },
+    ],
+  }, exec)
+  assert.equal(wrote.ok, true)
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'warning clears right after the batched write')
+  // key-track writes (confirmation queue) must NOT reset the gap
+  fire({ agent: main, turn: 3 })
+  fire({ agent: main, turn: 4 })
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'))
+  const keyWrite = await memory.execute({ action: 'add', target: 'key', content: '某长期约定' }, exec)
+  assert.equal(keyWrite.ok, true)
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'), 'key suggestion does not clear the warning')
+  // subagent turns are never counted
+  const sub = agent('w2', 'subagent')
+  fire({ agent: sub, turn: 1 })
+  fire({ agent: sub, turn: 2 })
+  assert.ok(!renderFor(sub).includes('记忆写入遗漏提醒'), 'subagent sessions never warn')
+  clean(dir)
+  // guard disabled via config: the counter stops counting entirely
+  const dir2 = tempDir()
+  const ctx2 = fakeCtx()
+  apply(ctx2, { memoryDir: dir2, perTurnWriteGuard: false })
+  const listeners2 = ctx2.state.listeners['agent/turn-stopping'] ?? []
+  const fire2 = (payload) => { for (const listener of listeners2) listener(payload) }
+  const contextDef2 = ctx2.state.contexts.find((c) => c.name === 'memory:snapshot')
+  const other = agent('w3')
+  fire2({ agent: other, turn: 1 })
+  fire2({ agent: other, turn: 2 })
+  fire2({ agent: other, turn: 3 })
+  assert.ok(!contextDef2.text({ agent: other }).includes('记忆写入遗漏提醒'), 'guard off: never warns')
+  clean(dir2)
 })
 
 test('gitBranch resolves the current branch; gitBranchList lists branches', () => {
