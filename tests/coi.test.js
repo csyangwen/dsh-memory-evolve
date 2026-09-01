@@ -1441,6 +1441,69 @@ test('installBroadcast: 新广播消息 → 向接收方投递独立消息（收
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('installBroadcast: send wake=true 唤醒 idle 接收方（running 仍 inject、离线跳过）', async () => {
+  const dir = tempDir()
+  const { ctx } = fakeCtx()
+  const { installBroadcast } = await import('../lib/coi/index.js')
+  // 假 agents 服务：sB=idle、sC=running、sD 离线（get 返回 null）
+  const bFollowups = []
+  const bInjects = []
+  const cFollowups = []
+  const cInjects = []
+  ctx.get = (name) => (name === 'agents'
+    ? {
+        get: (sid) => (sid === 'sB'
+          ? { status: 'idle', followup: (m) => bFollowups.push(m), inject: (m) => bInjects.push(m) }
+          : sid === 'sC'
+            ? { status: 'running', followup: (m) => cFollowups.push(m), inject: (m) => cInjects.push(m) }
+            : null),
+      }
+    : undefined)
+  const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
+  // wake=true：sB（idle）→ followup 唤醒（消息带唤醒标记）；sC（running）→
+  // inject 同回合可见不打断；sD（离线）→ 跳过但消息留在收件箱
+  const sent = installed.store.send({ sender: 'sA', recipients: ['sB', 'sC', 'sD'], content: '急事：立即处理', subject: '唤醒测试', wake: true })
+  assert.equal(sent.ok, true)
+  assert.equal(sent.woken, 1, '只有 idle 的 sB 被唤醒')
+  assert.equal(bFollowups.length, 1, 'sB 收到 followup（唤醒开新回合）')
+  assert.ok(bFollowups[0].content[0].text.includes('发送方唤醒了你'), '唤醒消息带标记')
+  assert.equal(bInjects.length, 0, 'sB 不走 inject')
+  assert.equal(cFollowups.length, 0, 'running 的 sC 不 followup（不打断进行中的回合）')
+  assert.equal(cInjects.length, 1, 'sC 走 inject（同回合可见）')
+  assert.equal(installed.store.unreadCount('sD'), 1, '离线 sD 消息仍在收件箱')
+  // wake 缺省 false：全部 inject，不唤醒（原有行为不变）
+  const sent2 = installed.store.send({ sender: 'sA', recipients: ['sB'], content: '普通消息', subject: '不唤醒' })
+  assert.equal(sent2.ok, true)
+  assert.equal(sent2.woken, 0)
+  assert.equal(bFollowups.length, 1, '没有新 followup')
+  assert.equal(bInjects.length, 1, 'sB 走 inject')
+  installed.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('de_broadcast 工具 send：wake 参数穿透投递链，回执含唤醒计数', async () => {
+  const dir = tempDir()
+  const { ctx, registered } = fakeCtx()
+  const { installBroadcast } = await import('../lib/coi/index.js')
+  const bFollowups = []
+  ctx.get = (name) => (name === 'agents'
+    ? { get: (sid) => (sid === 'sB' ? { status: 'idle', followup: (m) => bFollowups.push(m), inject: () => {} } : null) }
+    : undefined)
+  const installed = installBroadcast(ctx, { memoryDir: dir, broadcastDataDir: join(dir, 'bcast') })
+  const tool = registered.tools.find((t) => t.name === 'de_broadcast')
+  assert.ok(tool, 'de_broadcast 已注册')
+  assert.ok(tool.parameters.properties.wake, '工具 schema 含 wake 参数')
+  const result = await tool.execute(
+    { action: 'send', recipients: ['sB'], content: '工具层唤醒测试', subject: '工具唤醒', wake: true },
+    { agent: { session: { id: 'sA' } } },
+  )
+  assert.equal(result.ok, true)
+  assert.ok(result.message.includes('已唤醒 1'), '回执含唤醒计数')
+  assert.equal(bFollowups.length, 1, 'sB 被 followup 唤醒')
+  installed.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('installBroadcast: 会话首次出现补投未读汇总（重启前的未读不丢）', async () => {
   const dir = tempDir()
   const { ctx } = fakeCtx()
