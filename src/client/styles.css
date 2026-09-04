@@ -511,6 +511,31 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* ── 长文本防溢出（issue #31，2026-09-04）────────────────────────
+ * 移动端（~400px 视口）「Memory Evolve 设置」页会被拉长溢出：配置项
+ * 说明（me-field-hint）、版本号（me-field-value，无空格长串如
+ * dsh-v0.1.2-rc.1）等在 flex 行内不换行、撑破父容器，最后一项把整个
+ * 页面顶出视口。给文本面加「任意位置断词 + 词内换行」，任何视口都
+ * 安全（桌面文本长度不变，窄屏自动换行为多行）；控件限宽 100%，
+ * 避免固定宽度 input/select 在窄屏溢出（原规则只依赖 data-dsh-mobile
+ * 通道，未装 dsh-android-edapp 的移动端浏览器不生效——此规则通用）。 */
+.me-field-label,
+.me-field-hint,
+.me-field-sub,
+.me-field-value,
+.me-heading,
+.me-help {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.me-input,
+.me-select,
+.me-todo-select,
+.me-todo-date {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 /* 次级开关行（子功能开关，如 ws-coord 的快照/硬拦截）：缩进 + 弱化，
    视觉上与主开关（模块总开关）区分 */
 .me-field-sub {

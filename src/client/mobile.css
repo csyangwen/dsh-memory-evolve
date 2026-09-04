@@ -113,12 +113,17 @@ html[data-dsh-mobile] .me-actions {
 /* 配置表单行（me-field：label + 控件横排）：手机上允许折行；
    数字/下拉控件（me-input/me-select，桌面固定 120px）改占满整行，
    变成「label 一行 + 控件一行」的纵向排布，窄屏下可读性和触区都更好。
-   （me-switch 开关行不受影响，开关不需要全宽。） */
+   （me-switch 开关行不受影响，开关不需要全宽。）
+   ⚠️ 补漏（issue #31，2026-09-04）：keyProgressiveDisclosure 下拉等控件
+   用的是 .me-todo-select（todo 面板 select 同款式），原规则只覆盖
+   .me-input/.me-select——「设置」页最后一个配置组在窄屏上就是这个
+   固定宽控件撑破视口，一并放宽到整行。 */
 html[data-dsh-mobile] .me-field {
   flex-wrap: wrap;
 }
 html[data-dsh-mobile] .me-field > .me-input,
-html[data-dsh-mobile] .me-field > .me-select {
+html[data-dsh-mobile] .me-field > .me-select,
+html[data-dsh-mobile] .me-field > .me-todo-select {
   width: 100%;
 }
 
