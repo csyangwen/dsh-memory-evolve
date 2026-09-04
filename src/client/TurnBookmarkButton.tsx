@@ -9,8 +9,11 @@
  *
  * 按钮刻意克制（小图标、半透明），不干扰官方 Copy / Branch IconActions。
  *
- * seq/turn/summary 由注入器从 DOM 解析（seq=消息节点事件 seq；turn 从 DOM
- * 拿不到传 null；summary=该轮最近 user 消息预览）。
+ * 锚点（issue #39 起）：DOM 不再携带消息 seq（DSH 0.1.1-rc.2 官方重构
+ * data-chat-anchor-key 为 `${kind.length}:${kind}${id}`），因此：
+ *   - anchorKey = 锚点原文（主键；POST 给宿主端，由它按事件日志反查 seq）；
+ *   - seq 仅老格式（node:{seq}）有值（旧 DSH 兼容路径）；
+ *   - turn 从 assistant-step 锚点 id（`turn:step`）解析，供默认标签名/展示。
  *
  * sessionId 支持「字符串」或「提供者函数」两种形态：注入器传函数（会话
  * 切换后组件不重渲染也能拿到最新会话 id），书签 Tab 传字符串。
@@ -22,14 +25,17 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 interface BookmarkRow {
   id: string
   seq: number
+  anchorKey: string | null
   label: string
 }
 
-/** 组件 props：seq（轮尾锚点）+ 展示字段 + 会话 id（字符串或提供者）。 */
+/** 组件 props：anchorKey（新式主锚点）+ 展示字段 + 会话 id（字符串或提供者）。 */
 export interface TurnBookmarkButtonProps {
-  /** 该轮 closing assistant 的 seq（跳转锚点 + 第二阶段 fork 边界）。 */
-  seq: number
-  /** 轮次号（DOM 注入拿不到时为 null）。 */
+  /** 该轮轮尾消息节点的锚点原文（data-chat-anchor-key；新式主锚点）。 */
+  anchorKey: string
+  /** 该轮 closing assistant 的 seq（老格式 node:{seq} 才有；跳转/fork 兼容回退）。 */
+  seq: number | null
+  /** 轮次号（assistant-step 锚点 id 解析；老格式 / 解析失败为 null）。 */
   turn: number | null
   /** 该轮首条用户消息预览（可空）。 */
   summary: string
@@ -59,23 +65,26 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * @param props - seq/turn/summary + sessionId + t。
  */
 export function TurnBookmarkButton(props: TurnBookmarkButtonProps): JSX.Element {
-  const { seq, turn, summary, t } = props
+  const { anchorKey, seq, turn, summary, t } = props
   const [bookmark, setBookmark] = useState<BookmarkRow | null>(null)
   const [busy, setBusy] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  // 加载本轮是否已打书签（按 seq 在列表里找）。
+  // 加载本轮是否已打书签：新记录按 anchorKey 匹配；旧记录（无 anchorKey）
+  // 回退按 seq 匹配，保证老客户端打过的星不重复。
   const reload = useCallback((): void => {
     const sessionId = resolveSessionId(props.sessionId)
     if (!sessionId) return
     void api<{ bookmarks: BookmarkRow[] }>(`?sessionId=${encodeURIComponent(sessionId)}`)
       .then((data) => {
-        const found = (data.bookmarks ?? []).find((b) => b.seq === seq) ?? null
+        const found = (data.bookmarks ?? []).find((b) =>
+          (b.anchorKey != null && b.anchorKey === anchorKey)
+          || (b.anchorKey == null && b.seq === seq)) ?? null
         setBookmark(found)
       })
       .catch(() => { /* 探测失败：保持未打星态，点击时再报错 */ })
-  }, [props.sessionId, seq])
+  }, [props.sessionId, anchorKey, seq])
 
   useEffect(() => { reload() }, [reload])
 
@@ -91,8 +100,8 @@ export function TurnBookmarkButton(props: TurnBookmarkButtonProps): JSX.Element 
     return () => document.removeEventListener('mousedown', onDoc)
   }, [menuOpen])
 
-  /** 默认标签名：轮次 N。 */
-  const defaultLabel = t('bookmark.defaultLabel', { n: String(turn ?? seq) })
+  /** 默认标签名：轮次 N（turn 优先；老格式只有 seq；都没有则显示 ?）。 */
+  const defaultLabel = t('bookmark.defaultLabel', { n: String(turn ?? seq ?? '?') })
 
   const createOrRename = (mode: 'create' | 'rename'): void => {
     const sessionId = resolveSessionId(props.sessionId)
@@ -113,10 +122,16 @@ export function TurnBookmarkButton(props: TurnBookmarkButtonProps): JSX.Element 
     if (mode === 'create') {
       void api<{ bookmark: BookmarkRow }>('', {
         method: 'POST',
-        body: JSON.stringify({ sessionId, seq, label, summary, turn }),
+        // anchorKey 为主锚点（宿主端反查 seq/turn）；seq 仅老格式携带。
+        body: JSON.stringify({ sessionId, anchorKey, seq, label, summary, turn }),
       })
         .then((data) => {
-          setBookmark({ id: data.bookmark.id, seq: data.bookmark.seq, label: data.bookmark.label })
+          setBookmark({
+            id: data.bookmark.id,
+            seq: data.bookmark.seq,
+            anchorKey: data.bookmark.anchorKey ?? null,
+            label: data.bookmark.label,
+          })
           // 通知书签列表 Tab 刷新（若已打开）。
           window.dispatchEvent(new CustomEvent('dsh-memory-evolve:bookmarks-change'))
         })
@@ -130,7 +145,12 @@ export function TurnBookmarkButton(props: TurnBookmarkButtonProps): JSX.Element 
         body: JSON.stringify({ sessionId, id: bookmark.id, label }),
       })
         .then((data) => {
-          setBookmark({ id: data.bookmark.id, seq: data.bookmark.seq, label: data.bookmark.label })
+          setBookmark({
+            id: data.bookmark.id,
+            seq: data.bookmark.seq,
+            anchorKey: data.bookmark.anchorKey ?? null,
+            label: data.bookmark.label,
+          })
           window.dispatchEvent(new CustomEvent('dsh-memory-evolve:bookmarks-change'))
         })
         .catch((error: Error) => {
@@ -168,7 +188,7 @@ export function TurnBookmarkButton(props: TurnBookmarkButtonProps): JSX.Element 
     : t('bookmark.star.title.off')
 
   return (
-    <div className="bm-star-wrap" ref={wrapRef} data-bm-seq={String(seq)}>
+    <div className="bm-star-wrap" ref={wrapRef} data-bm-anchor={anchorKey}>
       <button
         type="button"
         className="bm-star-btn"

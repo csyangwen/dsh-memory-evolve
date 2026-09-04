@@ -8,7 +8,10 @@
  *   2. 列表需要完整滚动区展示摘要/时间/操作，header.actions 塞不下；
  *   3. turnTail 只做「打星」入口；列表/跳转/改名/删除集中在本 Tab，职责清晰。
  *
- * 点击书签 → 切回「对话」Tab → 按 data-chat-anchor-key="node:{seq}" 定位；
+ * 点击书签 → 切回「对话」Tab → 按 data-chat-anchor-key 锚点原文定位；
+ * ⚠️ DSH 0.1.1-rc.2 起锚点格式从 `node:{seq}` 重构为 `${kind.length}:${kind}${id}`
+ * （key 里不再有 seq，issue #39）——因此新书签按 **anchorKey 原文**定位，
+ * 旧记录（无 anchorKey）回退 `node:{seq}` 老格式。
  * 若目标在未加载的历史窗口，循环点「加载更早」按钮（loadOlder）再定位。
  */
 import { useCallback, useEffect, useState } from 'react'
@@ -21,6 +24,8 @@ interface Bookmark {
   id: string
   sessionId: string
   seq: number
+  /** 新式 DOM 锚点原文（0.1.1-rc.2+；旧记录为 null，跳转回退 node:{seq}）。 */
+  anchorKey: string | null
   label: string
   summary: string
   turn: number | null
@@ -111,12 +116,11 @@ function clickLoadOlder(): boolean {
 
 /**
  * 等待 DOM 中出现锚点，或超时。
- * @param seq - 目标 closing assistant seq。
+ * @param key - data-chat-anchor-key 原文（新式）或 `node:{seq}`（旧式回退）。
  * @param timeoutMs - 最长等待。
  * @returns 找到的元素或 null。
  */
-function waitForAnchor(seq: number, timeoutMs = 2500): Promise<HTMLElement | null> {
-  const key = `node:${seq}`
+function waitForAnchor(key: string, timeoutMs = 2500): Promise<HTMLElement | null> {
   const existing = document.querySelector<HTMLElement>(`[data-chat-anchor-key="${key}"]`)
   if (existing !== null) return Promise.resolve(existing)
 
@@ -137,12 +141,18 @@ function waitForAnchor(seq: number, timeoutMs = 2500): Promise<HTMLElement | nul
   })
 }
 
+/** 书签 → 可定位锚点 key：新记录用 anchorKey 原文，旧记录回退 node:{seq}。 */
+function anchorKeyFor(bm: Bookmark): string {
+  return bm.anchorKey !== null && bm.anchorKey !== '' ? bm.anchorKey : `node:${bm.seq}`
+}
+
 /**
- * 跳转到指定 seq：切对话 Tab → 必要时 loadOlder → scrollIntoView。
- * @param seq - 书签上的 closing assistant seq。
+ * 跳转到指定书签：切对话 Tab → 必要时 loadOlder → scrollIntoView。
+ * @param bm - 目标书签记录（用其 anchorKey/seq 组合定位）。
  * @returns 结果消息（成功/失败文案 key 由调用方拼）。
  */
-async function jumpToSeq(seq: number): Promise<'ok' | 'not-found' | 'no-chat'> {
+async function jumpToAnchor(bm: Bookmark): Promise<'ok' | 'not-found' | 'no-chat'> {
+  const key = anchorKeyFor(bm)
   // 1. 切回对话 Tab（ChatView 卸载时锚点不在 DOM 里）。
   const switched = switchToChatTab()
   if (!switched) return 'no-chat'
@@ -150,7 +160,7 @@ async function jumpToSeq(seq: number): Promise<'ok' | 'not-found' | 'no-chat'> {
   await new Promise((r) => window.setTimeout(r, 120))
 
   // 2. 已在窗口内 → 直接滚。
-  let el = await waitForAnchor(seq, 800)
+  let el = await waitForAnchor(key, 800)
   if (el !== null) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     // 短暂高亮：加 outline，1.5s 后清。
@@ -163,7 +173,7 @@ async function jumpToSeq(seq: number): Promise<'ok' | 'not-found' | 'no-chat'> {
     const clicked = clickLoadOlder()
     if (!clicked) break
     // 等一页历史拉完（ChatView loadingOlder 结束会渲染新锚点）。
-    el = await waitForAnchor(seq, 3000)
+    el = await waitForAnchor(key, 3000)
     if (el !== null) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       flashAnchor(el)
@@ -222,7 +232,7 @@ export function BookmarksView(props: ConvViewProps & BookmarksViewProps): JSX.El
   const onJump = (bm: Bookmark): void => {
     setBusy(true)
     setNotice({ kind: 'info', text: t('bookmark.jumping') })
-    void jumpToSeq(bm.seq)
+    void jumpToAnchor(bm)
       .then((result) => {
         if (result === 'ok') {
           setNotice({ kind: 'ok', text: t('bookmark.jump.ok', { label: bm.label }) })
@@ -274,13 +284,14 @@ export function BookmarksView(props: ConvViewProps & BookmarksViewProps): JSX.El
 
   /** 从此书签的轮次创建官方分支会话（用户拍板本期实现）。 */
   const onFork = (bm: Bookmark): void => {
-    if (!window.confirm(t('bookmark.fork.confirm', { n: String(bm.seq) }))) return
+    if (!window.confirm(t('bookmark.fork.confirm', { n: String(bm.turn ?? bm.seq) }))) return
     setBusy(true)
     setNotice({ kind: 'info', text: t('bookmark.fork.working') })
     void fetch('/memory-evolve/api/bookmarks/fork', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: bm.sessionId, seq: bm.seq }),
+      // anchorKey 优先（新式）；旧记录回退 seq（宿主端仍按 seq 分支）。
+      body: JSON.stringify({ sessionId: bm.sessionId, seq: bm.seq, anchorKey: bm.anchorKey ?? undefined }),
     })
       .then((res) => res.json().catch(() => ({})) as Promise<{ sessionId?: string; error?: string }>)
       .then((data) => {
