@@ -131,6 +131,11 @@ interface RuntimeConfig {
   keyFullInjectThreshold: number
   /** auto 模式下字符数阈值：总字符数 ≤ 此值时全量注入。 */
   keyFullInjectCharLimit: number
+  /** 记忆写入看门狗（用户拍板 2026-09-04：默认关——根源是模型指令遵循
+   *  能力，强模型不需要；打开后连续 N 轮未写 daily/project 快照会置顶提醒）。 */
+  perTurnWriteGuard: boolean
+  /** 看门狗触发阈值：连续 N 轮未写入即提醒（>=1 整数）。 */
+  writeGuardThreshold: number
 }
 
 /** One fetch helper against the node half's API prefix. */
@@ -671,6 +676,38 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.skillReviewEnabled}
                     onChange={(event) => patchDraft({ skillReviewEnabled: event.target.checked })}
+                  />
+                </label>
+                {/* 记忆写入看门狗（PR #37，用户拍板 2026-09-04：默认关——
+                    根源是模型指令遵循能力，强模型不需要；打开后连续 N 轮
+                    未写 daily/project 快照置顶提醒，写入即消）。 */}
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.perTurnWriteGuard')}
+                    <em className="me-field-hint">{t('panel.config.perTurnWriteGuard.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.perTurnWriteGuard}
+                    onChange={(event) => patchDraft({ perTurnWriteGuard: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.writeGuardThreshold')}
+                    <em className="me-field-hint">{t('panel.config.writeGuardThreshold.hint')}</em>
+                  </span>
+                  <input
+                    type="number"
+                    className="me-input"
+                    min={1}
+                    value={draft.writeGuardThreshold}
+                    onChange={(event) => {
+                      // 与 keyFullInjectThreshold 同款 clamp：清空/小数/0 → 1
+                      const n = Number(event.target.value)
+                      patchDraft({ writeGuardThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 })
+                    }}
                   />
                 </label>
               </div>

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath } from '../lib/index.js'
+import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath, RUNTIME_KEYS, validateRuntimePatch } from '../lib/index.js'
 import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
 
@@ -662,6 +662,196 @@ test('renderSnapshot review section: main sessions only, when enabled, static te
   assert.ok(!sub.includes('memory_review_status'))
   assert.ok(sub.includes('独立成果'))
   clean(dir)
+})
+
+test('renderSnapshot write watchdog: warns past the threshold, static text, switches respected', () => {
+  const dir = tempDir()
+  // 看门狗默认关（用户拍板 2026-09-04）——显式开启后测行为。
+  const config = resolveConfig({ memoryDir: dir, perTurnWriteGuard: true })
+  const store = new MemoryStore(config.memoryDir, config)
+  const agent = { id: 'a', session: { header: { cwd: '/proj/x' } } }
+  const gap = (n) => ({ gapOf: () => n, noteWrite: () => {} })
+  // 默认关（不传 perTurnWriteGuard）：gap 再大也不提醒
+  const guardOff = renderSnapshot(resolveConfig({ memoryDir: dir }), store, agent, undefined, null, gap(9))
+  assert.ok(!guardOff.includes('记忆写入遗漏提醒'), 'default-off: never warns')
+  // below threshold (default 2): the fixed duty text stays, no warning
+  const fresh = renderSnapshot(config, store, agent, undefined, null, gap(1))
+  assert.ok(!fresh.includes('记忆写入遗漏提醒'))
+  assert.ok(fresh.includes('每轮收尾'), 'fixed duty hint stays')
+  // at/above threshold: sticky warning appended after the turn-end block
+  const due1 = renderSnapshot(config, store, agent, undefined, null, gap(2))
+  assert.ok(due1.includes('⚠️ **记忆写入遗漏提醒**'))
+  assert.ok(due1.includes('补写'))
+  assert.ok(due1.includes('每轮一条'))
+  // static text per config (no live count baked in) — cache-friendly: the
+  // warning reads identical at gap 2 and gap 9, so an open gap costs at most
+  // two snapshot tails (appear + disappear)
+  const due9 = renderSnapshot(config, store, agent, undefined, null, gap(9))
+  const sliceFrom = (text) => text.slice(text.indexOf('⚠️ **记忆写入遗漏提醒**'))
+  assert.equal(sliceFrom(due1), sliceFrom(due9))
+  // guard off → silent regardless of the gap
+  const off = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnWriteGuard: false }), store, agent, undefined, null, gap(9))
+  assert.ok(!off.includes('记忆写入遗漏提醒'))
+  // custom threshold respected on both sides
+  const cfg5 = resolveConfig({ memoryDir: dir, perTurnWriteGuard: true, writeGuardThreshold: 5 })
+  assert.ok(!renderSnapshot(cfg5, store, agent, undefined, null, gap(4)).includes('记忆写入遗漏提醒'))
+  assert.ok(renderSnapshot(cfg5, store, agent, undefined, null, gap(5)).includes('记忆写入遗漏提醒'))
+  // P1-4: 单轨关闭时警告文案只写启用的轨（不命令模型写已关闭的 project）
+  const projOff = renderSnapshot(
+    resolveConfig({ memoryDir: dir, perTurnWriteGuard: true, perTurnProjectWrites: false }),
+    store, agent, undefined, null, gap(9),
+  )
+  assert.ok(projOff.includes('记忆写入遗漏提醒'))
+  // 警告段切片断言：只含启用的 target=daily，不含 target=project
+  //（快照别处的"读取用 target=project"是固定用法说明，不属于警告）。
+  const projOffWarn = projOff.slice(projOff.indexOf('⚠️ **记忆写入遗漏提醒**'))
+  assert.ok(projOffWarn.includes('target=daily'))
+  assert.ok(!projOffWarn.includes('target=project'), 'closed track must not be demanded in the warning')
+  // write duty fully off (both tracks) → nothing to be overdue about
+  const noDuty = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnWriteGuard: true, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent, undefined, null, gap(9))
+  assert.ok(!noDuty.includes('记忆写入遗漏提醒'))
+  // subagent sessions never get the watchdog warning
+  const sub = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } }, undefined, null, gap(9))
+  assert.ok(!sub.includes('记忆写入遗漏提醒'))
+  // legacy callers without a counter → never warns, never throws
+  const legacy = renderSnapshot(config, store, agent)
+  assert.ok(!legacy.includes('记忆写入遗漏提醒'))
+  // config plumbing: runtime keys + validation (convention shared with the
+  // perTurn* switches)
+  assert.ok(RUNTIME_KEYS.includes('perTurnWriteGuard'))
+  assert.ok(RUNTIME_KEYS.includes('writeGuardThreshold'))
+  validateRuntimePatch('perTurnWriteGuard', true)
+  validateRuntimePatch('perTurnWriteGuard', false)
+  assert.throws(() => validateRuntimePatch('perTurnWriteGuard', 'yes'), /布尔/)
+  validateRuntimePatch('writeGuardThreshold', 1)
+  assert.throws(() => validateRuntimePatch('writeGuardThreshold', 0), /writeGuardThreshold/)
+  assert.throws(() => validateRuntimePatch('writeGuardThreshold', 2.5), /writeGuardThreshold/)
+  // P2-1: 静态配置同样拒绝小数（resolveConfig 与运行时校验口径一致）
+  assert.throws(() => resolveConfig({ memoryDir: dir, writeGuardThreshold: 1.5 }), /writeGuardThreshold/)
+  clean(dir)
+})
+
+test('write watchdog counter: counts turns, resets on daily/project writes, honors switches', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  // 显式开启看门狗（默认关）
+  apply(ctx, { memoryDir: dir, perTurnWriteGuard: true })
+  // review counter + write watchdog both listen on agent/turn-stopping; fire
+  // all listeners like a real dispatch would (the review one early-returns,
+  // reviewEnabled is off here)
+  const listeners = ctx.state.listeners['agent/turn-stopping'] ?? []
+  assert.ok(listeners.length >= 2, 'review counter + write watchdog both registered')
+  const fire = (payload) => { for (const listener of listeners) listener(payload) }
+
+  // 官方真实事件形状（0.1.2）：turn/start 只有 { turn }（无 trigger 字段）；
+  // user/message 的 source.kind 决定是不是真人回合（P1-3：广播 wake 等
+  // plugin 注入的回合不算用户回合）。
+  const events = []
+  let seq = 0
+  const pushTurn = (sourceKind) => {
+    seq += 1
+    events.push({ type: 'turn/start', seq, data: { turn: seq } })
+    seq += 1
+    events.push({
+      type: 'user/message',
+      seq,
+      data: {
+        id: `u${seq}`,
+        turn: seq,
+        // 'plugin' = 注入/唤醒回合（广播 wake followup 等），'user' = 真人回合
+        source: sourceKind === 'plugin' ? { kind: 'plugin', plugin: 'dsh-memory-evolve' } : { kind: 'user' },
+      },
+    })
+  }
+  const agent = (id, origin = 'user') => ({
+    id,
+    session: {
+      header: { origin, cwd: '/proj/x' },
+      // 0.1.2 新式 Session 只暴露 ownEvents()（老宿主 .events 已在别处覆盖）
+      ownEvents: () => events,
+    },
+  })
+  const contextDef = ctx.state.contexts.find((c) => c.name === 'memory:snapshot')
+  assert.ok(contextDef, 'memory snapshot context registered')
+  const renderFor = (a) => contextDef.text({ agent: a })
+  const memory = ctx.state.tools.find((t) => t.name === 'memory')
+  assert.ok(memory, 'memory tool registered')
+  const main = agent('w1')
+
+  // 回合 1/2：连续未写 → gap 2 触发提醒
+  pushTurn('user')
+  fire({ agent: main, turn: 1 })
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'gap 1 < threshold 2: no warning yet')
+  pushTurn('user')
+  fire({ agent: main, turn: 2 })
+  assert.ok(renderFor(main).includes('⚠️ **记忆写入遗漏提醒**'), 'gap 2 >= threshold: warning appears')
+
+  // 回合 3：写 daily/project → noteWrite 标记 → 本轮 turn-stopping 清零
+  // （⚠ 时序回归：只打标记不清零，turn-stopping 消费标记——旧实现当场
+  // 清零后再 +1 会把"已写回合"也算欠账，阈值 2 少漏 1 轮就误报）。
+  pushTurn('user')
+  const exec = { agent: main, callId: 'c1', signal: new AbortController().signal }
+  const wrote = await memory.execute({
+    action: 'add',
+    entries: [
+      { target: 'daily', content: '回合 3 进展' },
+      { target: 'project', content: '回合 3 项目进展' },
+    ],
+  }, exec)
+  assert.equal(wrote.ok, true)
+  fire({ agent: main, turn: 3 })
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'written turn must NOT count as a gap (P1-2 regression)')
+
+  // 回合 4：没写 → gap 1（仍不提醒）；回合 5：没写 → gap 2 再提醒
+  pushTurn('user')
+  fire({ agent: main, turn: 4 })
+  assert.ok(!renderFor(main).includes('记忆写入遗漏提醒'), 'gap restarted at 1')
+  pushTurn('user')
+  fire({ agent: main, turn: 5 })
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'), 'gap 2 again')
+
+  // key-track writes (confirmation queue) must NOT reset the gap
+  const keyWrite = await memory.execute({ action: 'add', target: 'key', content: '某长期约定' }, exec)
+  assert.equal(keyWrite.ok, true)
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'), 'key suggestion does not clear the warning')
+
+  // 插件注入回合（broadcast wake followup：source.kind=plugin）不计入欠账
+  pushTurn('plugin')
+  fire({ agent: main, turn: 6 })
+  pushTurn('plugin')
+  fire({ agent: main, turn: 7 })
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'), 'gap stays (plugin turns are not user turns)')
+  pushTurn('user')
+  fire({ agent: main, turn: 8 })
+  pushTurn('plugin')
+  fire({ agent: main, turn: 9 })
+  assert.ok(renderFor(main).includes('记忆写入遗漏提醒'), 'only the user turn advances the gap (3 >= 2)')
+
+  // subagent turns are never counted
+  const sub = agent('w2', 'subagent')
+  pushTurn('user')
+  fire({ agent: sub, turn: 1 })
+  pushTurn('user')
+  fire({ agent: sub, turn: 2 })
+  assert.ok(!renderFor(sub).includes('记忆写入遗漏提醒'), 'subagent sessions never warn')
+  clean(dir)
+
+  // default-off via config: 开关默认关（用户拍板）——不计数、不提醒
+  const dir2 = tempDir()
+  const ctx2 = fakeCtx()
+  apply(ctx2, { memoryDir: dir2 })
+  const listeners2 = ctx2.state.listeners['agent/turn-stopping'] ?? []
+  const fire2 = (payload) => { for (const listener of listeners2) listener(payload) }
+  const contextDef2 = ctx2.state.contexts.find((c) => c.name === 'memory:snapshot')
+  const other = agent('w3')
+  pushTurn('user')
+  fire2({ agent: other, turn: 1 })
+  pushTurn('user')
+  fire2({ agent: other, turn: 2 })
+  pushTurn('user')
+  fire2({ agent: other, turn: 3 })
+  assert.ok(!contextDef2.text({ agent: other }).includes('记忆写入遗漏提醒'), 'default off: never warns')
+  clean(dir2)
 })
 
 test('gitBranch resolves the current branch; gitBranchList lists branches', () => {
