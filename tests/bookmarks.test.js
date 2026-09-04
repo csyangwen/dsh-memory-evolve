@@ -425,6 +425,32 @@ test('forkSession: agents.create 收到 seed/meta，workspace attach 被调用',
   assert.equal(attached, result.sessionId)
 })
 
+test('forkSession: headless skips workspace attach and observes a later web service', async () => {
+  const events = makeEvents()
+  let published
+  let attached = null
+  const workspaceRegistry = {
+    resolveByPath: async () => ({
+      id: 'ws-late',
+      attachSession: async (sid) => { attached = sid },
+    }),
+  }
+  const ctx = {
+    agents: {
+      get: () => ({ session: { events, header: { cwd: '/tmp/proj' } } }),
+      create: async () => {},
+    },
+    get: (name) => (name === 'workspaceRegistry' ? published : undefined),
+  }
+
+  await forkSession(ctx, 'session-src', 2)
+  assert.equal(attached, null, 'headless must still fork without a workspace service')
+
+  published = workspaceRegistry
+  const result = await forkSession(ctx, 'session-src', 2)
+  assert.equal(attached, result.sessionId, 'a later web-host service is resolved at use time')
+})
+
 test('forkSession: 会话不存在 / 目标轮未完成 → 抛业务错误', async () => {
   const events = makeEvents()
   events.push({ seq: events.length, type: 'turn/start', turn: 3 })
