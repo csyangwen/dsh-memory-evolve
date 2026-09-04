@@ -268,6 +268,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   /** 手动添加项目关键记忆的草稿与保存状态。 */
   const [keyDraft, setKeyDraft] = useState('')
   const [keySaving, setKeySaving] = useState(false)
+  /** 手动添加全局记忆（MEMORY.md / USER.md 页签）的草稿（按文件 key 分桶，
+   *  切页签不丢草稿）与保存状态（issue #30）。 */
+  const [globalDrafts, setGlobalDrafts] = useState<Record<string, string>>({})
+  const [globalSaving, setGlobalSaving] = useState(false)
   /** 手动添加时的「仅 DSH」勾选：勾上 = 条目带 [dsh-only] 标记（只注入 DSH 自身，外部执行器跳过）。 */
   const [keyDshOnly, setKeyDshOnly] = useState(false)
   /** 手动添加时的分支范围选择：[] = 全部（与具体分支互斥，全部权重最大）。 */
@@ -380,6 +384,24 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: error.message })
     }).finally(() => setKeySaving(false))
+  }
+
+  /** 手动写入一条全局轨记忆（MEMORY.md / USER.md）：走宿主 API 的 store.add
+   *  （全局轨不依赖会话 cwd，故无需 sessionId；日期由程序自动盖戳，issue #30）。 */
+  const saveGlobal = (key: 'memory' | 'user'): void => {
+    const content = (globalDrafts[key] ?? '').trim()
+    if (content === '' || globalSaving) return
+    setGlobalSaving(true)
+    void api<{ ok: boolean }>(`/api/memory/${key}`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }).then(() => {
+      setGlobalDrafts((prev) => ({ ...prev, [key]: '' }))
+      load()
+      flash(t('memoryTab.memoryUserAdded'))
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: error.message })
+    }).finally(() => setGlobalSaving(false))
   }
 
   /** 分支选择互斥：勾「全部」→ 清空所有分支；勾具体分支 → 自动取消「全部」（全部权重最大）。 */
@@ -720,6 +742,33 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                       onClick={saveKey}
                     >
                       {t('memoryTab.keyAdd')}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* 全局轨手动添加（issue #30）：MEMORY.md / USER.md 页签顶部与
+                  KEY.md 同款输入框——用户手动记一条长期事实，保存后程序盖戳
+                  追加，下一轮全局注入生效（KEY 有分支/DSH 选项，这里无）。 */}
+              {(activeRow.key === 'memory' || activeRow.key === 'user') && activeRow.available && (
+                <div className="mt-key-add">
+                  <textarea
+                    className="mt-key-input"
+                    rows={2}
+                    value={globalDrafts[activeRow.key] ?? ''}
+                    placeholder={activeRow.key === 'memory'
+                      ? t('memoryTab.memoryAddPlaceholder')
+                      : t('memoryTab.userAddPlaceholder')}
+                    onChange={(event) => setGlobalDrafts((prev) => ({ ...prev, [activeRow.key]: event.target.value }))}
+                  />
+                  <div className="mt-key-add-foot">
+                    <span className="mt-key-help">{t('memoryTab.memoryUserAddHelp')}</span>
+                    <button
+                      type="button"
+                      className="mt-btn mt-btn-primary"
+                      disabled={globalSaving || (globalDrafts[activeRow.key] ?? '').trim() === ''}
+                      onClick={() => { void saveGlobal(activeRow.key as 'memory' | 'user') }}
+                    >
+                      {t('memoryTab.memoryAdd')}
                     </button>
                   </div>
                 </div>
