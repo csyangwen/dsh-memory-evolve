@@ -119,69 +119,69 @@ test('InjectionStore: rounds 计数、间隔注入、重复来源与级联清理
     const store = new InjectionStore(dir)
     // rounds 默认 1；非法值回退 1；防御上限截断（界面放开自由输入，只挡笔误）；
     // every 同规则；rounds=0 无限
-    const a = store.add({ title: 'A', content: '内容A' })
+    const a = store.add({ sessionId: 'sess-main', title: 'A', content: '内容A' })
     assert.equal(a.roundsLeft, 1)
     assert.equal(a.every, 1)
-    const b = store.add({ title: 'B', content: '内容B', rounds: 3 })
+    const b = store.add({ sessionId: 'sess-main', title: 'B', content: '内容B', rounds: 3 })
     assert.equal(b.roundsLeft, 3)
-    assert.equal(store.add({ title: 'C', content: 'C', rounds: 0 }).roundsLeft, null) // 无限
-    assert.equal(store.add({ title: 'D', content: 'D', rounds: 999 }).roundsLeft, 999) // 任意数字
-    assert.equal(store.add({ title: 'F', content: 'F', rounds: 99999 }).roundsLeft, 9999) // 防御上限截断
+    assert.equal(store.add({ sessionId: 'sess-main', title: 'C', content: 'C', rounds: 0 }).roundsLeft, null) // 无限
+    assert.equal(store.add({ sessionId: 'sess-main', title: 'D', content: 'D', rounds: 999 }).roundsLeft, 999) // 任意数字
+    assert.equal(store.add({ sessionId: 'sess-main', title: 'F', content: 'F', rounds: 99999 }).roundsLeft, 9999) // 防御上限截断
     // every=0 = 一次性：次数强制 1（用户"间隔 0"的直觉语义），tick 一次即移除
-    const onceE = store.add({ title: 'E', content: 'E', every: 0 })
+    const onceE = store.add({ sessionId: 'sess-main', title: 'E', content: 'E', every: 0 })
     assert.equal(onceE.every, 0)
     assert.equal(onceE.roundsLeft, 1)
-    assert.equal(store.add({ title: 'G', content: 'G', rounds: 10, every: 7 }).every, 7) // 间隔任意数字
+    assert.equal(store.add({ sessionId: 'sess-main', title: 'G', content: 'G', rounds: 10, every: 7 }).every, 7) // 间隔任意数字
     // 同来源重复注入被标记
-    assert.equal(store.hasSource('src-1'), false)
-    store.add({ sourcePromptId: 'src-1', title: 'S1', content: 'x' })
-    assert.equal(store.hasSource('src-1'), true)
+    assert.equal(store.hasSource('src-1', 'sess-main'), false)
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'src-1', title: 'S1', content: 'x' })
+    assert.equal(store.hasSource('src-1', 'sess-main'), true)
     // tickTurn（every=1）：有限次数每回合消耗一次；无限（C）永不消耗
     assert.equal(store.list().length, 8)
-    store.tickTurn() // 第 1 回合：A/E/S1 归零移除，B=2，D=998，F=9998，G=9（countdown=6），C（无限）不动
+    store.tickTurn('sess-main') // 第 1 回合：A/E/S1 归零移除，B=2，D=998，F=9998，G=9（countdown=6），C（无限）不动
     assert.equal(store.list().length, 5)
     assert.deepEqual(store.list().map((i) => i.title), ['B', 'C', 'D', 'F', 'G'])
-    store.tickTurn() // B=1, D=997, F=9997, G=8
-    store.tickTurn() // B=0 → 移除，剩 C、D、F、G
+    store.tickTurn('sess-main') // B=1, D=997, F=9997, G=8
+    store.tickTurn('sess-main') // B=0 → 移除，剩 C、D、F、G
     assert.equal(store.list().length, 4)
     assert.equal(store.list()[1].title, 'D')
     // 空轨 tick 安全
-    assert.deepEqual(store.tickTurn(), [])
+    assert.deepEqual(store.tickTurn('sess-main'), [])
     // every=0 一次性：无论 rounds 传多大都被覆盖为 1，出现轮结束直接移除
-    const once2 = store.add({ title: 'ONCE', content: 'o', rounds: 5, every: 0 })
+    const once2 = store.add({ sessionId: 'sess-main', title: 'ONCE', content: 'o', rounds: 5, every: 0 })
     assert.equal(once2.roundsLeft, 1)
     assert.equal(once2.every, 0)
-    store.tickTurn() // 出现轮结束 → 一次性移除（不进次数/间隔模型）
+    store.tickTurn('sess-main') // 出现轮结束 → 一次性移除（不进次数/间隔模型）
     assert.equal(store.list().some((i) => i.id === once2.id), false)
     // 间隔注入（every=3, rounds=2）：出现 1 轮 → 间隔 2 轮 → 再出现 → 消耗完移除
-    const iv = store.add({ title: 'I', content: 'x', rounds: 2, every: 3 })
+    const iv = store.add({ sessionId: 'sess-main', title: 'I', content: 'x', rounds: 2, every: 3 })
     assert.equal(iv.countdown, 0) // 注入后下一轮即出现
-    store.tickTurn() // 出现轮结束：消耗一次，countdown=2
+    store.tickTurn('sess-main') // 出现轮结束：消耗一次，countdown=2
     const ivNow = store.list().find((i) => i.id === iv.id)
     assert.equal(ivNow.roundsLeft, 1)
     assert.equal(ivNow.countdown, 2)
-    store.tickTurn() // countdown=1
-    store.tickTurn() // countdown=0 → 下一轮出现
+    store.tickTurn('sess-main') // countdown=1
+    store.tickTurn('sess-main') // countdown=0 → 下一轮出现
     assert.equal(store.list().find((i) => i.id === iv.id).countdown, 0)
-    store.tickTurn() // 出现轮结束：消耗完 → 移除
+    store.tickTurn('sess-main') // 出现轮结束：消耗完 → 移除
     assert.equal(store.list().some((i) => i.id === iv.id), false)
     // 无限 + 间隔：出现轮不消耗，永不自动移除，只能手动 remove
-    const inf = store.add({ title: 'INF', content: 'y', rounds: 0, every: 2 })
-    store.tickTurn() // 出现轮结束：无限不消耗，countdown=1
+    const inf = store.add({ sessionId: 'sess-main', title: 'INF', content: 'y', rounds: 0, every: 2 })
+    store.tickTurn('sess-main') // 出现轮结束：无限不消耗，countdown=1
     assert.equal(store.list().find((i) => i.id === inf.id).roundsLeft, null)
     assert.equal(store.list().find((i) => i.id === inf.id).countdown, 1)
-    store.tickTurn() // countdown=0 → 出现
-    store.tickTurn() // 出现轮结束 → countdown=1
+    store.tickTurn('sess-main') // countdown=0 → 出现
+    store.tickTurn('sess-main') // 出现轮结束 → countdown=1
     assert.equal(store.list().some((i) => i.id === inf.id), true) // 永不自动移除
     assert.equal(store.remove(inf.id), true)
     // removeBySource
-    store.add({ sourcePromptId: 'src-2', title: 'X', content: 'x', rounds: 2 })
-    store.add({ sourcePromptId: 'src-2', title: 'Y', content: 'y' })
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'src-2', title: 'X', content: 'x', rounds: 2 })
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'src-2', title: 'Y', content: 'y' })
     store.removeBySource('src-2')
     assert.equal(store.list().length, 4)
     assert.deepEqual(store.list().map((i) => i.title), ['C', 'D', 'F', 'G']) // 上一段的 C（无限）/D/F/G 不受影响
     // remove 单条
-    const z = store.add({ title: 'Z', content: 'z' })
+    const z = store.add({ sessionId: 'sess-main', title: 'Z', content: 'z' })
     assert.equal(store.remove(z.id), true)
     assert.equal(store.remove(z.id), false)
   } finally {
@@ -267,9 +267,9 @@ test('renderInjectionSnapshot: 命令式指令文案，只渲染出现轮，空�
   const dir = tempDir()
   try {
     const store = new InjectionStore(dir)
-    assert.equal(renderInjectionSnapshot(store), '')
-    store.add({ sourcePromptId: 'p1', title: '代码审查', content: '第一行\n第二行', rounds: 1 })
-    const text = renderInjectionSnapshot(store)
+    assert.equal(renderInjectionSnapshot(store, 'sess-main'), '')
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'p1', title: '代码审查', content: '第一行\n第二行', rounds: 1 })
+    const text = renderInjectionSnapshot(store, 'sess-main')
     // 写给模型看的命令式指令：标题声明「必须遵循」，不出现"注入"字样、
     // 引导句与 GUI 话术（活跃 N 条/Tab 移除/剩余次数）
     assert.match(text, /## 用户规则（必须遵循）/)
@@ -281,21 +281,21 @@ test('renderInjectionSnapshot: 命令式指令文案，只渲染出现轮，空�
     assert.match(text, /第一行/)
     assert.match(text, /第二行/)
     // 间隔注入：出现轮渲染，间隔轮不渲染
-    const iv = store.add({ sourcePromptId: 'p2', title: '定期提醒', content: '别忘了 X', rounds: 2, every: 3 })
-    assert.match(renderInjectionSnapshot(store), /「定期提醒」：/)
-    store.tickTurn() // 代码审查（一次性）移除；定期提醒：消耗一次 countdown=2 → 快照空
-    assert.equal(renderInjectionSnapshot(store), '')
-    store.tickTurn() // countdown=1
-    assert.equal(renderInjectionSnapshot(store), '')
-    store.tickTurn() // countdown=0 → 出现
-    const again = renderInjectionSnapshot(store)
+    const iv = store.add({ sessionId: 'sess-main', sourcePromptId: 'p2', title: '定期提醒', content: '别忘了 X', rounds: 2, every: 3 })
+    assert.match(renderInjectionSnapshot(store, 'sess-main'), /「定期提醒」：/)
+    store.tickTurn('sess-main') // 代码审查（一次性）移除；定期提醒：消耗一次 countdown=2 → 快照空
+    assert.equal(renderInjectionSnapshot(store, 'sess-main'), '')
+    store.tickTurn('sess-main') // countdown=1
+    assert.equal(renderInjectionSnapshot(store, 'sess-main'), '')
+    store.tickTurn('sess-main') // countdown=0 → 出现
+    const again = renderInjectionSnapshot(store, 'sess-main')
     assert.match(again, /「定期提醒」/)
     assert.equal(again.includes('代码审查'), false)
     // 无限次：不受回合推进影响，出现轮恒渲染
-    store.add({ sourcePromptId: 'p3', title: '常驻规则', content: '始终遵守', rounds: 0 })
-    assert.match(renderInjectionSnapshot(store), /「常驻规则」：/)
-    store.tickTurn() // 定期提醒消耗一次 countdown=2（不渲染）；常驻规则无限不消耗 countdown=0（渲染）
-    const infText = renderInjectionSnapshot(store)
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'p3', title: '常驻规则', content: '始终遵守', rounds: 0 })
+    assert.match(renderInjectionSnapshot(store, 'sess-main'), /「常驻规则」：/)
+    store.tickTurn('sess-main') // 定期提醒消耗一次 countdown=2（不渲染）；常驻规则无限不消耗 countdown=0（渲染）
+    const infText = renderInjectionSnapshot(store, 'sess-main')
     assert.match(infText, /「常驻规则」：/)
     assert.equal(infText.includes('定期提醒'), false)
     assert.equal(iv.id.length > 0, true)
@@ -313,13 +313,13 @@ test('renderInjectionSnapshot: 正文变量展开 + 宿主模板残留清理（i
     // 与字面 {{ 全部降级——宿主（dsh-system-prompt）会把段文本里的 {{...}}
     // 当模板变量解析、未注册即 throw（unknown prompt variable），快照段
     // 绝不能携带宿主可解析的 {{ 序列。
-    store.add({
+    store.add({ sessionId: 'sess-main',
       sourcePromptId: 'p1',
       title: '含变量',
       content: '今天 {{date}} {{time}}\n未知 {{foo}} malformed {{a b}} 字面 {{',
       rounds: 1,
     })
-    const text = renderInjectionSnapshot(store)
+    const text = renderInjectionSnapshot(store, 'sess-main')
     assert.match(text, /今天 \d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
     assert.equal(text.includes('{{date}}'), false)
     assert.equal(text.includes('{{time}}'), false)
@@ -327,8 +327,8 @@ test('renderInjectionSnapshot: 正文变量展开 + 宿主模板残留清理（i
     assert.match(text, /\{a b\}/)
     assert.equal(text.includes('{{'), false) // 快照段绝不携带 {{ 序列（宿主解析入口）
     // 已展开的正文（正常创建路径：写入时已 expandVars）重复净化幂等、不破坏内容
-    store.add({ sourcePromptId: 'p2', title: '已展开', content: '日期 2026-08-13 保留 {foo}', rounds: 1 })
-    const plain = renderInjectionSnapshot(store)
+    store.add({ sessionId: 'sess-main', sourcePromptId: 'p2', title: '已展开', content: '日期 2026-08-13 保留 {foo}', rounds: 1 })
+    const plain = renderInjectionSnapshot(store, 'sess-main')
     assert.match(plain, /日期 2026-08-13 保留 \{foo\}/)
   } finally {
     clean(dir)
@@ -410,51 +410,51 @@ test('Web API: 提示词 CRUD + 注入 + 注入轨 + 回合计数闭环', async 
     assert.equal(updated.data.prompt.description, '新简介')
     assert.equal(updated.data.prompt.enabled, true)
     // 注入（一次性）：变量已展开，rounds=1
-    const inj = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 1 })
+    const inj = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 1 })
     assert.equal(inj.status, 200)
     assert.match(inj.data.injection.content, /\d{4}-\d{2}-\d{2}/)
     assert.equal(inj.data.injection.roundsLeft, 1)
     // 重复注入被拒
-    const dup = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 3 })
+    const dup = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 3 })
     assert.equal(dup.status, 400)
     assert.match(dup.data.error, /已在注入中/)
     // 仍在注入中 → 任何再注入请求（含 rounds=0 无限）都被拒
-    const badRounds = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 0 })
+    const badRounds = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 0 })
     assert.equal(badRounds.status, 400)
     // 注入轨可见
     const injections = await request('GET', '/memory-evolve/api/prompts/injections')
     assert.equal(injections.data.injections.length, 1)
     // 快照段渲染活跃注入（含变量展开后的内容）
-    assert.match(snapshotRender(), /我的范式V2/)
+    assert.match(snapshotRender({ agent: { session: { id: 'sess-main' } } }), /我的范式V2/)
     // 回合计数：主 agent 回合 → 归零移除
-    turnListener({ agent: { session: { header: {} } } })
+    turnListener({ agent: { session: { id: 'sess-main', header: {} } } })
     assert.equal((await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.length, 0)
-    assert.equal(snapshotRender(), '')
+    assert.equal(snapshotRender({ agent: { session: { id: 'sess-main' } } }), '')
     // subagent 回合不消耗
-    await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2 })
+    await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 2 })
     turnListener({ agent: { session: { header: { origin: 'subagent' } } } })
     assert.equal((await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.length, 1)
     // 手动移除注入
     const injId = (await request('GET', '/memory-evolve/api/prompts/injections')).data.injections[0].id
     assert.equal((await request('DELETE', `/memory-evolve/api/prompts/injections/${injId}`)).data.ok, true)
     // 间隔注入（every 参数透传；次数/间隔均为任意数字）
-    const iv = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 7, every: 4 })
+    const iv = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 7, every: 4 })
     assert.equal(iv.status, 200)
     assert.equal(iv.data.injection.every, 4)
     assert.equal(iv.data.injection.roundsLeft, 7)
     // 非法 every（负数）被拒
-    const badEvery = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 2, every: -1 })
+    const badEvery = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 2, every: -1 })
     assert.equal(badEvery.status, 400)
     // 停止间隔注入
     await request('DELETE', `/memory-evolve/api/prompts/injections/${iv.data.injection.id}`)
     // every=0 = 一次性：次数被覆盖为 1（"间隔 0 = 只注入一次"）
-    const once = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 999, every: 0 })
+    const once = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 999, every: 0 })
     assert.equal(once.status, 200)
     assert.equal(once.data.injection.every, 0)
     assert.equal(once.data.injection.roundsLeft, 1)
     // 停止一次性注入后重注入无限次（rounds=0）
     await request('DELETE', `/memory-evolve/api/prompts/injections/${once.data.injection.id}`)
-    const inf = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { rounds: 0 })
+    const inf = await request('POST', `/memory-evolve/api/prompts/${id}/inject`, { sessionId: 'sess-main', rounds: 0 })
     assert.equal(inf.status, 200)
     assert.equal(inf.data.injection.roundsLeft, null)
     assert.equal(inf.data.injection.every, 1)
@@ -681,7 +681,7 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.match(lastSteer.text, /【立即注入】/)
     assert.match(lastSteer.text, /仅此一次/)
     // 回合结束 → every=0 一次性条目自动移除（不留存、不再出现）
-    turnListener({ agent: { session: { header: {} } } })
+    turnListener({ agent: { session: { id: 'sess-main', header: {} } } })
     assert.equal((await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.some((i) => i.id === imm.injection.id), false)
     // Web API 立即注入：immediate + sessionId → steered=true + 一次性条目
     const third = listed.prompts[2]
@@ -692,11 +692,64 @@ test('de_prompts 工具：随 installPrompts 注册；list 只显示启用中、
     assert.equal(apiImm.data.injection.every, 0)
     assert.equal(apiImm.data.injection.roundsLeft, 1)
     assert.ok(steered.some((s) => s.sessionId === 'sess-gui'), 'GUI 立即注入按 sessionId 插话')
-    // Web API 立即注入缺 sessionId：不插话（steered=false），降级下一轮生效
+    // 缺少目标会话不能退化成全局注入，也不能唤醒任何会话。
     const fourth = listed.prompts[3]
     const apiImmNoSid = await request('POST', `/memory-evolve/api/prompts/${fourth.id}/inject`, { immediate: true })
-    assert.equal(apiImmNoSid.status, 200)
-    assert.equal(apiImmNoSid.data.steered, false)
+    assert.equal(apiImmNoSid.status, 400)
+    assert.match(apiImmNoSid.data.error, /目标会话/)
+  } finally {
+    await close()
+    clean(dir)
+  }
+})
+
+test('prompt injections stay in their target session and only its turns consume the schedule', async () => {
+  const { dir, request, close, turnListener, snapshotRender, promptTool } = await bootApi()
+  const agent = (id) => ({ session: { id, header: { id } } })
+  const snapshot = (id) => snapshotRender({ agent: agent(id) })
+  const turn = (id) => turnListener({ agent: agent(id) })
+  const active = async (id) => (await request('GET', `/memory-evolve/api/prompts/injections?sessionId=${id}`)).data.injections
+  try {
+    const a = (await request('POST', '/memory-evolve/api/prompts', { name: 'A', content: 'ONLY_A' })).data.prompt
+    const b = (await request('POST', '/memory-evolve/api/prompts', { name: 'B', content: 'ONLY_B' })).data.prompt
+    const injected = await promptTool.execute({ action: 'inject', id: a.id, rounds: 2, every: 2 }, { agent: agent('A') })
+    assert.equal(injected.ok, true)
+    assert.equal(injected.injection.sessionId, 'A')
+    assert.match(snapshot('A'), /ONLY_A/)
+    assert.equal(snapshot('B'), '')
+    assert.equal(snapshotRender({}), '')
+    assert.equal((await active('B')).length, 0)
+
+    turn('B')
+    assert.equal((await active('A'))[0].roundsLeft, 2)
+    const sameInB = await request('POST', `/memory-evolve/api/prompts/${a.id}/inject`, { sessionId: 'B', rounds: 1 })
+    assert.equal(sameInB.status, 200, 'the same prompt can be used independently in another session')
+    await request('DELETE', `/memory-evolve/api/prompts/injections/${sameInB.data.injection.id}`)
+    assert.equal((await request('POST', `/memory-evolve/api/prompts/${b.id}/inject`, { sessionId: 'B', rounds: 0 })).status, 200)
+    assert.doesNotMatch(snapshot('A'), /ONLY_B/)
+    assert.doesNotMatch(snapshot('B'), /ONLY_A/)
+
+    turn('A')
+    assert.equal(snapshot('A'), '')
+    turn('B')
+    assert.equal((await active('A'))[0].countdown, 1, 'another session must not advance the gap')
+    turn('A')
+    assert.match(snapshot('A'), /ONLY_A/)
+    turn('A')
+    assert.equal((await active('A')).length, 0)
+    assert.match(snapshot('B'), /ONLY_B/)
+    assert.equal((await active('B'))[0].roundsLeft, null)
+
+    const child = { session: { id: 'child', header: { id: 'child', origin: 'subagent' } } }
+    assert.equal((await promptTool.execute({ action: 'inject', id: a.id }, { agent: child })).ok, true)
+    turnListener({ agent: child })
+    assert.equal((await active('child')).length, 0)
+    assert.match(snapshot('B'), /ONLY_B/)
+
+    const count = (await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.length
+    assert.equal((await request('POST', `/memory-evolve/api/prompts/${a.id}/inject`, { rounds: 1 })).status, 400)
+    assert.equal((await promptTool.execute({ action: 'inject', id: a.id }, {})).ok, false)
+    assert.equal((await request('GET', '/memory-evolve/api/prompts/injections')).data.injections.length, count)
   } finally {
     await close()
     clean(dir)
