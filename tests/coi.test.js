@@ -477,6 +477,10 @@ test('scheduler: session lock rejects concurrent reuse', () => {
   const second = scheduler.dispatch({ adapterId: 'kimi', prompt: 'b', sessionId: 's1', scope: 'session' })
   assert.equal(second.ok, false)
   assert.match(second.message, /占用/)
+  const reloaded = new TaskStore(dir)
+  assert.equal(reloaded.get(second.taskId).status, 'failed')
+  assert.ok(reloaded.get(second.taskId).finishedAt)
+  assert.deepEqual(reloaded.tasks.map((t) => [t.id, t.status]), scheduler.tasks.tasks.map((t) => [t.id, t.status]))
   harness.children[0].emit('close', 0)
   // 释放后可再次使用
   const third = scheduler.dispatch({ adapterId: 'kimi', prompt: 'c', sessionId: 's1', scope: 'session' })
@@ -497,6 +501,61 @@ test('scheduler: cancel kills process group', () => {
   assert.equal(result.ok, true)
   assert.equal(harness.children[0].killed.length, 1)
   assert.equal(scheduler.status(taskId).task.status, 'killed')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: context preparation failure releases its session lock and leaves no queued task', () => {
+  const dir = tempDir()
+  const { scheduler, sessions, harness } = bootScheduler(dir, { memoryContext: () => { throw new Error('context read failed') } })
+  let result
+  assert.doesNotThrow(() => { result = scheduler.dispatch({ adapterId: 'kimi', prompt: 'read context', sessionId: 'prep-failure', injectTracks: ['memory'] }) })
+  assert.equal(result.ok, false)
+  assert.match(result.message, /context read failed/)
+  assert.equal(harness.children.length, 0)
+  assert.equal(sessions.findById('prep-failure')?.activeTaskId ?? null, null)
+  assert.ok(scheduler.tasks.tasks.every((t) => t.status !== 'queued' && t.status !== 'running'))
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: unwritable context and relay directories fail before launching a CLI', () => {
+  const dir = tempDir()
+  const { scheduler, sessions, harness } = bootScheduler(dir)
+  writeFileSync(join(dir, 'contexts'), 'occupied path')
+  let result
+  assert.doesNotThrow(() => { result = scheduler.dispatch({ adapterId: 'kimi', prompt: 'context', contextText: 'x'.repeat(40000), sessionId: 'context-failure' }) })
+  assert.equal(result.ok, false)
+  assert.match(result.message, /背景/)
+  assert.equal(sessions.findById('context-failure')?.activeTaskId ?? null, null)
+  assert.equal(scheduler.tasks.get(result.taskId).status, 'failed')
+  const failedContextTask = result.taskId
+  rmSync(join(dir, 'contexts'))
+  const retriedContext = scheduler.retry(failedContextTask)
+  assert.equal(retriedContext.ok, true)
+  assert.equal(scheduler.tasks.get(retriedContext.taskId).contextText, 'x'.repeat(40000))
+  assert.ok(scheduler.tasks.get(retriedContext.taskId).prompt.includes('已写入文件'))
+  harness.children[0].emit('close', 0)
+  const source = scheduler.tasks.add({ adapterId: 'kimi', prompt: 'source', scope: 'global', status: 'completed' })
+  scheduler.tasks.appendLog(source.id, 'y'.repeat(270000))
+  writeFileSync(join(dir, 'relay'), 'occupied path')
+  assert.doesNotThrow(() => { result = scheduler.dispatch({ adapterId: 'kimi', prompt: 'relay', refTaskId: source.id }) })
+  assert.equal(result.ok, false)
+  assert.match(result.message, /接力/)
+  assert.equal(harness.children.length, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: cancellation retains buffered output and sends one terminal notification', () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const notifications = []
+  scheduler.notify = (event) => notifications.push(event)
+  const first = scheduler.dispatch({ adapterId: 'kimi', prompt: 'cancel' })
+  harness.children[0].stdout.emit('data', 'last buffered output\n')
+  assert.equal(scheduler.cancel(first.taskId, { force: true }).ok, true)
+  assert.match(scheduler.tasks.readLog(first.taskId), /last buffered output/)
+  assert.deepEqual(notifications.map((n) => n.status), ['killed'])
+  harness.children[0].emit('close', 0)
+  assert.deepEqual(notifications.map((n) => n.status), ['killed'])
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -556,6 +615,40 @@ test('scheduler: wait resolves on completion; retry re-dispatches', async () => 
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('scheduler: retry retains image attachments in CLI arguments and task records', () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const image = { localPath: join(dir, 'image.png'), name: 'image.png', caption: 'diagram' }
+  const first = scheduler.dispatch({ adapterId: 'codex', prompt: 'Describe image', attachments: [image] })
+  assert.ok(harness.children[0].args.includes(image.localPath))
+  harness.children[0].emit('close', 0)
+  const retried = scheduler.retry(first.taskId)
+  assert.equal(retried.ok, true)
+  assert.ok(harness.children[1].args.includes('-i'))
+  assert.ok(harness.children[1].args.includes(image.localPath))
+  assert.deepEqual(scheduler.tasks.get(retried.taskId).attachments, scheduler.tasks.get(first.taskId).attachments)
+  harness.children[1].emit('close', 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: retries preserve prepared context and wake settings without adding repeated wrappers', () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const first = scheduler.dispatch({ adapterId: 'kimi', prompt: 'unique request', injectTracks: ['memory'], contextText: 'fixed background', wakeOnComplete: true })
+  const originalArgs = [...harness.children[0].args]
+  harness.children[0].emit('close', 0)
+  const retried = scheduler.retry(first.taskId)
+  assert.equal(retried.ok, true)
+  assert.deepEqual(harness.children[1].args, originalArgs)
+  assert.equal(scheduler.tasks.get(retried.taskId).wakeOnComplete, true)
+  harness.children[1].emit('close', 0)
+  const twice = scheduler.retry(retried.taskId)
+  assert.equal(twice.ok, true)
+  assert.deepEqual(harness.children[2].args, originalArgs)
+  harness.children[2].emit('close', 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('scheduler: relay refTaskId appends full prior output', () => {
   const dir = tempDir()
   const { scheduler, harness } = bootScheduler(dir)
@@ -566,12 +659,14 @@ test('scheduler: relay refTaskId appends full prior output', () => {
   harness.children[0].emit('close', 0)
   const second = scheduler.dispatch({ adapterId: 'kimi', prompt: '继续', refTaskId: first.taskId })
   assert.equal(second.ok, true)
-  const arg = harness.children[1].args[1]
+  const delivered = harness.children[1].args[1]
+  const taskFile = delivered.match(/任务文件：([^\r\n]+)/)?.[1]
+  const arg = taskFile ? readFileSync(taskFile, 'utf8') : delivered
   assert.match(arg, /引用任务/)
   assert.match(arg, /第一件事的结果输出/) // 开头部分也在（全量内联）
   assert.match(arg, /结尾标记/)            // 结尾也在
   assert.match(arg, /继续/)
-  assert.ok(arg.length > 9000, '输出应全量内联而非截断')
+  assert.ok(arg.length > 9000, '交付给 CLI 的内容必须完整，不能截断')
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -601,9 +696,11 @@ test('scheduler: memory context injection (AI 自主选择轨, inline + file fal
   // 超长（>32KB）：写文件 + 路径
   const big = 'x'.repeat(40 * 1024)
   const withBig = scheduler.dispatch({ adapterId: 'grok', prompt: '任务4', injectTracks: ['key'], contextText: big })
-  const arg3 = harness.children[4].args[1]
+  const deliveredBig = harness.children[4].args[1]
+  const bigTaskFile = deliveredBig.match(/任务文件：([^\r\n]+)/)?.[1]
+  const arg3 = bigTaskFile ? readFileSync(bigTaskFile, 'utf8') : deliveredBig
   assert.ok(arg3.includes('已写入文件'))
-  assert.match(arg3, /contexts\/coi-[a-z0-9-]+\.txt/)
+  assert.match(arg3, /contexts[\\/]coi-[a-z0-9-]+\.txt/)
   // 非法轨被过滤（不会注入）
   const bad = scheduler.dispatch({ adapterId: 'grok', prompt: '任务5', injectTracks: ['memory', 'AGENTS'] })
   assert.ok(harness.children[5].args[1].includes('背景信息'), '合法轨仍注入')
@@ -728,8 +825,9 @@ test('启动即失败路径（resume 缺 sessionId）不发「已发起」消息
   const { scheduler } = bootSchedulerWithAgents(dir, agent)
   // sessionId 占位符未替换 → #startProcess 直接 finish failed
   const result = scheduler.dispatch({ adapterId: 'codex', prompt: '恢复', ownerSessionId: 'sess-1', sessionId: '{sessionId}' })
-  assert.equal(result.ok, true)
-  assert.equal(agent.calls.length, 0, '启动即失败不发「已发起」')
+  assert.equal(result.ok, false)
+  assert.equal(agent.calls.length, 1, '启动失败只投递一次失败通知')
+  assert.ok(!JSON.stringify(agent.calls).includes('已发起'))
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -972,7 +1070,7 @@ test('coi tools: status/wait render 输出开头给出完整日志路径（省�
   harness.children[0].stdout.emit('data', '第一行输出\n')
   harness.children[0].emit('close', 0)
   const done = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId })).task })
-  assert.match(done[0].text, /完整日志：.*logs\/.+\.log（输出为尾部摘要；需要完整输出请用 read 工具读取该文件，不要自行搜索）/s)
+  assert.match(done[0].text, /完整日志：.*logs[\\/].+\.log（输出为尾部摘要；需要完整输出请用 read 工具读取该文件，不要自行搜索）/s)
   assert.ok(done[0].text.includes(scheduler.tasks.logPath(result.taskId)), '路径必须与留档文件一致')
   // wait 同款
   const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 })
