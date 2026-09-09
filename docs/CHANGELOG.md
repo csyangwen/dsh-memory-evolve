@@ -6,6 +6,14 @@
 
 ---
 
+## 未发布
+
+### 修复
+
+- **「Memory Evolve 设置」里勾选「记忆写入看门狗」保存后刷新即失效**：`MemoryQueueView.saveConfig()` 手工拼了一个固定 patch 对象发给宿主，键列表是**手写**的——`perTurnWriteGuard`（看门狗开关）与 `writeGuardThreshold`（阈值）有控件、`draft` 绑定也在（勾选立即变化），却没进 patch，于是 POST body 里根本没有这两个键，宿主 `updateRuntime()` 收不到、`plugin-state.json` 不落盘，刷新后 GET 回显仍是默认 `false`；因为界面读的是本地 draft，保存瞬间还显示「配置已保存」，问题只在刷新后才暴露。修复：把两个键补进保存 payload（TS 源码 + 构建产物 `lib/client.js` 同步重建），并新增回归测试 `tests/client-config-save.test.js` 钉住「面板 draft 绑定键 ⊆ saveConfig 发送键」这条契约（同时断言源码与产物键集合一致，防「改了源码没重建」），已验证还原修复后该测试必失败。
+
+---
+
 ## 2026-09-08
 
 ### 修复

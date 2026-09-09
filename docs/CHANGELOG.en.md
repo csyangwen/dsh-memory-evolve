@@ -6,6 +6,14 @@ All version changes for this repository, in reverse chronological order.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **"Memory write watchdog" toggle in Memory Evolve Settings reverted after saving and refreshing**: `MemoryQueueView.saveConfig()` hand-builds a fixed patch object for the host, and that key list is hard-coded — `perTurnWriteGuard` (the watchdog toggle) and `writeGuardThreshold` (its threshold) have controls and are bound to `draft` (the checkbox flips immediately), but were never added to the patch. The POST body therefore carried neither key, the host's `updateRuntime()` never saw them, nothing was persisted to `plugin-state.json`, and the next `GET /api/config` returned the default `false`. Because the panel renders the local draft, the save even reported success — the loss only surfaced after a refresh. Fix: both keys are now sent (TypeScript source plus a rebuilt `lib/client.js` artifact), with a regression test `tests/client-config-save.test.js` pinning the contract "every draft-bound panel key is sent by saveConfig" (and asserting the source and artifact key sets match, guarding against "source edited but artifact not rebuilt"). Verified to fail when the fix is reverted.
+
+---
+
 ## 2026-09-08
 
 ### Fixed

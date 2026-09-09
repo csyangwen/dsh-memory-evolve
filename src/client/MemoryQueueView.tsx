@@ -269,6 +269,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       perTurnProjectWrites: draft.perTurnProjectWrites,
       perTurnDailyWrites: draft.perTurnDailyWrites,
       perTurnKeyWrites: draft.perTurnKeyWrites,
+      perTurnWriteGuard: draft.perTurnWriteGuard,
+      writeGuardThreshold: draft.writeGuardThreshold,
       searchDocsEnabled: draft.searchDocsEnabled,
       searchDocsMode: draft.searchDocsMode,
       coiEnabled: draft.coiEnabled,
