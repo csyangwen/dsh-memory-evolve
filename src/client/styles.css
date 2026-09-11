@@ -1054,11 +1054,16 @@
 
 .mt-file-tabs {
   display: flex;
-  flex-wrap: wrap;
+  /* 子 tab 数量随配置增长（记忆/技能/待办/设置/模型/同步/广播/COI/提示词/书签/
+     UI 设置……），窄容器下 flex-wrap:wrap 折行两排、视觉破碎且行高翻倍；
+     固定 32px 单行 + 横向滚动（与 DSH 会话视图 tab 行为一致） */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: 2px;
   padding: 0;
   border-bottom: 1px solid var(--dsw-alias-interactive-bg-hover);
   margin-bottom: 10px;
+  scrollbar-width: thin;
 }
 
 .mt-file-tab {
