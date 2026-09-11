@@ -6,6 +6,14 @@ All version changes for this repository, in reverse chronological order.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Advisor logged `session/event listener error: events is not iterable` on every reviewable turn under DSH 0.1.2-alpha.4+ (issue #49)**: DSH removed the `Session.events` array as of 0.1.2-alpha.4 (replaced by `ownEvents()`), but the advisor assembly layer's (`lib/advisor/index.js`) `session/event` listener still passed `session.events` straight to the observer — `undefined` on the new host, and `findLastMessageTurnEnd` then threw a TypeError (`for...of` over `undefined`), so every reviewable `turn/end` logged a listener error (reviews themselves still ran; pure log noise plus debugging confusion). Same root cause as review.js's issue #42 (whose three-tier fallback shipped in v26090901); this site was missed. Fix: the same fallback as review.js — `ownEvents?.() ?? .events ?? []` (legacy hosts still use `.events`). Added regression test `tests/advisor-alpha-session.test.js` (alpha shape with `ownEvents()` only / legacy shape with `.events` only / neither accessor → empty array); verified to fail when the fix is reverted, at `findLastMessageTurnEnd` in `observer.js` as reported in the issue.
+
+---
+
 ## 2026-09-09
 
 ### Fixed

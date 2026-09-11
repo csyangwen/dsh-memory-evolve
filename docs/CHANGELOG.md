@@ -6,6 +6,14 @@
 
 ---
 
+## Unreleased
+
+### 修复
+
+- **advisor 在 DSH 0.1.2-alpha.4+ 每个可评审回合报「session/event 监听器抛错：events is not iterable」（issue #49）**：DSH 0.1.2-alpha.4 起移除 `Session.events` 数组（改 `ownEvents()`），advisor 装配层（`lib/advisor/index.js`）的 `session/event` 监听器仍直接读 `session.events` 转发给 observer——新宿主下该字段为 `undefined`，observer 的 `findLastMessageTurnEnd` 对 `undefined` 做 `for...of` 抛 TypeError，每个可评审 `turn/end` 报一次监听器错误（评审本身照常运行，纯日志噪音 + 排障干扰）。与 review.js 的 issue #42 同根因（#42 的三档兜底修复已随 v26090901 交付），此处漏改。修复：同 review.js 三档兜底 `ownEvents?.() ?? .events ?? []`（老宿主回退 `.events`）。新增回归测试 `tests/advisor-alpha-session.test.js`（alpha 形状仅 `ownEvents()` / legacy 形状仅 `.events` / 两者皆无空数组兜底三形态），已验证还原修复后该测试必失败（报在 `observer.js` 的 `findLastMessageTurnEnd`，与 issue 栈一致）。
+
+---
+
 ## 2026-09-09
 
 ### 修复
