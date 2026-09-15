@@ -322,6 +322,11 @@ test('visibility: scope-tier filtering for tasks and sessions', () => {
   assert.ok(!idsB.includes(tProjectCross.id), 'A 跨目录派的任务对 B 不可见')
   assert.ok(!idsB.includes(tLegacy.id), '旧任务也不跨工作区泄漏')
   assert.ok(idsB.includes(tGlobal.id), '全局任务任何会话可见')
+  // 直接访问判断与列表过滤同语义：项目任务缺少查看 cwd 时拒绝，global 仍可见。
+  assert.equal(tasks.canAccess(tProject, { ownerSessionId: 'sessA', sessionCwd: null }), false)
+  assert.equal(tasks.canAccess(tProject, { ownerSessionId: 'sessA', sessionCwd: '/workA' }), true)
+  assert.equal(tasks.canAccess(tSession, { ownerSessionId: null, sessionCwd: '/workA' }), false)
+  assert.equal(tasks.canAccess(tGlobal, { ownerSessionId: null, sessionCwd: null }), true)
 
   // 不带视角（如 slash 命令）：全部可见（不启用层级过滤）
   assert.equal(tasks.list().length, 8)
@@ -484,6 +489,46 @@ test('scheduler: session lock rejects concurrent reuse', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('scheduler: continue selects an accessible registered session and honors its lock', () => {
+  const dir = tempDir()
+  const { scheduler, harness, sessions } = bootScheduler(dir)
+  const first = scheduler.dispatch({ adapterId: 'kimi', prompt: 'A', scope: 'session', cwd: dir, ownerSessionId: 'A', ownerCwd: dir, sessionId: 'private-A' })
+  const foreign = scheduler.dispatch({ adapterId: 'kimi', prompt: 'B', cwd: dir, ownerSessionId: 'B', ownerCwd: dir, continueLast: true })
+  assert.equal(foreign.ok, false)
+  assert.equal(harness.children.length, 1)
+  const locked = scheduler.dispatch({ adapterId: 'kimi', prompt: 'A again', ownerSessionId: 'A', ownerCwd: dir, continueLast: true })
+  assert.equal(locked.ok, false)
+  assert.match(locked.message, /占用/)
+  assert.equal(sessions.findById('private-A').activeTaskId, first.taskId)
+  harness.children[0].emit('close', 0)
+  const continued = scheduler.dispatch({ adapterId: 'kimi', prompt: 'A again', ownerSessionId: 'A', ownerCwd: dir, continueLast: true })
+  assert.equal(continued.ok, true)
+  assert.equal(scheduler.tasks.get(continued.taskId).sessionId, 'private-A')
+  assert.equal(harness.children[1].cwd, dir)
+  assert.deepEqual(harness.children[1].args.slice(0, 2), ['-S', 'private-A'])
+  harness.children[1].emit('close', 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: resuming an older session updates the most recently used session', () => {
+  const dir = tempDir()
+  const { scheduler, harness, sessions } = bootScheduler(dir)
+  const older = sessions.upsert({ id: 'older', adapterId: 'kimi', scope: 'session', ownerSessionId: 'A', cwd: dir }).session
+  const newer = sessions.upsert({ id: 'newer', adapterId: 'kimi', scope: 'session', ownerSessionId: 'A', cwd: dir }).session
+  older.lastSeen = 1
+  newer.lastSeen = 2
+  const resumed = scheduler.dispatch({ adapterId: 'kimi', prompt: 'resume older', sessionId: 'older', ownerSessionId: 'A' })
+  assert.equal(resumed.ok, true)
+  assert.equal(harness.children[0].cwd, dir)
+  harness.children[0].emit('close', 0)
+  const continued = scheduler.dispatch({ adapterId: 'kimi', prompt: 'continue', continueLast: true, ownerSessionId: 'A' })
+  assert.equal(continued.ok, true)
+  assert.equal(scheduler.tasks.get(continued.taskId).sessionId, 'older')
+  assert.equal(sessions.findById('older').lastTaskId, continued.taskId)
+  harness.children[1].emit('close', 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('scheduler: cancel kills process group', () => {
   const dir = tempDir()
   const { scheduler, harness } = bootScheduler(dir)
@@ -537,6 +582,24 @@ test('coi tools: de_coi_adapters lists scenarios and enabled state', async () =>
   adapters.setEnabled('codex', false)
   const res2 = await adaptersTool.execute({})
   assert.equal(res2.adapters.find((a) => a.id === 'codex').enabled, false)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('scheduler: captured project sessions retain owner workspace and reject foreign resume', () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  scheduler.dispatch({ adapterId: 'kimi', prompt: 'x', scope: 'project', cwd: '/target', ownerSessionId: 'A', ownerCwd: '/owner' })
+  harness.children[0].stdout.emit('data', 'To resume this session: kimi -r session_owner\n')
+  harness.children[0].emit('close', 0)
+  assert.equal(scheduler.sessions.findById('session_owner').ownerCwd, '/owner')
+  assert.equal(scheduler.sessions.list({ ownerSessionId: 'B', sessionCwd: '/target' }).length, 0)
+  assert.equal(scheduler.sessions.list({ ownerSessionId: 'A' }).length, 0)
+  const foreign = scheduler.dispatch({ adapterId: 'kimi', prompt: 'resume', sessionId: 'session_owner', ownerSessionId: 'B', ownerCwd: '/target' })
+  assert.equal(foreign.ok, false)
+  assert.equal(harness.children.length, 1)
+  const allowed = scheduler.dispatch({ adapterId: 'kimi', prompt: 'resume', sessionId: 'session_owner', ownerSessionId: 'C', ownerCwd: '/owner' })
+  assert.equal(allowed.ok, true)
+  harness.children[1].emit('close', 0)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -603,7 +666,7 @@ test('scheduler: memory context injection (AI 自主选择轨, inline + file fal
   const withBig = scheduler.dispatch({ adapterId: 'grok', prompt: '任务4', injectTracks: ['key'], contextText: big })
   const arg3 = harness.children[4].args[1]
   assert.ok(arg3.includes('已写入文件'))
-  assert.match(arg3, /contexts\/coi-[a-z0-9-]+\.txt/)
+  assert.match(arg3, /contexts[\\/]coi-[a-z0-9-]+\.txt/)
   // 非法轨被过滤（不会注入）
   const bad = scheduler.dispatch({ adapterId: 'grok', prompt: '任务5', injectTracks: ['memory', 'AGENTS'] })
   assert.ok(harness.children[5].args[1].includes('背景信息'), '合法轨仍注入')
@@ -691,15 +754,21 @@ test('scheduler: recover marks interrupted leftovers', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('scheduler: summary sink is called for non-temporary tasks', () => {
+test('scheduler: private tasks do not write shared summaries; project summaries use the owner workspace', () => {
   const dir = tempDir()
   const summaries = []
   const { scheduler, harness } = bootScheduler(dir, { writeSummary: (s) => summaries.push(s) })
-  scheduler.dispatch({ adapterId: 'grok', prompt: '沉淀我', scope: 'project', cwd: '/p', branch: 'main' })
+  scheduler.dispatch({ adapterId: 'grok', prompt: '沉淀我', scope: 'project', cwd: '/target', ownerCwd: '/p', branch: 'main' })
   harness.children[0].emit('close', 0)
   assert.equal(summaries.length, 1)
   assert.equal(summaries[0].cwd, '/p')
   assert.equal(summaries[0].branch, 'main')
+  assert.equal(summaries[0].scope, 'project')
+  scheduler.dispatch({ adapterId: 'grok', prompt: 'private marker', scope: 'session', cwd: '/p' })
+  harness.children[1].emit('close', 0)
+  scheduler.dispatch({ adapterId: 'grok', prompt: 'temporary marker', scope: 'temporary', cwd: '/p' })
+  harness.children[2].emit('close', 0)
+  assert.equal(summaries.length, 1)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -903,17 +972,44 @@ test('coi tools: dispatch/status/wait/cancel registered with schemas', async () 
   assert.ok(tools[3].description.includes('拿结果的正确方式'), 'wait 定位为派发后拿结果的方式')
   assert.ok(!tools[0].description.includes('无需轮询、无需阻塞等待'), 'dispatch 不再误导无需等待')
   const dispatchTool = tools[0]
-  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const exec = { agent: { session: { id: 'tool-sess', header: { cwd: '/p' } } } }
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, exec)
   assert.equal(result.ok, true)
   assert.ok(result.taskId)
   const statusTool = tools[2]
-  const status = await statusTool.execute({ taskId: result.taskId })
+  const status = await statusTool.execute({ taskId: result.taskId }, exec)
   assert.equal(status.ok, true)
   assert.equal(status.task.status, 'running')
   harness.children[0].emit('close', 0)
   const waitTool = tools[3]
-  const cancelResult = await waitTool.execute({ taskId: 'nonexistent' })
+  const cancelResult = await waitTool.execute({ taskId: 'nonexistent' }, exec)
   assert.equal(cancelResult.ok, false)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('coi tools: status/cancel refuse another DSH session task', async () => {
+  const dir = tempDir()
+  const { scheduler, harness } = bootScheduler(dir)
+  const tools = coiToolDefinitions(scheduler)
+  const dispatchTool = tools[0]
+  const statusTool = tools[2]
+  const cancelTool = tools[4]
+  const execA = { agent: { session: { id: 'tool-A', header: { cwd: '/workA' } } } }
+  const execB = { agent: { session: { id: 'tool-B', header: { cwd: '/workB' } } } }
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '私有任务', scope: 'session' }, execA)
+  assert.equal(result.ok, true)
+  assert.equal((await statusTool.execute({ taskId: result.taskId }, execA)).ok, true)
+  const hiddenStatus = await statusTool.execute({ taskId: result.taskId }, execB)
+  assert.equal(hiddenStatus.ok, false)
+  assert.match(hiddenStatus.message, /无权访问/)
+  const hiddenCancel = await cancelTool.execute({ taskId: result.taskId }, execB)
+  assert.equal(hiddenCancel.ok, false)
+  assert.match(hiddenCancel.message, /无权访问/)
+  assert.equal(harness.children[0].killed.length, 0, '越权取消不得触碰进程')
+  const noIdentity = await statusTool.execute({ taskId: result.taskId })
+  assert.equal(noIdentity.ok, false, '缺少身份不得读取私有任务')
+  const cancelled = await cancelTool.execute({ taskId: result.taskId }, execA)
+  assert.equal(cancelled.ok, true)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -926,12 +1022,13 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   const { scheduler, harness } = bootScheduler(dir)
   const tools = coiToolDefinitions(scheduler)
   const dispatchTool = tools[0]
-  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const exec = { agent: { session: { id: 'tool-sess', header: { cwd: '/p' } } } }
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, exec)
   const statusTool = tools[2]
   const waitTool = tools[3]
   const cancelTool = tools[4]
   // 运行中任务：sessionId/finishedAt/exitCode/summary 尚未产生
-  const status = await statusTool.execute({ taskId: result.taskId })
+  const status = await statusTool.execute({ taskId: result.taskId }, exec)
   assert.equal(status.ok, true)
   assert.ok(status.message.length > 0, 'status 必须带 message')
   const taskSchema = statusTool.output.schema.properties.task
@@ -944,24 +1041,24 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   assert.ok(Array.isArray(status.task.progress))
   // wait：完成任务的输出同样合规（wait 成功分支原无 message，已补）
   harness.children[0].emit('close', 0)
-  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 })
+  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 }, exec)
   assert.equal(waited.ok, true)
   assert.ok(waited.message.length > 0, 'wait 必须带 message')
   assert.deepEqual(Object.keys(waited.task).sort(), schemaProps, 'wait task 字段集与 schema 一致')
   // cancel：任务已结束 → {ok:false} 无 task（schema 允许 task 缺省）
-  const cancel = await cancelTool.execute({ taskId: result.taskId })
+  const cancel = await cancelTool.execute({ taskId: result.taskId }, exec)
   assert.equal(cancel.ok, false)
   assert.ok(cancel.message.length > 0)
   // 新任务 cancel：返回带 task 的终止详情，同样合规
-  const result2 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务2', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
-  const cancel2 = await cancelTool.execute({ taskId: result2.taskId })
+  const result2 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务2', scope: 'project' }, exec)
+  const cancel2 = await cancelTool.execute({ taskId: result2.taskId }, exec)
   assert.equal(cancel2.ok, true)
   assert.deepEqual(Object.keys(cancel2.task).sort(), schemaProps, 'cancel task 字段集与 schema 一致')
   assert.equal(cancel2.task.status, 'killed')
   // wait 可被 exec.signal（停止按钮/回合中断）中止：不阻塞到 timeout
-  const result3 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务3', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
+  const result3 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务3', scope: 'project' }, exec)
   const controller = new AbortController()
-  const waitPromise = waitTool.execute({ taskId: result3.taskId, timeoutMs: 120000 }, { signal: controller.signal })
+  const waitPromise = waitTool.execute({ taskId: result3.taskId, timeoutMs: 120000 }, { ...exec, signal: controller.signal })
   controller.abort()
   const aborted = await waitPromise
   assert.equal(aborted.ok, false, 'abort 后立即返回')
@@ -971,8 +1068,8 @@ test('coi tools: status/wait/cancel outputs match schema exactly (no extra/missi
   // wait 超时：运行中任务轮询到 deadline 返回——不依赖 ctx.on/ctx.off
   // （bootScheduler 的 ctx 只有 emit；曾因超时回调里 ctx.off 抛
   //  "cannot get property off without inject" 崩掉整个进程）
-  const result4 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务4', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
-  const timedOut = await waitTool.execute({ taskId: result4.taskId, timeoutMs: 1500 })
+  const result4 = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务4', scope: 'project' }, exec)
+  const timedOut = await waitTool.execute({ taskId: result4.taskId, timeoutMs: 1500 }, exec)
   assert.equal(timedOut.ok, false)
   assert.match(timedOut.message, /超时/)
   assert.equal(timedOut.task.status, 'running', '超时返回当前状态')
@@ -990,20 +1087,21 @@ test('coi tools: status/wait render 输出开头给出完整日志路径（省�
   const dispatchTool = tools[0]
   const statusTool = tools[2]
   const waitTool = tools[3]
+  const exec = { agent: { session: { id: 'tool-sess', header: { cwd: '/p' } } } }
   // 运行中（日志文件尚未创建）：提示「暂无输出文件」
-  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, { agent: { session: { header: { cwd: '/p' } } } })
-  const running = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId })).task })
+  const result = await dispatchTool.execute({ adapterId: 'grok', prompt: '任务', scope: 'project' }, exec)
+  const running = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId }, exec)).task })
   assert.match(running[0].text, /完整日志：/, 'status render 必须包含完整日志路径')
   assert.match(running[0].text, /暂无输出文件/)
   assert.ok(running[0].text.indexOf('完整日志') < running[0].text.indexOf('任务 '), '日志路径必须位于输出开头')
   // 完成后（先有输出、日志文件已落盘）：提示用 read 读取，路径与 tasks.logPath 一致
   harness.children[0].stdout.emit('data', '第一行输出\n')
   harness.children[0].emit('close', 0)
-  const done = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId })).task })
-  assert.match(done[0].text, /完整日志：.*logs\/.+\.log（输出为尾部摘要；需要完整输出请用 read 工具读取该文件，不要自行搜索）/s)
+  const done = statusTool.output.render({}, { ok: true, message: 'm', task: (await statusTool.execute({ taskId: result.taskId }, exec)).task })
+  assert.match(done[0].text, /完整日志：.*logs[\\/].+\.log（输出为尾部摘要；需要完整输出请用 read 工具读取该文件，不要自行搜索）/s)
   assert.ok(done[0].text.includes(scheduler.tasks.logPath(result.taskId)), '路径必须与留档文件一致')
   // wait 同款
-  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 })
+  const waited = await waitTool.execute({ taskId: result.taskId, timeoutMs: 2000 }, exec)
   const waitedText = waitTool.output.render({}, { ok: true, message: 'm', task: waited.task })[0].text
   assert.match(waitedText, /^📄 完整日志：/, 'wait render 输出开头同样给出日志路径')
   rmSync(dir, { recursive: true, force: true })
@@ -1174,7 +1272,7 @@ async function bootApi(dir, overrides = {}) {
 
 test('coi api: adapters, tasks dispatch + status + cancel flow', async () => {
   const dir = tempDir()
-  const api = await bootApi(dir)
+  const api = await bootApi(dir, { resolveCwd: (id) => id === 'ds-sess-1' ? '/workA' : '/workB' })
   try {
     const adapters = await api.request('GET', '/memory-evolve/api/coi/adapters')
     assert.equal(adapters.data.adapters.length, 4)
@@ -1191,27 +1289,43 @@ test('coi api: adapters, tasks dispatch + status + cancel flow', async () => {
     // dsSessionId 记为所有者（层级可见性依据），与"恢复的 COI 会话"（sessionId）互不干扰
     assert.equal(api.stores.tasks.get(taskId).ownerSessionId, 'ds-sess-1')
 
-    const status = await api.request('GET', `/memory-evolve/api/coi/tasks/${taskId}`)
+    const hiddenNoIdentity = await api.request('GET', `/memory-evolve/api/coi/tasks/${taskId}`)
+    assert.equal(hiddenNoIdentity.status, 404)
+    const hiddenStatus = await api.request('GET', `/memory-evolve/api/coi/tasks/${taskId}?sessionId=ds-sess-2`)
+    assert.equal(hiddenStatus.status, 404)
+    assert.match(hiddenStatus.data.message, /不存在或当前会话无权访问/)
+    const hiddenLog = await api.request('GET', `/memory-evolve/api/coi/tasks/${taskId}/log?tail=100&sessionId=ds-sess-2`)
+    assert.equal(hiddenLog.status, 404)
+    const hiddenCancel = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/cancel`, { dsSessionId: 'ds-sess-2', force: true })
+    assert.equal(hiddenCancel.status, 404)
+    const hiddenRetry = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/retry`, { dsSessionId: 'ds-sess-2' })
+    assert.equal(hiddenRetry.status, 404)
+    const hiddenDelete = await api.request('DELETE', `/memory-evolve/api/coi/tasks/${taskId}?sessionId=ds-sess-2`)
+    assert.equal(hiddenDelete.status, 404)
+    const hiddenList = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p&sessionId=ds-sess-2')
+    assert.equal(hiddenList.data.tasks.length, 0)
+
+    const status = await api.request('GET', `/memory-evolve/api/coi/tasks/${taskId}?sessionId=ds-sess-1`)
     assert.equal(status.data.task.status, 'running')
 
     // 不带 force 的 cancel 只返回确认提示
-    const confirm = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/cancel`, {})
+    const confirm = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/cancel`, { dsSessionId: 'ds-sess-1' })
     assert.equal(confirm.status, 400)
     assert.match(confirm.data.message, /确认/)
     // 带 force 执行
-    const cancel = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/cancel`, { force: true })
+    const cancel = await api.request('POST', `/memory-evolve/api/coi/tasks/${taskId}/cancel`, { force: true, dsSessionId: 'ds-sess-1' })
     assert.equal(cancel.status, 200)
     assert.equal(cancel.data.ok, true)
 
-    const list = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p')
+    const list = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p&sessionId=ds-sess-1')
     assert.equal(list.data.tasks.length, 1)
     assert.equal(list.data.tasks[0].status, 'killed')
 
     // 删除：killed 任务可删（记录+留档移除）
-    const del = await api.request('DELETE', `/memory-evolve/api/coi/tasks/${taskId}`)
+    const del = await api.request('DELETE', `/memory-evolve/api/coi/tasks/${taskId}?sessionId=ds-sess-1`)
     assert.equal(del.status, 200)
     assert.equal(del.data.ok, true)
-    const afterDel = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p')
+    const afterDel = await api.request('GET', '/memory-evolve/api/coi/tasks?cwd=/p&sessionId=ds-sess-1')
     assert.equal(afterDel.data.tasks.length, 0)
   } finally {
     await api.close()
@@ -1265,17 +1379,23 @@ test('coi api: tasks list pagination (page/pageSize + total; old limit call unch
 
 test('coi api: sessions note, stats, config patch, relay', async () => {
   const dir = tempDir()
-  const api = await bootApi(dir)
+  const api = await bootApi(dir, { resolveCwd: () => '/p' })
   try {
     // 先跑一个任务捕获会话（fake spawn 手动触发）
-    const dispatch = await api.request('POST', '/memory-evolve/api/coi/tasks', { adapterId: 'kimi', prompt: '捕获会话', scope: 'project', cwd: '/p' })
+    const dispatch = await api.request('POST', '/memory-evolve/api/coi/tasks', { adapterId: 'kimi', prompt: '捕获会话', scope: 'session', cwd: '/p', dsSessionId: 'ds-sess-1' })
     api.harness.children[0].stdout.emit('data', 'To resume this session: kimi -r session_api1\n')
     api.harness.children[0].emit('close', 0)
 
-    const note = await api.request('POST', '/memory-evolve/api/coi/sessions/note', { id: 'session_api1', note: 'API 测试会话' })
+    const note = await api.request('POST', '/memory-evolve/api/coi/sessions/note', { id: 'session_api1', note: 'API 测试会话', dsSessionId: 'ds-sess-1' })
     assert.equal(note.data.ok, true)
-    const sessions = await api.request('GET', '/memory-evolve/api/coi/sessions?q=API')
+    const sessions = await api.request('GET', '/memory-evolve/api/coi/sessions?q=API&sessionId=ds-sess-1')
     assert.equal(sessions.data.sessions.length, 1)
+    const hiddenSessions = await api.request('GET', '/memory-evolve/api/coi/sessions?q=API&sessionId=ds-sess-2')
+    assert.equal(hiddenSessions.data.sessions.length, 0)
+    const hiddenNote = await api.request('POST', '/memory-evolve/api/coi/sessions/note', { id: 'session_api1', note: '越权', dsSessionId: 'ds-sess-2' })
+    assert.equal(hiddenNote.status, 404)
+    const hiddenSessionDelete = await api.request('DELETE', '/memory-evolve/api/coi/sessions/session_api1?sessionId=ds-sess-2')
+    assert.equal(hiddenSessionDelete.status, 404)
 
     const stats = await api.request('GET', '/memory-evolve/api/coi/stats')
     assert.equal(stats.data.total, 1)
@@ -1287,7 +1407,7 @@ test('coi api: sessions note, stats, config patch, relay', async () => {
     const badConfig = await api.request('POST', '/memory-evolve/api/coi/config', { patch: { nope: 1 } })
     assert.equal(badConfig.status, 400)
 
-    const relay = await api.request('POST', '/memory-evolve/api/coi/tasks/relay', { adapterId: 'grok', prompt: '接力', refTaskId: dispatch.data.taskId })
+    const relay = await api.request('POST', '/memory-evolve/api/coi/tasks/relay', { adapterId: 'grok', prompt: '接力', refTaskId: dispatch.data.taskId, dsSessionId: 'ds-sess-1' })
     assert.equal(relay.data.ok, true)
     assert.match(api.harness.children[1].args[1], /引用任务/)
   } finally {
@@ -1354,36 +1474,46 @@ test('de_coi command: tokenize/parseOpts and handler basics', async () => {
   schedulers.push(scheduler)
   const { coiCommand } = await import('../lib/coi/commands.js')
   const cmd = coiCommand({ scheduler, sessions: stores.sessions, adapters: stores.adapters, templates: stores.templates, tasks: stores.tasks, config: { coiDataDir: dir } })
+  const invocation = { agent: { session: { id: 'cmd-sess', header: { cwd: '/p' } } } }
   // help
-  const help = await cmd.handler({ rawInput: 'help' })
+  const help = await cmd.handler({ ...invocation, rawInput: 'help' })
   assert.equal(help.kind, 'success')
   assert.match(help.text, /de_coi run/)
   // run（带引号参数）
-  const run = await cmd.handler({ rawInput: 'run "做一件事" --coi kimi --scope project' })
+  const run = await cmd.handler({ ...invocation, rawInput: 'run "做一件事" --coi kimi --scope project' })
   assert.equal(run.kind, 'success')
   assert.match(run.text, /coi-/)
   assert.equal(harness.children[0].binary, 'kimi')
   assert.ok(harness.children[0].args[1].startsWith('做一件事'), 'slash run 同样追加输出约定')
   assert.ok(harness.children[0].args[1].includes('【输出约定】'))
   // list
-  const list = await cmd.handler({ rawInput: 'list --limit 5' })
+  const list = await cmd.handler({ ...invocation, rawInput: 'list --limit 5' })
   assert.equal(list.kind, 'success')
   assert.match(list.text, /做一件事/)
   // stop 二次确认
   const taskId = run.text.match(/(coi-[a-z0-9-]+)/)[1]
-  const stop1 = await cmd.handler({ rawInput: `stop ${taskId}` })
+  const stop1 = await cmd.handler({ ...invocation, rawInput: `stop ${taskId}` })
   assert.equal(stop1.kind, 'error')
   assert.match(stop1.text, /确认/)
-  const stop2 = await cmd.handler({ rawInput: `stop ${taskId} --force` })
+  const stop2 = await cmd.handler({ ...invocation, rawInput: `stop ${taskId} --force` })
   assert.equal(stop2.kind, 'success')
   assert.match(stop2.text, /已终止/)
   // adapters / stats / sessions
-  const adaptersList = await cmd.handler({ rawInput: 'adapters list' })
+  const adaptersList = await cmd.handler({ ...invocation, rawInput: 'adapters list' })
   assert.match(adaptersList.text, /kimi/)
-  const stats = await cmd.handler({ rawInput: 'stats' })
+  const stats = await cmd.handler({ ...invocation, rawInput: 'stats' })
   assert.match(stats.text, /总任务数/)
-  const sessionsList = await cmd.handler({ rawInput: 'sessions list' })
+  const sessionsList = await cmd.handler({ ...invocation, rawInput: 'sessions list' })
   assert.equal(sessionsList.kind, 'success')
+  const other = { agent: { session: { id: 'other-session', header: { cwd: '/other' } } } }
+  await cmd.handler({ ...invocation, rawInput: 'run "自己的任务" --scope session' })
+  await cmd.handler({ ...other, rawInput: 'run "其他会话任务" --scope session' })
+  assert.equal((await cmd.handler({ ...invocation, rawInput: 'stop --all' })).kind, 'error')
+  const allStopped = await cmd.handler({ ...invocation, rawInput: 'stop --all --force' })
+  assert.equal(allStopped.kind, 'success')
+  assert.match(allStopped.text, /已终止 1 个任务/)
+  assert.equal(harness.children[2].killed.length, 0)
+  harness.children[2].emit('close', 0)
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -1651,10 +1781,15 @@ test('installCoi: tools, command, api, summary wiring', async () => {
   const result = svc.scheduler.dispatch({ adapterId: 'grok', prompt: '写日志', scope: 'project', cwd: '/p', branch: 'main' })
   assert.equal(result.ok, true)
   harness.children[0].emit('close', 0)
-  assert.equal(adds.length, 2) // project + daily
+  assert.equal(adds.length, 1)
   assert.equal(adds[0].target, 'project')
-  assert.equal(adds[1].target, 'daily')
   assert.ok(adds[0].content.includes('[COI]'))
+  svc.scheduler.dispatch({ adapterId: 'grok', prompt: 'private marker', scope: 'session', cwd: '/p' })
+  harness.children[1].emit('close', 0)
+  assert.equal(adds.length, 1, '私有摘要不能进入项目记忆或全局日记')
+  svc.scheduler.dispatch({ adapterId: 'grok', prompt: 'global marker', scope: 'global', cwd: '/p' })
+  harness.children[2].emit('close', 0)
+  assert.deepEqual(adds.map((entry) => entry.target), ['project', 'project', 'daily'])
 
   // 运行时配置更新
   const upd = svc.updateRuntimeConfig({ coiRetentionDays: 45 })
