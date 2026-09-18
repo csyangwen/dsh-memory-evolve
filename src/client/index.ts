@@ -1757,6 +1757,13 @@ export const inject = ['slots', 'locale', 'conversation', 'sessions']
 export function apply(ctx: Context): void {
   const t = ctx.locale.bind(NS) as unknown as Translate
 
+  // ⚠ 样式表常驻（2026-09-12 修复「整页无样式」）：下面每个 ctx.effect
+  // 都只负责「注入一次」，故意不注册移除动作。Cordis 的插件重载是「先重新
+  // 执行 apply、后一次性 dispose 全部 disposable」，若在这里移除 <style>，
+  // 新一轮 apply 又会因「已存在」跳过创建 → 样式永久丢失（UI 还在渲染但没
+  // 有 CSS）。样式是文档级常量，页面卸载时随文档销毁即可，与 dsh-go-sensei
+  // 的 ensureStyles() 同款。
+
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'memory-evolve: dictionaries')
 
   ctx.effect(() => {
@@ -1767,7 +1774,7 @@ export function apply(ctx: Context): void {
     tag.dataset.memoryEvolveCss = '1'
     tag.textContent = styles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: stylesheet')
 
   // Skill-browser styles (merged from the standalone dsh-skill-browser
@@ -1780,7 +1787,7 @@ export function apply(ctx: Context): void {
     tag.dataset.skillBrowserCss = '1'
     tag.textContent = skillBrowserStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: skill browser stylesheet')
 
   // COI 调度样式（coi- 前缀，独立注入）。
@@ -1792,7 +1799,7 @@ export function apply(ctx: Context): void {
     tag.dataset.coiCss = '1'
     tag.textContent = coiStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: coi stylesheet')
 
   // 会话广播样式（bb- 前缀，独立注入）。
@@ -1804,7 +1811,7 @@ export function apply(ctx: Context): void {
     tag.dataset.broadcastCss = '1'
     tag.textContent = broadcastStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: broadcast stylesheet')
 
   // 提示词样式（pm- 前缀，独立注入）。
@@ -1816,7 +1823,7 @@ export function apply(ctx: Context): void {
     tag.dataset.promptCss = '1'
     tag.textContent = promptStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: prompt stylesheet')
 
   // Web UI 设置样式（ui- 前缀，独立注入）。样式本身无副作用：过滤规则
@@ -1831,7 +1838,7 @@ export function apply(ctx: Context): void {
     tag.dataset.uiSettingsCss = '1'
     tag.textContent = uiSettingsStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: ui-settings stylesheet')
 
   // Mermaid 图表渲染样式（me-mermaid- 前缀，独立注入）。样式本身无副作用
@@ -1846,7 +1853,7 @@ export function apply(ctx: Context): void {
     tag.dataset.meMermaidCss = '1'
     tag.textContent = mermaidStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: mermaid stylesheet')
 
   // 会话书签样式（bm- 前缀，独立注入）。样式常驻无副作用；真正开关控制
@@ -1859,7 +1866,7 @@ export function apply(ctx: Context): void {
     tag.dataset.bookmarkCss = '1'
     tag.textContent = bookmarkStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: bookmark stylesheet')
 
   // Advisor 悬浮面板样式（advisor- 前缀）：面板本体 portal 到 body，故样式
@@ -1872,7 +1879,7 @@ export function apply(ctx: Context): void {
     tag.dataset.advisorCss = '1'
     tag.textContent = advisorStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: advisor stylesheet')
 
   // web 站内通知铃铛样式（me-notify- 前缀）：铃铛 portal 到 body，样式须由
@@ -1885,7 +1892,7 @@ export function apply(ctx: Context): void {
     tag.dataset.notifyCss = '1'
     tag.textContent = notificationStyles
     document.head.appendChild(tag)
-    return () => { tag.remove() }
+    return () => {} // 常驻：不随插件重载移除（原因见 apply() 顶部说明）
   }, 'memory-evolve: notification stylesheet')
 
   // web 站内通知铃铛（全局右上角）：探测宿主端 /api/notifications/unread 成功
