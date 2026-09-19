@@ -4,6 +4,23 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+## 2026-09-20
+
+### Fixed
+
+- **Built-in skill sync was switched off along with COI dispatch (no COI → never any built-in skills)**: the `syncBuiltinSkills()` call lived inside `installCoi()`, which is gated by `coiEnabled` (default `false` — this plugin's core is memory/todos/skills; dispatch is an opt-in add-on). Under the default configuration the built-in skills (`memory-consolidate` plus the kimi/codex/grok/hermes guides) were therefore **never synced into the skill library** and never showed up in the skill list. The sync now runs once from the main plugin assembly and is governed by `coiSyncSkills` alone (same class of accident as broadcast in §7.5).
+- **The turn-end key suggestion did not name its tool, so models misfired on `memory_suggest`**: `snap.keyDuty` / `snap.subagentKeyTail` only said "additionally submit a suggestion to target=key", while `memory_suggest`'s target whitelist excludes key (`lib/review.js`: memory/user/todo-* only) — following the wording literally raised "target=key is not supported" at the end of turn after turn. The wording now names the memory tool `add` (`target=key`), the proper path into the pending-confirmation queue (shared `enqueueSuggestion` queue with `memory_suggest`).
+
+### Changed
+
+- **`coiSyncSkills` semantics widened accordingly**: it now only controls whether the built-in skills are synced into the skill library at startup, entirely independent of the COI dispatch switch (`coiEnabled`).
+
+### Docs
+
+- **Built-in skill `memory-consolidate` (x-version 2) gained four field-tested boundaries**: `replace` rewrites a whole entry (partial content silently truncates; real incident cited), writes to the same track must be serial, a canonicalization escape hatch when the drift guard refuses writes (`lib/store.js` parse/serialize round-trip check), and entry-splitting must be judged by `parseEntries().length` (counting delimiters by regex yields false positives).
+
+---
+
 ## 2026-09-15
 
 ### Fixed

@@ -586,7 +586,7 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   // key duty: importance-gated, never a per-turn mandate — and it goes
   // through user confirmation now (提交建议)
   assert.ok(snapshot.includes('重要项目事实'))
-  assert.ok(snapshot.includes('target=key 提交 1 条建议'))
+  assert.ok(snapshot.includes('memory 工具 add（action=add, target=key）提交 1 条建议'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
@@ -660,17 +660,17 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   // both off: the key duty (default on) keeps the checklist alive
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
   assert.ok(none.includes('每轮收尾'))
-  assert.ok(none.includes('target=key 提交 1 条建议'))
+  assert.ok(none.includes('memory 工具 add（action=add, target=key）提交 1 条建议'))
   assert.ok(none.includes('target=project'))
   assert.ok(none.includes('target=daily'))
   // all three off: no write duty at all, hint degrades to on-demand reads
   const allOff = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false, perTurnKeyWrites: false }), store, agent)
-  assert.ok(!allOff.includes('target=key 提交 1 条建议'))
+  assert.ok(!allOff.includes('memory 工具 add（action=add, target=key）提交 1 条建议'))
   assert.ok(!allOff.includes('每轮收尾'))
   // key off: only daily/project keep their write duties
   const noKey = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnKeyWrites: false }), store, agent)
   assert.ok(noKey.includes('含 target=daily 与 target=project 各一项'))
-  assert.ok(!noKey.includes('target=key 提交 1 条建议'))
+  assert.ok(!noKey.includes('memory 工具 add（action=add, target=key）提交 1 条建议'))
   clean(dir)
 })
 

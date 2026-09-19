@@ -665,6 +665,26 @@ test('skills sync: directory skills (scripts/) copy as a whole folder', async ()
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('skills sync: runs with COI dispatch off (decoupled from coiEnabled)', async () => {
+  const dir = tempDir()
+  const pluginSkills = join(dir, 'plugin-skills')
+  const userSkills = join(dir, 'user-skills')
+  mkdirSync(join(pluginSkills, 'memory-consolidate'), { recursive: true })
+  writeFileSync(join(pluginSkills, 'memory-consolidate', 'SKILL.md'), '---\nname: memory-consolidate\nx-version: 2\ndescription: 记忆合并梳理\n---\n# v2\n')
+  const { syncBuiltinSkillsIfEnabled, PLUGIN_SKILLS_DIR } = await import('../lib/coi/skills-sync.js')
+  // 源头就在插件包内 skills/（随包分发，与 COI 无关）
+  assert.equal(existsSync(join(PLUGIN_SKILLS_DIR, 'memory-consolidate', 'SKILL.md')), true)
+  // 回归：调用点曾在 installCoi() 内 → coiEnabled=false（本插件默认）时整个
+  // 内置技能库都装不上。现在只受 coiSyncSkills 控制，与 coiEnabled 无关。
+  const synced = syncBuiltinSkillsIfEnabled({ coiEnabled: false, skillDir: userSkills }, pluginSkills)
+  assert.equal(synced.find((r) => r.name === 'memory-consolidate').action, 'synced')
+  assert.equal(existsSync(join(userSkills, 'memory-consolidate', 'SKILL.md')), true)
+  // 显式关掉 coiSyncSkills 才跳过
+  const off = syncBuiltinSkillsIfEnabled({ coiEnabled: false, coiSyncSkills: false, skillDir: userSkills }, pluginSkills)
+  assert.equal(off.length, 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('scheduler: failed exit code marks task failed', () => {
   const dir = tempDir()
   const { scheduler, harness } = bootScheduler(dir)

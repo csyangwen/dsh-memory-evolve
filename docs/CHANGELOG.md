@@ -4,6 +4,23 @@
 
 > [English](CHANGELOG.en.md)
 
+## 2026-09-20
+
+### 修复
+
+- **内置技能同步被 COI 调度开关连带关闭（不用 COI 就永远拿不到内置技能）**：`syncBuiltinSkills()` 的调用点在 `installCoi()` 内，而 `installCoi` 由 `coiEnabled` 门控（默认 `false`——本插件的本职是记忆/待办/技能，调度是按需增强）。于是默认配置下内置技能（`memory-consolidate` 与 kimi/codex/grok/hermes 使用指南）**永远不会同步进技能库**，技能列表里也看不到它。现把同步移出 COI 装配、改由插件主装配在启动时调用一次，只受 `coiSyncSkills` 控制（与 §7.5 broadcast 当初「挂在 COI 下拆不开」是同款事故）。
+- **收尾指令的 key 建议没写工具名，模型会误用 `memory_suggest` 被拒**：`snap.keyDuty` / `snap.subagentKeyTail` 只说「另向 target=key 提交 1 条建议」，而 `memory_suggest` 的 target 白名单不含 key（`lib/review.js` 仅 memory/user/todo-*），照字面选工具即报「不支持 target=key」，各会话收尾反复踩。现文案明确写「用 memory 工具 `add`（`target=key`）提交」——它才是走待确认队列的正规通道（与 `memory_suggest` 共用 `enqueueSuggestion` 队列）。
+
+### 变更
+
+- **`coiSyncSkills` 语义随之放宽**：它现在只控制「启动时是否把内置技能同步到技能库」，与 COI 调度开关（`coiEnabled`）完全无关。
+
+### 文档
+
+- **内置技能 `memory-consolidate`（x-version 2）补四类实战边界**：`replace` 是整条替换（只传增量会静默截断，附真实事故）、同一轨写操作须串行、drift guard 拒写时的规范化逃生路径（`lib/store.js` parse/serialize 往返校验）、条目粘连只认 `parseEntries().length`（用正则数分隔符会假阳性）。
+
+---
+
 ## 2026-09-15
 
 ### 修复
