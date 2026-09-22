@@ -406,6 +406,7 @@ export class AdvisorSessionStore {
     if (this.started) {
       void this.refreshStatus()
       void this.refreshInstructions()
+      void this.refreshScopes()
       this.schedulePoll(0)
     }
   }
@@ -449,6 +450,11 @@ export class AdvisorSessionStore {
       this.mergeLiveEvents(data.events)
       this.suppressUnreadUntilSynced = false
       this.patch({ eventsLoading: false, ...(rebuildSucceeded ? { eventsError: null } : {}) })
+      // 会话 resume 完成前首屏读取会 400 BAD_SESSION；poll 成功说明会话已上线，
+      // 重刷仍处于错误态的项——否则面板一直停在错误态，要手动刷新页面才恢复。
+      if (this.snapshot.statusError !== null) void this.refreshStatus()
+      if (this.snapshot.instructionsError !== null) void this.refreshInstructions()
+      if (this.snapshot.scopesError !== null) void this.refreshScopes()
     } catch (error) {
       if (!controller.signal.aborted && generation === this.generation) {
         this.patch({ eventsLoading: false, eventsError: errorText(error) })
