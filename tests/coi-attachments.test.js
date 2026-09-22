@@ -241,6 +241,22 @@ test('resolveAttachments: attachmentId — 无服务报错 / 有服务+会话事
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('resolveAttachments: 新式 Session 只暴露 snapshotEvents() 也能解析 attachmentId', async () => {
+  const dir = tempDir()
+  const out = join(dir, 'att')
+  const fullRef = { attachmentId: 'att-2', mediaType: 'image/png', bytes: 4, width: 2, height: 2, name: '新式.png' }
+  const agents = { get: () => ({ session: { snapshotEvents: () => [{ type: 'user/message', data: { content: [{ type: 'image', attachment: fullRef }] } }] } }) }
+  const store = { readImage: async (ref) => ({ ref, data: new Uint8Array([1, 2, 3, 4]) }) }
+  const ok = await resolveAttachments(
+    [{ attachmentId: 'att-2' }],
+    { outputDir: out, tag: 't4', attachmentsStore: store, agentsService: agents, sessionId: 'sess-1' },
+  )
+  assert.equal(ok.ok, true)
+  assert.equal(ok.files[0].name, '新式.png')
+  assert.ok(existsSync(ok.files[0].localPath), '会话图片字节落盘')
+  rmSync(dir, { recursive: true, force: true })
+})
+
 // ------------------------------------------------------------- dispatch
 
 test('dispatch: 不支持的适配器（无 image 配置）带附件 → 明确报错', () => {
