@@ -4,9 +4,20 @@
 
 > [English](CHANGELOG.en.md)
 
-## 2026-09-15
+## 2026-09-22
 
 ### 修复
+
+- **PTC（`run_code`）会话里 `skill_manage action=patch` 恒定被拒**：读证据只认 `tool/call`，而 PTC 会话把嵌套工具调用记成 `tool/ptc-dispatch`（宿主的一等会话事件，与 `tool/call` 同形）。结果是同一会话里「刚 `read` 过、紧接着 `patch`」也永远拿不到证据，技能库只能新建、改不了。修复：读证据同时接受两种事件，并按 PTC 事件的形状取值（`arguments` 已经是对象，不是 JSON 字符串）；语义不变——仍只认 `action === 'read'` 且技能名一致。
+- **读证据在新宿主上恒为空（`session.events` 已移除）**：`hasReadSkill` 直接读 `agent.session.events`，而该字段在 DSH 0.1.2-alpha.4+ 已不存在（见 #38 / #49），非 PTC 会话同样会被「未读先改」误拒。修复：与 `review.js` / `bookmarks.js` / `advisor` 对齐，改走 `ownEvents?.() ?? session.events ?? []`。
+
+### 测试
+
+- `tests/skills.test.js` 新增两例：PTC 事件（对象参数、字符串参数各一）能证明读过，且 `create`、别的技能名、别的工具都不算读；读日志 `ownEvents()` 优先、旧宿主 `.events` 兜底。
+
+---
+
+## 2026-09-15
 
 - **记忆正文被同步链路持续损坏成 U+FFFD 替换字符（根因，阻塞级）**：MEMORY.md 与 daily 日志里长出 `�`（线上实证 45 处、跨四天静默累积；本机 4 个 daily 文件 11 处），格式预检（`isCanonical`/parse→serialize 往返）**照样放行**，所以一直没人发现。根因在**同步读路径**：`runGit()`（`lib/sync/repo.js`）收集子进程输出用的是裸 `String(chunk)` —— Buffer 的 `String(chunk)` 等价于 `chunk.toString('utf8')`，即**每个管道分块各自独立解码**；git 大对象按 32 KiB 块写管道，任何跨块边界的多字节字符（汉字 3 字节、emoji 4 字节）都被切成两段无效序列、各解码成一个 U+FFFD。传播链：`readTreeFiles()`（读远端 theirs / merge-base base）→ 损坏文本进场 → `mergeEntries` → 写回 → 提交 → 下次同步再把损坏读回来继续切，**逐轮累积**。法证：损坏文件所在提交的两个父提交都是 0 处损坏，合并结果却有 2 处，下一轮 2 → 3；4 个损坏文件的干净版本里，损坏字符起始字节偏移为 32766 / 32767 / 32766 / 81913 ——前三个**恰好跨越字节 32768**。修复：改为 `setEncoding('utf8')` 流式解码（Node 内部 StringDecoder 在分块边界保留半截序列、由下一块补齐）。同款问题一并修掉三处：`lib/sync/index.js`（worker 子进程 stdout/stderr，stdout 末行是 JSON，损坏会导致解析失败）、`lib/search-docs.js`（文档检索 `out += chunk`，损坏字符进检索结果）、`lib/coi/scheduler.js`（COI 任务日志，启动/恢复两条路径，损坏字符直接落进用户看的日志）。`runGit()` 顺带新增 `opts.spawnFn` 注入点（测试用，使"分块边界"可确定性复现）。
 - **文档检索输出上限改按 UTF-8 字节计**：`lib/search-docs.js` 的 `maxBytes` 保护此前用 `out.length + chunk.length`（字符串 UTF-16 单元与 Buffer 字节混用）。改用 `setEncoding` 后 chunk 是字符串，沿用 `.length` 会把中文按 1/3 字节少算，故改为独立累计 `Buffer.byteLength(chunk, 'utf8')`。

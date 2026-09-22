@@ -224,6 +224,27 @@ test('hasReadSkill scans the session log for skill_manage read calls', () => {
   assert.equal(hasReadSkill({ session: {} }, 'skill_manage', 'alpha'), false)
 })
 
+test('hasReadSkill also accepts PTC dispatch events (run_code sessions)', () => {
+  // PTC 会话把嵌套调用记成 tool/ptc-dispatch，arguments 是对象而不是 JSON 字符串。
+  const dispatch = (tool, args) => ({ type: 'tool/ptc-dispatch', data: { name: tool, arguments: args } })
+  const agent = (events) => ({ session: { ownEvents: () => events } })
+  assert.equal(hasReadSkill(agent([dispatch('skill_manage', { action: 'read', name: 'alpha' })]), 'skill_manage', 'alpha'), true)
+  assert.equal(hasReadSkill(agent([dispatch('skill_manage', JSON.stringify({ action: 'read', name: 'alpha' }))]), 'skill_manage', 'alpha'), true)
+  // 语义不变：只认这个工具、这个动作、这个技能名
+  assert.equal(hasReadSkill(agent([dispatch('skill_manage', { action: 'create', name: 'alpha' })]), 'skill_manage', 'alpha'), false)
+  assert.equal(hasReadSkill(agent([dispatch('skill_manage', { action: 'read', name: 'beta' })]), 'skill_manage', 'alpha'), false)
+  assert.equal(hasReadSkill(agent([dispatch('bash', { action: 'read', name: 'alpha' })]), 'skill_manage', 'alpha'), false)
+})
+
+test('hasReadSkill reads the log through the current Session API', () => {
+  const call = { type: 'tool/call', data: { name: 'skill_manage', arguments: JSON.stringify({ action: 'read', name: 'alpha' }) } }
+  // ownEvents() 优先：DSH 0.1.2-alpha.4+ 已移除 session.events
+  assert.equal(hasReadSkill({ session: { ownEvents: () => [call], events: [] } }, 'skill_manage', 'alpha'), true)
+  // 旧宿主仍走 .events 兜底
+  assert.equal(hasReadSkill({ session: { events: [call] } }, 'skill_manage', 'alpha'), true)
+  assert.equal(hasReadSkill({ session: { ownEvents: () => [] } }, 'skill_manage', 'alpha'), false)
+})
+
 test('disabled skills are skipped through the ctx.skills registry', async () => {
   const dir = tempDir()
   const disabled = [{ name: 'disabled-skill', invocation: { modelInvocable: false } }]
