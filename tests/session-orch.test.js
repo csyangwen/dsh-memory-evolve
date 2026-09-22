@@ -27,7 +27,8 @@ function makeAgent(id, cwd = '/w') {
     id,
     status: 'idle',
     followups: [],
-    session: { id, header: { cwd }, events: [{ time: 1700000000000 }] },
+    // 真实宿主（0.1.2-alpha.4+）没有 session.events，日志只经 snapshotEvents() 暴露。
+    session: { id, header: { cwd }, snapshotEvents: () => [{ time: 1700000000000 }] },
     followup(message) {
       this.followups.push(message)
       this.status = 'running'
@@ -580,6 +581,22 @@ test('wake offline: 会话 log 无模型记录时 resume 不带 agentOptions（�
   const tool2 = sessionToolDefinition(orch2)
   const wake2 = await tool2.execute({ action: 'wake', sessionId: 'session-restored2', prompt: '继续' }, {})
   assert.equal(wake2.ok, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('status: 会话日志走 snapshotEvents() 优先、旧宿主 .events 兜底', async () => {
+  const dir = tempDir()
+  mkdirSync(dir, { recursive: true })
+  const agents = makeFakeAgents()
+  const { AliasStore } = await import('../lib/aliases.js')
+  const orch = new SessionOrch(makeCtx(agents), { store: new SessionOrchStore(dir), aliasStore: new AliasStore(dir), getBroadcastStore: () => undefined })
+  const tool = sessionToolDefinition(orch)
+  // 新式：只有 snapshotEvents()
+  agents.live.set('s-new', { id: 's-new', status: 'idle', session: { id: 's-new', header: { cwd: '/n' }, snapshotEvents: () => [{ time: 111 }] } })
+  assert.equal((await tool.execute({ action: 'status', sessionId: 's-new' }, {})).lastActiveAt, 111)
+  // 旧宿主：只有 .events
+  agents.live.set('s-old', { id: 's-old', status: 'idle', session: { id: 's-old', header: { cwd: '/o' }, events: [{ time: 222 }] } })
+  assert.equal((await tool.execute({ action: 'status', sessionId: 's-old' }, {})).lastActiveAt, 222)
   rmSync(dir, { recursive: true, force: true })
 })
 

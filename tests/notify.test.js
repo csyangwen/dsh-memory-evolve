@@ -486,11 +486,11 @@ test('scanSessionImageRefs: non-array / empty input → empty list', () => {
 })
 
 /** 便捷构造：mock 插件 ctx（agents + attachments 服务）。 */
-function makeSessionCtx({ events, attachments = true, readBytes = Buffer.from('fake-image-bytes') } = {}) {
+function makeSessionCtx({ events, session, attachments = true, readBytes = Buffer.from('fake-image-bytes') } = {}) {
   const svc = {
     get(name) {
       if (name === 'agents') {
-        return { get: (sid) => sid === 'session-1' ? { session: { events } } : undefined }
+        return { get: (sid) => sid === 'session-1' ? { session: session ?? { events } } : undefined }
       }
       if (name === 'attachments') {
         if (!attachments) return undefined
@@ -523,6 +523,20 @@ test('resolveSessionImage: explicit attachmentId matches only session-referenced
     () => resolveSessionImage(ctx, 'session-1', { kind: 'image', attachmentId: 'sha256:zzz' }),
     /不在本会话引用中/,
   )
+})
+
+test('新式 Session：日志只经 snapshotEvents()/ownEvents() 暴露时同样可读（0.1.2-alpha.4+）', async () => {
+  const events = makeEvents()
+  // 只有 snapshotEvents()（真实宿主没有 .events）
+  const snap = makeSessionCtx({ session: { snapshotEvents: () => events } })
+  const media = await resolveSessionImage(snap, 'session-1', { kind: 'image', attachmentId: 'sha256:bbb' })
+  assert.equal(media.fileName, 'sha256bb.jpg')
+  const q = await querySessionImages(snap, { agent: { session: { id: 'session-1' } } }, {})
+  assert.ok(q.images.length > 0, '会话图片列表非空')
+  // 只有 ownEvents() 的形态也走同一条兜底链
+  const own = makeSessionCtx({ session: { ownEvents: () => events } })
+  const media2 = await resolveSessionImage(own, 'session-1', { kind: 'image', sessionImage: true })
+  assert.equal(media2.kind, 'image')
 })
 
 test('resolveSessionImage: honest degradation on old snapshot / no session / no image', async () => {

@@ -4,9 +4,19 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
-## 2026-09-15
+## 2026-09-22
 
 ### Fixed
+
+- **The notify and orchestration modules could not read the session log, breaking image forwarding and last-activity time**: session-image resolution in `notify.js` (two sites), the session last-activity time in `session-orch.js`, and COI image attachments in `coi/attachments.js` still read `agent.session.events` directly — a field removed in DSH 0.1.2-alpha.4+ (same gap as #38 / #49). On current hosts those paths therefore always fail: `de_channel_send` / `de_notify` with `sessionImage` cannot forward an image pasted into the composer ("cannot read this session's events"), the `de_session_images` tool is entirely unusable, `de_session list/status` always reports `lastActiveAt: null` (the main signal for telling whether a spawned session is still working), and COI tasks cannot resolve session image attachments. Fix: adopt the current Session API and read the **full log** (the old `.events` semantics) these three sites actually need — `snapshotEvents()` first, with `ownEvents()` / legacy `.events` as fallbacks; a missing log stays `undefined` instead of collapsing into an empty array, so "session not in this process" and "no images yet" remain two distinct, honest errors.
+
+### Tests
+
+- `tests/notify.test.js` / `tests/coi-attachments.test.js` / `tests/session-orch.test.js`: new cases for the current Session shapes (exposing only `snapshotEvents()`, or only `ownEvents()`); the `session-orch` fake-agent fixture now mirrors the real host (no `.events`), with a separate legacy `.events` fallback case. Reverting `lib/` to the old implementation makes these cases fail (71 pass / 4 fail).
+
+---
+
+## 2026-09-15
 
 - **Memory content was being progressively corrupted into U+FFFD by the sync path (root cause, blocking)**: `MEMORY.md` and daily logs grew `�` characters (45 accumulated silently over four days in the field; 11 across four daily files on this machine) while the format pre-checks (`isCanonical`, parse→serialize round-trip) happily let them through. The root cause was the **sync read path**: `runGit()` (`lib/sync/repo.js`) collected child output with a bare `String(chunk)` — `String(buffer)` is `buffer.toString('utf8')`, i.e. **every pipe chunk is decoded independently**. Git streams large blobs in 32 KiB blocks, so any multi-byte character straddling a block boundary (a 3-byte CJK character, a 4-byte emoji) was split into two invalid sequences and decoded into one U+FFFD each. Propagation: `readTreeFiles()` (reading remote `theirs` / merge-base `base`) → damaged text enters → `mergeEntries` → written back → committed → the next sync reads the damage back and splits more characters, **accumulating round after round**. Forensics: the commit holding the damage had two parents with zero U+FFFD yet the merge result had two, and the next round went 2 → 3; in the clean revisions of the four damaged files the damaged character starts at byte offsets 32766 / 32767 / 32766 / 81913 — the first three **straddle byte 32768 exactly**. Fix: decode via `setEncoding('utf8')`, where Node's StringDecoder holds the incomplete sequence at a chunk boundary and completes it with the next chunk. The same bug was fixed at three more sites: `lib/sync/index.js` (worker child stdout/stderr — stdout's last line is JSON, so damage breaks parsing), `lib/search-docs.js` (document search `out += chunk`, damage lands in search results), and `lib/coi/scheduler.js` (COI task logs, both the start and the resume paths, where damage lands in the log the user reads). `runGit()` also gained an `opts.spawnFn` injection point (tests only) so a chunk boundary can be reproduced deterministically.
 - **Document-search output cap now counts UTF-8 bytes**: `lib/search-docs.js` guarded `maxBytes` with `out.length + chunk.length`, mixing UTF-16 units with Buffer bytes. Now that `setEncoding` makes `chunk` a string, `.length` would count a CJK character as one third of its byte size, so the cap accumulates `Buffer.byteLength(chunk, 'utf8')` separately.
