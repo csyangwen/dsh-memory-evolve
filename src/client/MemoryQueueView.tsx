@@ -131,6 +131,11 @@ interface RuntimeConfig {
   keyFullInjectThreshold: number
   /** auto 模式下字符数阈值：总字符数 ≤ 此值时全量注入。 */
   keyFullInjectCharLimit: number
+  /** 全局轨 memory 渐进式披露：auto（条数≤20 且字符≤8000 才全量）/ off（始终全量，默认）/ on（始终摘要）。
+   *  MEMORY.md 是全量注入的最大头（实测 on 可省约 60% 上下文）。 */
+  memoryProgressiveDisclosure: 'auto' | 'off' | 'on'
+  /** 全局轨 user 渐进式披露：同上。user 轨条目短、摘要收益小（实测约省 500 字符），一般保持 off。 */
+  userProgressiveDisclosure: 'auto' | 'off' | 'on'
   /** 记忆写入看门狗（用户拍板 2026-09-04：默认关——根源是模型指令遵循
    *  能力，强模型不需要；打开后连续 N 轮未写 daily/project 快照会置顶提醒）。 */
   perTurnWriteGuard: boolean
@@ -289,6 +294,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       keyProgressiveDisclosure: draft.keyProgressiveDisclosure,
       keyFullInjectThreshold: draft.keyFullInjectThreshold,
       keyFullInjectCharLimit: draft.keyFullInjectCharLimit,
+      memoryProgressiveDisclosure: draft.memoryProgressiveDisclosure,
+      userProgressiveDisclosure: draft.userProgressiveDisclosure,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -766,6 +773,36 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     <option value="auto">{t('panel.config.keyProgressiveDisclosure.auto')}</option>
                     <option value="off">{t('panel.config.keyProgressiveDisclosure.off')}</option>
                     <option value="on">{t('panel.config.keyProgressiveDisclosure.on')}</option>
+                  </select>
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.memoryProgressiveDisclosure')}
+                    <em className="me-field-hint">{t('panel.config.memoryProgressiveDisclosure.hint')}</em>
+                  </span>
+                  <select
+                    className="me-todo-select"
+                    value={draft.memoryProgressiveDisclosure ?? 'off'}
+                    onChange={(event) => patchDraft({ memoryProgressiveDisclosure: event.target.value })}
+                  >
+                    <option value="auto">{t('panel.config.memoryProgressiveDisclosure.auto')}</option>
+                    <option value="off">{t('panel.config.memoryProgressiveDisclosure.off')}</option>
+                    <option value="on">{t('panel.config.memoryProgressiveDisclosure.on')}</option>
+                  </select>
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.userProgressiveDisclosure')}
+                    <em className="me-field-hint">{t('panel.config.userProgressiveDisclosure.hint')}</em>
+                  </span>
+                  <select
+                    className="me-todo-select"
+                    value={draft.userProgressiveDisclosure ?? 'off'}
+                    onChange={(event) => patchDraft({ userProgressiveDisclosure: event.target.value })}
+                  >
+                    <option value="auto">{t('panel.config.userProgressiveDisclosure.auto')}</option>
+                    <option value="off">{t('panel.config.userProgressiveDisclosure.off')}</option>
+                    <option value="on">{t('panel.config.userProgressiveDisclosure.on')}</option>
                   </select>
                 </label>
                 <label className="me-field">

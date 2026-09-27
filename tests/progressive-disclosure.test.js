@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { apply, resolveConfig, renderSnapshot } from '../lib/index.js'
+import { apply, resolveConfig, renderSnapshot, validateRuntimePatch } from '../lib/index.js'
 import { MemoryStore, projectHash } from '../lib/store.js'
 import { extractEntryId } from '../lib/sync/entryid.js'
 import { approveSuggestions } from '../lib/review.js'
@@ -235,4 +235,100 @@ test('renderSnapshot：auto 模式按条目数+字符数双阈值判定', () => 
   const many = renderSnapshot(resolveConfig({ memoryDir: dir, keyProgressiveDisclosure: 'auto', keyFullInjectThreshold: 1 }), store, agent)
   assert.ok(many.includes('摘要模式'), 'over entry threshold falls back to summary in auto mode')
   clean(dir)
+})
+
+
+
+// ───── 全局轨（memory/user）渐进式披露（2026-09-27 新增）─────
+// memoryProgressiveDisclosure / userProgressiveDisclosure：off（默认，全量）|
+// auto（条数与总字符数都不超阈值才全量）| on（始终摘要）。摘要行为
+// '- [日期] [短id] 摘要'，模型用 memory action=expand+id 取全文——expand 因此
+// 从 key 轨扩展到 memory/user 轨（否则摘要模式下无法取回正文）。
+
+const GT_LONG = '正文内容甲乙丙丁'.repeat(12)
+
+function gtSection(snap, head) {
+  const i = snap.indexOf(head)
+  if (i < 0) return null
+  const rest = snap.slice(i)
+  const n = rest.indexOf('\n## ')
+  return n < 0 ? rest : rest.slice(0, n)
+}
+
+function gtSnap(dir, cfgOverride) {
+  const cfg = resolveConfig(Object.assign({ memoryDir: dir }, cfgOverride))
+  return renderSnapshot(cfg, new MemoryStore(dir, cfg), { session: { id: 'gt', header: { cwd: dir } } }, undefined, null)
+}
+
+test('全局轨 off（默认）→ memory/user 全量注入，不出摘要行，两次渲染一致', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    store.add('memory', '甲条目 ' + GT_LONG)
+    store.add('user', '乙档案 ' + GT_LONG)
+    const snap = gtSnap(dir, {})
+    assert.ok(snap.includes('甲条目 ' + GT_LONG), 'off 必须全量注入 memory 正文')
+    assert.ok(snap.includes('乙档案 ' + GT_LONG), 'off 必须全量注入 user 正文')
+    assert.ok(!/^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \[[0-9a-f]{8}\]/m.test(snap), 'off 不得出现摘要行')
+    const memA = gtSection(gtSnap(dir, {}), '## 长期记忆')
+    const memB = gtSection(gtSnap(dir, {}), '## 长期记忆')
+    assert.equal(memA, memB, '同一状态两次渲染的该段必须逐字节相同（前缀缓存要求）')
+  } finally { clean(dir) }
+})
+
+test('全局轨 on → 摘要行带日期与短 id、正文不注入、expand 能取回全文', async () => {
+  const dir = tempDir()
+  try {
+    const ctx = fakeCtx()
+    apply(ctx, { memoryDir: dir })
+    const tool = ctx.state.tools.find((t) => t.name === 'memory')
+    const store = new MemoryStore(dir)
+    store.add('memory', '甲条目 ' + GT_LONG)
+    store.add('user', '乙档案 ' + GT_LONG)
+    const snap = gtSnap(dir, { memoryProgressiveDisclosure: 'on', userProgressiveDisclosure: 'on' })
+    assert.ok(!snap.includes(GT_LONG), 'on 模式不得注入正文')
+    assert.ok(snap.includes('摘要模式'), '摘要模式头部提示应出现')
+    const { legacyIdFor } = await import('../lib/sync/entryid.js')
+    const memRaw = store.entriesOf('memory')
+    const id = extractEntryId(memRaw[0]) ?? legacyIdFor(memRaw[0])
+    assert.ok(snap.includes('[' + id + ']'), '摘要行必须带可 expand 的短 id')
+    assert.match(snap, /^- \[[0-9]{4}-[0-9]{2}-[0-9]{2}\] \[[0-9a-f]{8}\] /m, '摘要行格式：- [日期] [短id] 摘要')
+    const exec = { agent: { id: 'a', session: { header: { cwd: dir } } }, callId: 'c1', signal: new AbortController().signal }
+    const got = await tool.execute({ action: 'expand', target: 'memory', id }, exec)
+    assert.equal(got.ok, true, 'memory 轨 expand 必须可用，否则摘要模式取不回正文')
+    assert.ok(got.entries[0].includes('甲条目 ' + GT_LONG))
+    const miss = await tool.execute({ action: 'expand', target: 'memory', id: 'deadbeef' }, exec)
+    assert.equal(miss.ok, false, '未知 id 必须报错')
+  } finally { clean(dir) }
+})
+
+test('全局轨 auto → 小数据量全量、超阈值转摘要', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    store.add('memory', '小数据条目一 ' + GT_LONG)
+    store.add('memory', '小数据条目二 ' + GT_LONG)
+    let snap = gtSnap(dir, { memoryProgressiveDisclosure: 'auto' })
+    assert.ok(snap.includes(GT_LONG), 'auto 且未超阈值 → 全量（正文完整注入）')
+    for (let i = 0; i < 25; i += 1) store.add('memory', '批量条目 ' + i + ' xxxxxxxxxxxxxxxxxxxx')
+    snap = gtSnap(dir, { memoryProgressiveDisclosure: 'auto' })
+    assert.ok(!snap.includes(GT_LONG), 'auto 且条目数超阈值 → 摘要（正文不再注入）')
+    assert.ok(snap.includes('摘要模式'))
+  } finally { clean(dir) }
+})
+
+test('全局轨两开关独立；非法值被 validateRuntimePatch 拒绝', () => {
+  const dir = tempDir()
+  try {
+    const store = new MemoryStore(dir)
+    store.add('memory', '甲条目 ' + GT_LONG)
+    store.add('user', '乙档案 ' + GT_LONG)
+    const snap = gtSnap(dir, { memoryProgressiveDisclosure: 'on', userProgressiveDisclosure: 'off' })
+    assert.ok(!snap.includes('甲条目 ' + GT_LONG), 'memory 轨已摘要')
+    assert.ok(snap.includes('乙档案 ' + GT_LONG), 'user 轨保持全量')
+    assert.throws(() => validateRuntimePatch('memoryProgressiveDisclosure', 'bogus'), /auto/)
+    assert.throws(() => validateRuntimePatch('userProgressiveDisclosure', 'bogus'), /auto/)
+    assert.doesNotThrow(() => validateRuntimePatch('memoryProgressiveDisclosure', 'on'))
+    assert.doesNotThrow(() => validateRuntimePatch('userProgressiveDisclosure', 'auto'))
+  } finally { clean(dir) }
 })
