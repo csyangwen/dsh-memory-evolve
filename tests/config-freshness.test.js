@@ -54,10 +54,14 @@ test('功能验证：Web 面板改 keyProgressiveDisclosure → 新会话快照�
   assert.ok(route && typeof route.handler === 'function', 'web api route with handler')
 
   // 两个项目各自的 key 条目（模拟"多个项目都有 key 记忆"）
+  // ⚠️ 渐进式披露 v2（2026-09-28）：摘要模式新增「按条目长度折叠」——正文
+  // ≤ memorySummaryMinChars（默认 400）的短条目保持全文，故本用例的甲项目
+  // 条目必须是**超阈值长正文**，否则摘要分支不会被触发（断言失去鉴别力）。
   const store = new MemoryStore(dir)
   const projA = { id: 'a', session: { header: { cwd: '/proj/alpha' } } }
   const projB = { id: 'b', session: { header: { cwd: '/proj/beta' } } }
-  store.add('key', '[summary:甲项目约定] 甲项目的关键约定正文第一行，写得长一点才能验证摘要注入确实只用摘要', projA)
+  const longBody = '甲项目的关键约定正文第一行，写得长一点才能验证摘要注入确实只用摘要' + '甲'.repeat(450)
+  store.add('key', `[summary:甲项目约定] ${longBody}`, projA)
   store.add('key', '[summary:乙项目约定] 乙项目完全不同的关键约定', projB)
 
   const snapOf = (agent) => snapshotContext.text({ agent })
@@ -88,6 +92,7 @@ test('功能验证：Web 面板改 keyProgressiveDisclosure → 新会话快照�
   assert.ok(after.includes('摘要模式'), 'new session snapshot uses the updated config, not the default')
   assert.ok(after.includes('甲项目约定'), 'summary (not full body) injected')
   assert.ok(!after.includes('甲项目的关键约定正文第一行'), 'full body must not leak after switching to summary mode')
+  assert.ok(!after.includes('甲'.repeat(450)), 'over-threshold key body stays collapsed in summary mode')
   assert.ok(!after.includes('乙项目'), 'cross-project isolation holds in summary mode')
   // 摘要行带 [id]，模型可用 expand 按需加载（仅当前项目的条目）
   assert.ok(/- \[[0-9a-f]{8}\] 甲项目约定/.test(after), 'summary line carries expand-able id')

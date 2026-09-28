@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { tmpdir } from 'node:os'
-import { validateRuntimePatch, resolveConfig } from '../lib/index.js'
+import { validateRuntimePatch, resolveConfig, RUNTIME_KEYS } from '../lib/index.js'
 
 // resolveConfig 需要 memoryDir 可解析——给最小合法底座（POSITIVE/BOOLEAN
 // 键全部给默认值形态的合法值，缺失键带默认值的走 raw 合并）。
@@ -43,11 +43,21 @@ test('③a 静态：keyProgressiveDisclosure 枚举校验', () => {
 })
 
 test('③b 静态：FullInject 数值键必须是正数', () => {
-  for (const key of ['keyFullInjectThreshold', 'keyFullInjectCharLimit', 'memoryFullInjectThreshold', 'memoryFullInjectCharLimit']) {
+  for (const key of ['keyFullInjectThreshold', 'keyFullInjectCharLimit', 'memoryFullInjectThreshold', 'memoryFullInjectCharLimit', 'memorySummaryMinChars']) {
     assert.throws(() => resolveConfig({ ...BASE, [key]: 0 }), new RegExp(key))
     assert.throws(() => resolveConfig({ ...BASE, [key]: -3 }), new RegExp(key))
     assert.doesNotThrow(() => resolveConfig({ ...BASE, [key]: 5 }))
   }
+})
+
+test('③d 静态：memorySummaryMinChars 正整数 + 默认 400（渐进式披露 v2）', () => {
+  assert.throws(() => resolveConfig({ ...BASE, memorySummaryMinChars: 1.5 }), /memorySummaryMinChars/)
+  assert.throws(() => resolveConfig({ ...BASE, memorySummaryMinChars: '400' }), /memorySummaryMinChars/)
+  assert.doesNotThrow(() => resolveConfig({ ...BASE, memorySummaryMinChars: 1 }))
+  assert.equal(resolveConfig({ ...BASE }).memorySummaryMinChars, 400)
+  assert.ok(RUNTIME_KEYS.includes('memorySummaryMinChars'), '新旋钮必须进 RUNTIME_KEYS（否则 Web 保存被拒）')
+  assert.doesNotThrow(() => validateRuntimePatch('memorySummaryMinChars', 250))
+  assert.throws(() => validateRuntimePatch('memorySummaryMinChars', 0), /memorySummaryMinChars/)
 })
 
 test('③c 静态：memoryHitExemptDays 非负整数（0=关闭，合法）', () => {

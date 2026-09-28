@@ -9,6 +9,15 @@
 //   - AC-3.4（注入必红，防旋钮失效假绿）：同一 store 开/关两份快照必须不同
 //   - AC-3.5：摘要注入段头部文案告知模型可用 list 取全文
 //   - AC-6.8：新增 i18n key zh/en 齐全 + 新旋钮值合法性校验
+//   - 块 6（渐进式披露 v2，2026-09-28）：memorySummaryMinChars 按条目长度折叠
+//     ——正文 > 阈值折一行摘要、短条目保持全文；[salience:3] 恒全文；
+//     off 模式不受本旋钮影响（仍逐字节同 golden）
+//
+// ⚠️ 口径说明（v2 起）：旧用例（AC-3.2 / 块5-①~④）的 fixture 条目都是**短条目**
+// （< 400 字符），在 v2 的按长度折叠规则下它们本应保持全文——那会让这些用例
+// 失去鉴别力（它们考的是 salience 豁免/命中豁免/显式摘要优先，不是长度规则）。
+// 因此这些用例显式传 memorySummaryMinChars: 1（= 所有条目可折叠，等价 v1 的
+// 「整轨全折」语义），把长度维度隔离出去，由块 6 专门覆盖。
 //
 // 直跑：node tests/memory-progressive-disclosure.test.js（沙箱禁 node --test runner）。
 // 注：import golden 模块会连带执行其黄金基线测试（幂等只读，无害）。
@@ -75,7 +84,7 @@ test('AC-3.1 默认零变化：off/缺省的快照输出与黄金基线逐字节
 test('AC-3.2 auto+超阈值：低/中/无标记摘要注入（显式 summary 优先、autoSummary 兜底），salience:3 恒全文', () => {
   const fx = buildTieredFixture()
   try {
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'auto', memoryFullInjectCharLimit: 1 })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'auto', memoryFullInjectCharLimit: 1, memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     // 摘要头文案出现（AC-3.5 一部分：含 list 指引）
     assert.ok(snap.includes('摘要模式'), 'summary-mode head must appear')
@@ -121,10 +130,10 @@ test('AC-3.4 注入必红：同一 store 开/关两份快照必须不同（防�
   try {
     const base = resolveConfig({ memoryDir: fx.dir })
     const off = renderSnapshot(base, fx.store, fx.agent)
-    const on = renderSnapshot({ ...base, memoryProgressiveDisclosure: 'on' }, fx.store, fx.agent)
+    const on = renderSnapshot({ ...base, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 }, fx.store, fx.agent)
     assert.notStrictEqual(off, on, 'on vs off must differ — if equal the knob is dead (false green)')
     // 反向也验：auto（超阈值）与 off 必不同
-    const auto = renderSnapshot({ ...base, memoryProgressiveDisclosure: 'auto', memoryFullInjectCharLimit: 1 }, fx.store, fx.agent)
+    const auto = renderSnapshot({ ...base, memoryProgressiveDisclosure: 'auto', memoryFullInjectCharLimit: 1, memorySummaryMinChars: 1 }, fx.store, fx.agent)
     assert.notStrictEqual(off, auto)
   } finally {
     fx.cleanup()
@@ -134,7 +143,7 @@ test('AC-3.4 注入必红：同一 store 开/关两份快照必须不同（防�
 test('AC-3.5 摘要头文案告知取全文走 list；on 模式下 memory/user 轨摘要化', () => {
   const fx = buildTieredFixture()
   try {
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on' })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     assert.ok(snap.includes('list（target=memory）'), 'memory summary head must point to list target=memory')
     assert.ok(snap.includes('list（target=user）'), 'user summary head must point to list target=user')
@@ -193,7 +202,7 @@ test('块5-① 新鲜命中豁免：hitCount=1 且 lastAccessed=今天 → on �
       [hitKey('memory', untagged)]: { hitCount: 1, lastAccessed: todayStamp() },
       [hitKey('user', userEntry)]: { hitCount: 1, lastAccessed: todayStamp() },
     })
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on' })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     // memory 轨：无标记条目因新鲜命中全文豁免（第二行保留=未被摘要化）
     assert.ok(snap.includes('无标记条目第二行'), 'freshly-hit untracked entry stays full on the memory track')
@@ -215,7 +224,7 @@ test('块5-② 命中超期：lastAccessed=40 天前 → 被摘要（豁免窗�
     writeSidecar(fx.dir, {
       [hitKey('memory', explicitEntry)]: { hitCount: 1, lastAccessed: daysAgoStamp(40) },
     })
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on' })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     assert.ok(!snap.includes('显式摘要条目第二行'), 'stale-hit entry must be summarized (second line dropped)')
     assert.ok(snap.includes('显式摘要示例'), 'stale-hit entry falls back to its explicit summary')
@@ -231,7 +240,7 @@ test('块5-③ memoryHitExemptDays=0 关闭豁免：新鲜命中也摘要', () =
     writeSidecar(fx.dir, {
       [hitKey('memory', untagged)]: { hitCount: 1, lastAccessed: todayStamp() },
     })
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memoryHitExemptDays: 0 })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memoryHitExemptDays: 0, memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     assert.ok(!snap.includes('无标记条目第二行'), 'exempt disabled (0) → fresh hits are summarized too')
   } finally {
@@ -242,7 +251,7 @@ test('块5-③ memoryHitExemptDays=0 关闭豁免：新鲜命中也摘要', () =
 test('块5-④ 无侧车文件 = 无豁免（行为与块 5 之前一致）', () => {
   const fx = buildTieredFixture()
   try {
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on' })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     assert.ok(!snap.includes('无标记条目第二行'), 'no sidecar → no exemption')
     // 摘要行形态：`- [8位短id] 摘要`（extractEntryId / legacyIdFor）
@@ -256,7 +265,7 @@ test('块5-⑤ salience:3 恒全文豁免不依赖侧车（重要性豁免与命
   const fx = buildTieredFixture()
   try {
     // 无任何侧车：高档条目两行仍然全文（AC-3.2 语义在块 5 后保持）
-    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on' })
+    const cfg = resolveConfig({ memoryDir: fx.dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1 })
     const snap = renderSnapshot(cfg, fx.store, fx.agent)
     assert.ok(snap.includes('高档条目全文第一行') && snap.includes('高档条目全文第二行'),
       'salience:3 stays full without any hit record')
@@ -294,4 +303,102 @@ test('块5-⑦ 旋钮校验与默认值：memoryHitExemptDays 非负整数（0=�
   assert.doesNotThrow(() => validateRuntimePatch('memoryHitExemptDays', 0))
   assert.doesNotThrow(() => validateRuntimePatch('memoryHitExemptDays', 30))
   assert.equal(resolveConfig({}).memoryHitExemptDays, 30)
+})
+
+// ── 块 6（渐进式披露 v2，2026-09-28 用户批准）：按条目长度折叠 ─────────────
+// memorySummaryMinChars（默认 400）：摘要模式下**正文**（entryBodyOf，剥头部
+// 元数据后）长于该值的条目折成一行摘要，短条目保持全文——不只是整轨模式。
+
+/** 构造指定正文长度的条目（ASCII 填充，正文逐字可控）。 */
+function entryWithBodyLength(chars, head = '[2026-09-24] ') {
+  return `${head}${'x'.repeat(chars)}`
+}
+
+test('块6-① 按条目长度折叠：长条目折一行摘要、短条目保持全文（同轨共存）', () => {
+  const dir = tempDir()
+  try {
+    const short = entryWithBodyLength(399) // 正文 399 ≤ 400
+    const long = entryWithBodyLength(401) // 正文 401 > 400
+    writeFileSync(join(dir, 'MEMORY.md'), `${short}\n§\n${long}\n`)
+    const cfg = resolveConfig({
+      memoryDir: dir,
+      memoryProgressiveDisclosure: 'on',
+      memorySummaryMinChars: 400,
+    })
+    const snap = renderSnapshot(cfg, new MemoryStore(dir), { id: 'a', session: { header: { cwd: '/proj/v2-threshold' } } })
+    assert.ok(snap.includes('摘要模式'), 'summary mode active')
+    // 短条目（399）保持全文：整段 x 出现
+    assert.ok(snap.includes('x'.repeat(399)), 'short entry (399 chars) stays in full')
+    // 长条目（401）折叠：401 个连续 x 不得出现（autoSummary 只留 120 字 + 省略号）
+    assert.equal(snap.includes('x'.repeat(401)), false, 'long entry (401 chars) must be collapsed')
+    assert.ok(snap.includes(`${'x'.repeat(119)}…`), 'long entry renders a 120-char autoSummary line')
+  } finally {
+    clean(dir)
+  }
+})
+
+test('块6-② 阈值可配：memorySummaryMinChars=1000 → 原 401 字条目改为保持全文', () => {
+  const dir = tempDir()
+  try {
+    const entry = entryWithBodyLength(401)
+    writeFileSync(join(dir, 'MEMORY.md'), `${entry}\n`)
+    const agent = { id: 'a', session: { header: { cwd: '/proj/v2-threshold-2' } } }
+    const store = new MemoryStore(dir)
+    const tight = renderSnapshot(resolveConfig({ memoryDir: dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 400 }), store, agent)
+    const loose = renderSnapshot(resolveConfig({ memoryDir: dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 1000 }), store, agent)
+    assert.equal(tight.includes('x'.repeat(401)), false)
+    assert.ok(loose.includes('x'.repeat(401)), 'with a 1000-char threshold the same entry stays full (knob is live)')
+  } finally {
+    clean(dir)
+  }
+})
+
+test('块6-③ [salience:3] 恒全文优先于长度规则（即便正文超阈值）', () => {
+  const dir = tempDir()
+  try {
+    const entry = entryWithBodyLength(800, '[2026-09-24] [salience:3] ')
+    writeFileSync(join(dir, 'MEMORY.md'), `${entry}\n`)
+    const cfg = resolveConfig({ memoryDir: dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 400 })
+    const snap = renderSnapshot(cfg, new MemoryStore(dir), { id: 'a', session: { header: { cwd: '/proj/v2-s3' } } })
+    assert.ok(snap.includes('x'.repeat(800)), 'salience:3 stays full regardless of the length threshold')
+    assert.equal(snap.includes('[salience:3]'), false, 'salience tag itself is stripped from display')
+  } finally {
+    clean(dir)
+  }
+})
+
+test('块6-④ off 模式不受 memorySummaryMinChars 影响（仍逐字节同 golden）', () => {
+  const fx = buildGoldenFixture()
+  try {
+    const a = renderSnapshot(resolveConfig({ memoryDir: fx.dir, memorySummaryMinChars: 1 }), fx.store, fx.agent)
+    const b = renderSnapshot(resolveConfig({ memoryDir: fx.dir, memorySummaryMinChars: 100000 }), fx.store, fx.agent)
+    assert.equal(a, GOLDEN_ZH, 'off + tiny threshold is still byte-identical to golden')
+    assert.equal(b, GOLDEN_ZH, 'off + huge threshold is still byte-identical to golden')
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test('块6-⑤ 旋钮校验与默认值：memorySummaryMinChars 正整数，默认 400', () => {
+  assert.throws(() => validateRuntimePatch('memorySummaryMinChars', 0), /memorySummaryMinChars/)
+  assert.throws(() => validateRuntimePatch('memorySummaryMinChars', -5), /memorySummaryMinChars/)
+  assert.throws(() => validateRuntimePatch('memorySummaryMinChars', 1.5), /memorySummaryMinChars/)
+  assert.doesNotThrow(() => validateRuntimePatch('memorySummaryMinChars', 400))
+  assert.equal(resolveConfig({}).memorySummaryMinChars, 400)
+  assert.throws(() => resolveConfig({ memorySummaryMinChars: 0 }), /memorySummaryMinChars/)
+  assert.throws(() => resolveConfig({ memorySummaryMinChars: 'x' }), /memorySummaryMinChars/)
+})
+
+test('块6-⑥ 注入必红：同一条目在阈值两侧必须产出不同快照（防长度旋钮空转）', () => {
+  const dir = tempDir()
+  try {
+    writeFileSync(join(dir, 'MEMORY.md'), `${entryWithBodyLength(500)}\n`)
+    const agent = { id: 'a', session: { header: { cwd: '/proj/v2-red' } } }
+    const store = new MemoryStore(dir)
+    const folded = renderSnapshot(resolveConfig({ memoryDir: dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 400 }), store, agent)
+    const kept = renderSnapshot(resolveConfig({ memoryDir: dir, memoryProgressiveDisclosure: 'on', memorySummaryMinChars: 600 }), store, agent)
+    assert.notStrictEqual(folded, kept, 'crossing the threshold must change the snapshot (else the knob is dead)')
+  } finally {
+    clean(dir)
+  }
 })

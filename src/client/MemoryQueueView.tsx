@@ -137,6 +137,9 @@ interface RuntimeConfig {
   memoryFullInjectThreshold: number
   /** memory 轨 auto 模式字符数阈值。 */
   memoryFullInjectCharLimit: number
+  /** 按条目长度折叠（渐进式披露 v2）：摘要模式下**正文**长于该值的条目折成
+   *  一行摘要，短条目保持全文；[salience:3] 恒全文；off 模式不受影响。 */
+  memorySummaryMinChars: number
   /** 记忆写入看门狗（用户拍板 2026-09-04：默认关——根源是模型指令遵循
    *  能力，强模型不需要；打开后连续 N 轮未写 daily/project 快照会置顶提醒）。 */
   perTurnWriteGuard: boolean
@@ -298,6 +301,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       memoryProgressiveDisclosure: draft.memoryProgressiveDisclosure,
       memoryFullInjectThreshold: draft.memoryFullInjectThreshold,
       memoryFullInjectCharLimit: draft.memoryFullInjectCharLimit,
+      memorySummaryMinChars: draft.memorySummaryMinChars,
     }
     void api<{ config: RuntimeConfig }>('/api/config', {
       method: 'POST',
@@ -863,6 +867,23 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                       // 与 keyFullInjectCharLimit 同款 clamp：清空/小数 → 100
                       const n = Number(event.target.value)
                       patchDraft({ memoryFullInjectCharLimit: Number.isFinite(n) && n >= 100 ? Math.floor(n) : 100 })
+                    }}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.memorySummaryMinChars')}
+                    <em className="me-field-hint">{t('panel.config.memorySummaryMinChars.hint')}</em>
+                  </span>
+                  <input
+                    type="number"
+                    className="me-input"
+                    min={1}
+                    value={draft.memorySummaryMinChars ?? 400}
+                    onChange={(event) => {
+                      // 与 memoryFullInjectCharLimit 同款 clamp：清空/小数/0 → 1
+                      const n = Number(event.target.value)
+                      patchDraft({ memorySummaryMinChars: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1 })
                     }}
                   />
                 </label>
