@@ -1,7 +1,7 @@
 ---
 name: memory-consolidate
 x-provider: dsh-memory-evolve
-x-version: 1
+x-version: 2
 description: "Use when the user asks to consolidate, merge, deduplicate, or reorganize accumulated dsh-memory-evolve memories (global long-term memory, user profile, project key facts), or when a periodic memory review should run a full consolidation pass. Covers supersede-keep-newest, similar-entry merging, literal dedup, conflict resolution, project-local archiving, stale-state cleanup, and cross-track relocation, all with archive-based reversibility. 触发场景：用户要求梳理/合并/去重/整理记忆（长期记忆、用户档案、项目 key），记忆条目重复记录、新旧版本并存、表述相近却分散多条，或记忆审查到期需要一次系统性整合归档。"
 ---
 <!-- 本技能由 dsh-memory-evolve 插件内置提供：源头随插件升级同步，禁用请到「技能管理」Tab -->
@@ -27,6 +27,9 @@ description: "Use when the user asks to consolidate, merge, deduplicate, or reor
    记忆 Tab 归档页可一键移回）。不要用 `remove`，保证每步操作可逆。
 5. **key 轨写入需确认**：memory 工具对 key 轨的 `add` 走待确认队列——涉及新增 key
    条目时照常提交建议，由用户确认后生效，不要绕过。
+6. **同一轨的写操作串行执行**：`replace` / `archive` / `add` 对同一个 `.md` 文件是
+   读-改-写，交错执行会互相覆盖、也会撞上 drift guard。一个簇处理完再动下一个，
+   不要并发写同一轨。
 
 ## 二、合并标准（逐簇裁决的依据）
 
@@ -79,12 +82,19 @@ node <技能目录>/scripts/scan_memory.mjs --dir <memoryDir> --out <工作区>/
 
 ### 步骤 3：执行（一簇一清，不攒批）
 
+> ⚠️ `replace` 是**整条替换**：`content` 必须给该条目的**完整新全文**（含全部编号段
+> 与分段）。只传增量或新句子会**静默吞掉**其余内容——2026-09-16 实证：更正一条多段
+> 记忆时只写了新句子，其余段落整条丢失（靠 memories 仓库的 git 备份才找回）。改写前
+> 先用 `list`（key 轨可用 `expand`）把原文读全。
+
 对每个簇按序执行（全部通过 memory 工具）：
 
 1. `replace` 保留条目 → 改写为合并版文本（保留条目的 id/位置不变）；
 2. `archive` 其余条目 → 原文进归档；
 3. 需要「过期状态清理」抽取新教训、或「跨轨归位」在目标轨落地时用 `add`
-   （key 轨 add 走待确认队列，属正常流程）；
+   （key 轨 `add` 走待确认队列，属正常流程）。**key 建议用 memory 工具 `add`
+   （`target=key`）提交，不要用 `memory_suggest`**——后者的 target 白名单不含 key，
+   传入会报「不支持 target=key」；
 4. 跨轨归位先确认目标轨没有既有同项条目（先 `list` 核对），再落位。
 
 执行中任何一条工具报错：先重读该轨当前状态再重试一次，仍失败就跳过该簇并在报告中
@@ -106,7 +116,19 @@ curl -X POST http://127.0.0.1:3080/memory-evolve/memory-sync/global-sync \
   -H "Content-Type: application/json" -d '{"push":true}'
 ```
 
-## 四、何时运行
+## 四、故障处理（异常兜底）
+
+- **工具报「…的内容无法通过记忆工具解析往返」（drift guard 拒写）**：说明该轨文件已
+  不是规范形（常见成因：历史迁移脚本写入了 CRLF 分隔符、文件末尾多一个孤立 `§`、缺
+  收尾换行），此时 `replace` / `archive` / `remove` 一律被拒。处置：①先手工备份该
+  `.md`；②用插件自带的 `lib/store.js` 做规范化——读取全文后
+  `serializeEntries(parseEntries(text))`，**校验往返条数不变**再把结果写回（UTF-8 无
+  BOM）；③回到本文工具流程继续。不要手工拼分隔符。
+- **判断条目是否粘连只认 `parseEntries(text).length`**：用正则数 `\n§\n` 会出现假阳性
+  ——条目正文可能逐字引用分隔符（内容性 `§`）。`parseEntries` 计数与预期不符，才说明
+  文件真的坏了。
+
+## 五、何时运行
 
 - 用户点名「梳理 / 合并 / 去重 / 整理记忆」时全量运行；
 - 记忆审查到期提醒时，可用本技能做一次系统性整合（替代零散的逐条建议）；
