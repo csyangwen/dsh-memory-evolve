@@ -17,6 +17,7 @@ import { BroadcastStore, messageToolDefinition } from '../lib/coi/broadcast.js'
 import { coiToolDefinitions } from '../lib/coi/tools.js'
 import { installCoiApi } from '../lib/coi/api.js'
 import { validateCoiRuntimePatch } from '../lib/coi/index.js'
+import { PLUGIN_SOURCE_KIND } from '../lib/coi/source.js'
 import { buildMemoryContext, resolveConfig, renderSnapshot } from '../lib/index.js'
 import { MemoryStore } from '../lib/store.js'
 
@@ -780,7 +781,10 @@ test('wakeOnComplete: idle owner gets followup (完成唤醒), 消息无摘要�
   // 2026-08-13 用户拍板：完成消息不携带输出摘要截取，直接给日志文件路径
   assert.ok(!message.content[0].text.includes('摘要：'), '消息不得携带摘要截取')
   assert.match(message.content[0].text, /日志文件/, '消息必须给出完整日志文件路径')
-  assert.equal(message.source.kind, 'plugin')
+  // v4 会话格式：kind 必须是 producer-owned 的 `plugin:<包名>`，且不得带
+  // plugin 字段（带旧字段的注入会让接收方那一轮整轮失败，见 tests/injection-source-kind.test.js）
+  assert.equal(message.source.kind, PLUGIN_SOURCE_KIND)
+  assert.equal(message.source.plugin, undefined, 'v4 起不得再带 plugin 字段')
   assert.equal(message.source.form, 'notice')
   assert.equal(typeof message.id, 'string')
   rmSync(dir, { recursive: true, force: true })
@@ -1431,6 +1435,9 @@ test('installBroadcast: 成员状态变化 → 向同房其他成员投递独立
   assert.equal(aInjects.length, 1, 'sA 收到房间动态消息')
   assert.ok(aInjects[0].content[0].text.includes('【房间动态】'), '动态消息格式')
   assert.ok(aInjects[0].content[0].text.includes('开始干活'), 'running 语义')
+  // 房间动态也走 deliver()：v4 注入 kind 必须是 producer-owned 的 `plugin:<包名>`
+  assert.equal(aInjects[0].source.kind, PLUGIN_SOURCE_KIND)
+  assert.equal(aInjects[0].source.plugin, undefined, 'v4 起不得再带 plugin 字段')
   assert.equal(bInjects.length, 0, '变化者自己不收自己的动态')
   // 不再写 dynamics 队列（快照消费已移除，2026-08-13）
   assert.ok(!existsSync(join(dir, 'bcast', 'dynamics.json')), '不再写动态队列文件')
@@ -1461,6 +1468,10 @@ test('installBroadcast: 新广播消息 → 向接收方投递独立消息（收
   assert.ok(text.includes('【广播消息】'), '广播消息格式')
   assert.ok(text.includes('进度同步'), '含主题')
   assert.ok(text.includes(`de_broadcast read ${sent.item.id}`), '引导 read 处理（收件箱语义不变）')
+  // 广播投递是最高频的注入路径：kind 必须是 producer-owned 的 `plugin:<包名>`
+  assert.equal(bInjects[0].source.kind, PLUGIN_SOURCE_KIND)
+  assert.equal(bInjects[0].source.plugin, undefined, 'v4 起不得再带 plugin 字段')
+  assert.equal(bInjects[0].source.form, 'notice')
   // 未读仍在收件箱（通知 ≠ 已读）
   assert.equal(installed.store.unreadCount('sB'), 1, '通知后未读计数不变（仍需 read）')
   // 发送者自己不收

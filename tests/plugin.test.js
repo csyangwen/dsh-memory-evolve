@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath, RUNTIME_KEYS, validateRuntimePatch } from '../lib/index.js'
 import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
+import { PLUGIN_SOURCE_KIND } from '../lib/coi/source.js'
 
 // This suite pins the legacy Chinese output contract; i18n.test.js covers English.
 setLocale('zh')
@@ -803,7 +804,8 @@ test('write watchdog counter: counts turns, resets on daily/project writes, hono
         id: `u${seq}`,
         turn: seq,
         // 'plugin' = 注入/唤醒回合（广播 wake followup 等），'user' = 真人回合
-        source: sourceKind === 'plugin' ? { kind: 'plugin', plugin: 'dsh-memory-evolve' } : { kind: 'user' },
+        // （v4 的注入 kind 是 producer-owned 的 `plugin:<包名>`，不再是裸 'plugin'）
+        source: sourceKind === 'plugin' ? { kind: PLUGIN_SOURCE_KIND, form: 'notice' } : { kind: 'user' },
       },
     })
   }

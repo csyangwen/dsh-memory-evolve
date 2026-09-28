@@ -4,6 +4,18 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+## 2026-09-28
+
+### Fixed
+
+- **Under session format v4 a plugin-injected message fails the recipient's whole turn (issue #68, blocking)**: since DSH 0.1.7-rc.2 session persistence uses format v4, where every message's `source.kind` must be self-reported by its producer (canonical form `plugin:<package>`, validated in the message-sources module of `@deepseek-ai/dsh-session-format-v3-to-v4` and by the same rule on the persistence side); the v3-era spelling — a bare `kind: 'plugin'` plus a sibling `plugin` field — is **explicitly rejected**: `format v4 message requires a producer-owned source kind`. Four injection sites still used the old spelling: session broadcast / COI notification (`deliver()` in `lib/coi/index.js`), COI task status notification (`#deliver()` in `lib/coi/scheduler.js`), the write-conflict warning (`userMessage()` in `lib/coi/ws-coord.js`) and the workspace-activity notice board (same file). The error surfaces when the **recipient session adopts the event**, so the symptom is "the turn in which the injection lands fails outright" rather than the injection call itself failing; and because the notice board needs two or more active sessions while write conflicts and COI notifications are event-driven, it presents as "restart fixes it, then it comes back" — restarting only clears the notice-board baseline and throttling state, it is not a fix. Fix: a new `lib/coi/source.js` exports the single constant `PLUGIN_SOURCE_KIND = 'plugin:dsh-memory-evolve'` (matching the host's `producerKind()` mapping for unknown producers), and all four sites use it with the `plugin` field dropped. No reader-side change is needed: `advisor` uses its own `kind: 'advisor'`, and `lastTurnWasMessage()` in `review.js` tests `undefined || 'user'`, so the new kind keeps its meaning.
+
+### Tests
+
+- New `tests/injection-source-kind.test.js` (4 cases): (1) a replica of the host's v4 admission rule with a **premise self-check** — the rule must reject the retired spelling and accept the canonical one, otherwise the assertions below are false-green; (2) the shape of `PLUGIN_SOURCE_KIND` and its admission; (3) a scan asserting no retired spelling remains under `lib/`; (4) a scan asserting all four injection sites reference that one constant (so a future injection site cannot hand-write its own kind). Behavioural evidence lives in existing cases: `tests/coi.test.js` (session broadcast / room dynamics / COI completion notice) and `tests/ws-coord.test.js` (write-conflict `additionalContexts` / notice board) assert on the real constructed message objects that `source.kind === PLUGIN_SOURCE_KIND` and `source.plugin === undefined`; the stubs built with the old spelling in `tests/plugin.test.js` and the two advisor cases were updated to match.
+
+---
+
 ## 2026-09-15
 
 ### Fixed

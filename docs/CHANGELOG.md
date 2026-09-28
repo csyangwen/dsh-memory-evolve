@@ -4,6 +4,18 @@
 
 > [English](CHANGELOG.en.md)
 
+## 2026-09-28
+
+### 修复
+
+- **会话格式 v4 下插件注入消息会让接收方那一轮整轮失败（issue #68，阻塞级）**：DSH 0.1.7-rc.2 起会话持久化走 format v4，每条消息的 `source.kind` 必须由生产者自报（canonical 形态 `plugin:<包名>`，校验在 `@deepseek-ai/dsh-session-format-v3-to-v4` 的 message-sources 模块，持久化侧同规则）；v3 时代的「裸 `kind: 'plugin'` + 并列 plugin 字段」被**显式拒绝**：`format v4 message requires a producer-owned source kind`。插件有 4 处注入点仍在用旧写法——会话广播 / COI 通知（`lib/coi/index.js` 的 `deliver()`）、COI 任务状态通知（`lib/coi/scheduler.js` 的 `#deliver()`）、写冲突警告（`lib/coi/ws-coord.js` 的 `userMessage()`）与工作区活动公告板（同文件）。报错发生在**接收方会话认领该事件时**，所以症状是"注入所在的那一轮整轮失败"，而不是注入调用本身报错；又因为公告板需要活跃会话 ≥2、写冲突与 COI 通知靠事件触发，表现为"重启就好、过一阵复发"——重启只是清空了公告板基线 / 节流状态，并非修复。修复：新增 `lib/coi/source.js` 导出唯一常量 `PLUGIN_SOURCE_KIND = 'plugin:dsh-memory-evolve'`（与宿主 `producerKind()` 对未知生产者的映射一致），4 处全部改用它并删掉 `plugin` 字段。读取侧无需改动：`advisor` 用自己的 `kind: 'advisor'`，`review.js` 的 `lastTurnWasMessage()` 判 `undefined || 'user'`，新 kind 的语义不变。
+
+### 测试
+
+- 新增 `tests/injection-source-kind.test.js`（4 例）：① 复刻宿主 v4 准入规则并做**前提自检**——该规则必须拒绝退役写法、且通过 canonical 写法，否则后面的断言都是假绿；② `PLUGIN_SOURCE_KIND` 的形状与准入；③ 扫描 `lib/` 不得残留退役写法；④ 扫描四处注入点必须引用同一常量（防未来新增注入点时又手写一份 kind）。行为侧证据落在既有用例上：`tests/coi.test.js`（会话广播 / 房间动态 / COI 完成通知）与 `tests/ws-coord.test.js`（写冲突 `additionalContexts` / 公告板）直接断言真实构造出来的消息对象满足 `source.kind === PLUGIN_SOURCE_KIND` 且 `source.plugin === undefined`；`tests/plugin.test.js` 与两个 advisor 用例里按旧写法构造的桩数据同步更新。
+
+---
+
 ## 2026-09-15
 
 ### 修复
