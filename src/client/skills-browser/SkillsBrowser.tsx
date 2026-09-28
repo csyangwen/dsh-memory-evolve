@@ -11,20 +11,22 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+// 图标走 ../ui-icons.ts 跨版本解析层：DSH 0.2.0 把图标导出从 …16/…14 改成
+// …Regular，直接按旧名 import 会拿到 undefined 让整块 UI 崩掉（详见该文件注释）。
 import {
-  IconSearchOutline16,
-  IconRefreshOutline16,
-  IconFolderOpen16,
-  IconFolderClose16,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconCloseOutline16,
-  IconEditOutline16,
-  IconCheckOutline16,
-  IconLoadingOutline16,
-  IconWarningOutline16,
-  IconDataOutline16,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+  IconSearchOutline,
+  IconRefreshOutline,
+  IconFolderOpen,
+  IconFolderClose,
+  IconChevronDown,
+  IconChevronRight,
+  IconCloseOutline,
+  IconEditOutline,
+  IconCheckOutline,
+  IconLoadingOutline,
+  IconWarningOutline,
+  IconDataOutline,
+} from '../ui-icons.ts'
 import type {
   SkillSummary,
   FsEntry,
@@ -143,11 +145,11 @@ function sourceClass(source: string): string {
   return ' sb-badge--other'
 }
 
-/** resourceBase 类型对应的小图标（url/opaque 均用 IconDataOutline16）。 */
+/** resourceBase 类型对应的小图标（url/opaque 均用 IconDataOutline）。 */
 function ResourceIcon({ skill }: { skill: SkillSummary }): JSX.Element {
   const rb = skill.resourceBase
-  if (rb?.kind === 'directory') return <IconFolderOpen16 className="sb-card-meta-icon" />
-  return <IconDataOutline16 className="sb-card-meta-icon" />
+  if (rb?.kind === 'directory') return <IconFolderOpen className="sb-card-meta-icon" />
+  return <IconDataOutline className="sb-card-meta-icon" />
 }
 
 // ---------------------------------------------------------------------------
@@ -269,13 +271,13 @@ function SkillList(props: SkillListProps): JSX.Element {
       <div className="sb-list">
         {loading && (
           <div className="sb-note">
-            <IconLoadingOutline16 className="sb-spin" />
+            <IconLoadingOutline className="sb-spin" />
             <span>{t('loading.skills')}</span>
           </div>
         )}
         {!loading && error !== null && (
           <div className="sb-note sb-note--error">
-            <IconWarningOutline16 />
+            <IconWarningOutline />
             <span>{error}</span>
             <button type="button" className="sb-btn sb-btn--ghost" onClick={onRetry}>
               {t('refresh')}
@@ -337,7 +339,7 @@ function SkillList(props: SkillListProps): JSX.Element {
                     }}
                   >
                     {togglingName === skill.name ? (
-                      <IconLoadingOutline16 className="sb-spin" />
+                      <IconLoadingOutline className="sb-spin" />
                     ) : skill.disabled ? (
                       t('enable')
                     ) : (
@@ -426,7 +428,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
     if (loadingDirs.has(dirAbs)) {
       return (
         <div className="sb-tree-note" style={indent}>
-          <IconLoadingOutline16 className="sb-spin" />
+          <IconLoadingOutline className="sb-spin" />
           <span>{t('loading.dir')}</span>
         </div>
       )
@@ -435,7 +437,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
     if (dirError !== undefined) {
       return (
         <div className="sb-tree-note sb-note--error" style={indent}>
-          <IconWarningOutline16 />
+          <IconWarningOutline />
           <span className="sb-tree-errmsg" title={dirError}>
             {dirError}
           </span>
@@ -467,8 +469,8 @@ function FileTree(props: FileTreeProps): JSX.Element {
               onClick={() => onToggleDir(abs)}
               title={abs}
             >
-              {isOpen ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-              {isOpen ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+              {isOpen ? <IconChevronDown /> : <IconChevronRight />}
+              {isOpen ? <IconFolderOpen /> : <IconFolderClose />}
               <span className="sb-tree-name">{entry.name}</span>
             </button>
             {isOpen && renderEntries(abs, depth + 1)}
@@ -518,7 +520,7 @@ function FileTree(props: FileTreeProps): JSX.Element {
           <div className="sb-crumbs">
             {crumbs.map((crumb, i) => (
               <span key={crumb.abs} className="sb-crumb-seg">
-                {i > 0 && <IconChevronRightOutline14 className="sb-crumb-sep" />}
+                {i > 0 && <IconChevronRight className="sb-crumb-sep" />}
                 <button type="button" className="sb-crumb" onClick={() => onJump(crumb.abs)}>
                   {crumb.label}
                 </button>
@@ -594,7 +596,7 @@ function FileEditor(props: FileEditorProps): JSX.Element {
   if (fileLoading) {
     body = (
       <div className="sb-editor-empty">
-        <IconLoadingOutline16 className="sb-spin" />
+        <IconLoadingOutline className="sb-spin" />
         <span>{t('loading.dir')}</span>
       </div>
     )
@@ -607,7 +609,7 @@ function FileEditor(props: FileEditorProps): JSX.Element {
           : t('read.failed', { message: fileError.message })
     body = (
       <div className="sb-editor-empty sb-note--error">
-        <IconWarningOutline16 />
+        <IconWarningOutline />
         <span>{msg}</span>
       </div>
     )
@@ -665,7 +667,7 @@ function FileEditor(props: FileEditorProps): JSX.Element {
         <span className="sb-spacer" />
         {file !== null && !editing && (
           <button type="button" className="sb-btn" onClick={onEdit}>
-            <IconEditOutline16 />
+            <IconEditOutline />
             {t('edit')}
           </button>
         )}
@@ -678,7 +680,7 @@ function FileEditor(props: FileEditorProps): JSX.Element {
               onClick={onSave}
               disabled={saveState === 'saving' || !dirty}
             >
-              <IconCheckOutline16 />
+              <IconCheckOutline />
               {saveState === 'saving' ? t('saving') : t('save')}
             </button>
             <button type="button" className="sb-btn sb-btn--ghost" onClick={onCancel}>
@@ -739,20 +741,20 @@ function DirsModal(props: DirsModalProps): JSX.Element {
               disabled={mutating || input.trim() === ''}
               onClick={onAdd}
             >
-              {mutating ? <IconLoadingOutline16 className="sb-spin" /> : null}
+              {mutating ? <IconLoadingOutline className="sb-spin" /> : null}
               {t('dirs.add')}
             </button>
           </div>
           {error !== null && (
             <div className="sb-action-error">
-              <IconWarningOutline16 />
+              <IconWarningOutline />
               <span className="sb-action-error-text">{error}</span>
             </div>
           )}
           <div className="sb-dirs-list">
             {loading && (
               <div className="sb-note">
-                <IconLoadingOutline16 className="sb-spin" />
+                <IconLoadingOutline className="sb-spin" />
                 <span>{t('loading.skills')}</span>
               </div>
             )}
@@ -1311,7 +1313,7 @@ export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element
         <div className="sb-side">
           <div className="sb-side-toolbar">
             <div className="sb-search">
-              <IconSearchOutline16 className="sb-search-icon" />
+              <IconSearchOutline className="sb-search-icon" />
               <input
                 className="sb-search-input"
                 type="text"
@@ -1326,7 +1328,7 @@ export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element
                   onClick={() => setQuery('')}
                   aria-label={t('cancel')}
                 >
-                  <IconCloseOutline16 />
+                  <IconCloseOutline />
                 </button>
               )}
             </div>
@@ -1340,7 +1342,7 @@ export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element
               }}
               title={t('manage.dirs')}
             >
-              <IconFolderOpen16 />
+              <IconFolderOpen />
             </button>
             <button
               type="button"
@@ -1349,7 +1351,7 @@ export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element
               disabled={refreshing}
               title={t('refresh')}
             >
-              {refreshing ? <IconLoadingOutline16 className="sb-spin" /> : <IconRefreshOutline16 />}
+              {refreshing ? <IconLoadingOutline className="sb-spin" /> : <IconRefreshOutline />}
             </button>
           </div>
           <SkillList
@@ -1374,14 +1376,14 @@ export function SkillsBrowser({ t, sessionId }: SkillsBrowserProps): JSX.Element
           />
           {actionError !== null && (
             <div className="sb-action-error">
-              <IconWarningOutline16 />
+              <IconWarningOutline />
               <span className="sb-action-error-text">{actionError}</span>
               <button
                 type="button"
                 className="sb-btn sb-btn--ghost"
                 onClick={() => setActionError(null)}
               >
-                <IconCloseOutline16 />
+                <IconCloseOutline />
               </button>
             </div>
           )}

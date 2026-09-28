@@ -52,6 +52,8 @@ import advisorStyles from './advisor/advisor-styles.css'
 import mobileCss from './mobile.css'
 import { createInputSheetEnhance } from './mobile-input-sheet'
 import { createNotificationBell } from './notification-bell.tsx'
+// 「切换到会话」跨版本入口（DSH 0.2.0 把 sessions.open 换成 uiWorkspace.openSession）
+import { openSessionCompat } from './client-compat.ts'
 import { createTodoTabLifecycle, RUNTIME_CONFIG_CHANGED } from './todo-tab-lifecycle.js'
 import notificationStyles from './notification-styles.css'
 
@@ -1890,8 +1892,9 @@ export function apply(ctx: Context): void {
 
   // web 站内通知铃铛（全局右上角）：探测宿主端 /api/notifications/unread 成功
   // 才挂载（notifyEnabled 开启时 API 才挂载，关闭时 404 → 铃铛不注入）。
-  // 「跳转到会话」经 DSH client 的 sessions 服务 ctx.sessions.open(sessionId)
-  // 切换（2026-08-13 调研：官方唯一切换入口，ui-workspace 同款路径）。
+  // 「跳转到会话」经 ./client-compat.ts 的 openSessionCompat 切换：老宿主走
+  // ctx.sessions.open(sessionId)（2026-08-13 调研：当时的官方唯一入口），
+  // DSH 0.2.0 起 sessions 服务删掉了 open()，改走 ctx.uiWorkspace.openSession。
   let notifyBellCancelled = false
   let disposeNotifyBell: (() => void) | undefined
   void fetch('/memory-evolve/api/notifications/unread')
@@ -1899,7 +1902,7 @@ export function apply(ctx: Context): void {
     .then(() => {
       if (notifyBellCancelled) return
       disposeNotifyBell = createNotificationBell({
-        openSession: (sessionId) => { ctx.sessions.open(sessionId) },
+        openSession: (sessionId) => { openSessionCompat(ctx, sessionId) },
         t,
       }).dispose
     })
@@ -2428,8 +2431,8 @@ export function apply(ctx: Context): void {
   // ctx 断言为 CanvasTabHost：cordis Context 类型缺 slots（项目既有类型
   // 环境问题，全部 slots 调用同源），运行时由客户端运行时注入。
   // openSession（2026-08-14）：footer「跳转」按钮跳转归属会话——
-  // 与 web 通知铃铛同款路径 ctx.sessions.open(sessionId)（官方唯一
-  // 切换入口）。
+  // 与 web 通知铃铛同款路径（openSessionCompat：老宿主 sessions.open，
+  // 新宿主 uiWorkspace.openSession）。
   // ⚠️ 2026-08-14 修复：Tab 注册必须跟随 canvasEnabled 开关（与书签
   // 同款探测模式）——曾无条件注册，开关关闭时 Tab 还在（只剩后端
   // 同步被关），用户预期「关=整个画板不可见」；现在探测
@@ -2443,7 +2446,7 @@ export function apply(ctx: Context): void {
       if (canvasCancelled || data.enabled !== true) return
       disposeCanvasTab = registerCanvasTab(
         ctx as unknown as import('./canvas-grok/index.ts').CanvasTabHost,
-        { t, openSession: (sessionId) => { ctx.sessions.open(sessionId) } },
+        { t, openSession: (sessionId) => { openSessionCompat(ctx, sessionId) } },
       )
     })
     .catch(() => { /* 画板未启用：不注入任何东西 */ })
