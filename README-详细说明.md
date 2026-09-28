@@ -105,6 +105,43 @@
 - **日志分支 tag**：项目日志与每日日志的每一条记录**自动带来源分支 tag** `[git main]`（程序标注，模型无需也无法手写——手写前缀会被剥离），日志可溯源到分支，跨分支回顾时不会张冠李戴。
 - **开关**：`keyBranchFilter`（默认 true，仅 config.yaml）可关闭 key 的分支过滤注入。
 
+## 记忆生命周期（salience 重要性 + 命中统计 + 衰减候选 + 分层注入）
+
+记忆条目带完整的生命周期元数据层——「被用过就更耐用、长期没用进候选」：
+
+### 条目重要性 `[salience:N]`
+
+- **写入时**：`memory` 工具 `add`/`replace` 传可选 `salience` 参数（整数 1-3：1=低 2=中 3=高，越界自动钳制；仅 memory/user/key 三轨生效，project/daily 日志轨忽略并提示）。语义：长期重要事实/用户约定/核心架构决策传 `salience:2-3`，常规进展不传。
+- **存量补标（retag action）**：旧条目缺标记时，模型按 match 定位单条重打级别（正文逐字不动、`[id:]`/`[summary:]` 原样保留；match 不唯一/未命中的错误口径与 replace 相同）。**运行时统一补标工作流**：在记忆审查到期轮分批处理（每轮 10-20 条至清零）；补标后衰减阈值随之按新级别生效。
+- 条目头生成 `[salience:N]` tag（与 `[summary:]`/`[branch:]` 同款 head token，`replace` 编辑时原样保留进 head）。
+- 带 `[salience:3]` 的条目在快照摘要模式下**恒全文注入**（重要性豁免）。
+
+### 命中统计（hit-stats 侧车）
+
+- `list`/`expand` 每次真实命中（branch 过滤后返回的条目）自动 +1 计数并更新最近访问时间；快照注入**不计数**。
+- **使用申报（used）**：`memory` 工具 add（单轨与批量 entries 写均可）带可选 `used` 参数（字符串数组）——模型收尾写入时申报本轮实际参考/用到的既有记忆的独特子串；服务端按 memory→user→key 轨序解析，某轨恰一条命中即为该条目 `bumpHits` +1，未匹配/多义的 ref 忽略不报错；全程失败隔离，任何解析异常不影响 add 主流程。语义（spec Q5 R4 修订）：注入不自动计数，模型经 used 主动申报的使用计入。
+- 侧车文件位置：memory/user 轨 `<记忆目录>/hit-stats.json`、key 轨 `projects/<hash>/hit-stats.json`；键 = `track:sha1(条目文本)`。
+- 侧车**不进同步**（同步 fileset 之外）、损坏自动降级为无统计、读写失败绝不影响主流程；记忆 Tab 条目显示命中次数与重要性徽标。
+
+### 衰减归档候选（decay action）
+
+- `memory` 工具 `decay` action 按需运行：扫描三轨，按「距上次访问天数 > `decayThresholds[salience]`」产出归档候选，写入**只读**报告 `<记忆目录>/decay-report.json`。**绝不自动删除任何条目**——报告是 memory-consolidate 技能与人工裁决的输入；审查到期提醒会附带当前候选数。
+- 阈值配置 `decayThresholds`：`[30, 90, 180]`（按 salience 1/2/3 索引，单位天；单项 0 = 该档永不进候选），config.yaml 可改。
+- 报告 `fallbackCount` 字段语义：参与筛选时使用了条目时间戳代理的**全部**条目数（含未超阈值未进候选的），非仅候选条目。
+
+### 快照分层注入（memoryProgressiveDisclosure）
+
+- `off`（默认）：全量注入，输出与旧版逐字节一致（golden 基线钉住）。
+- `on`：恒摘要注入——`[salience:3]` 条目恒全文（重要性豁免），其余一行摘要；模型取全文走 `memory` 工具 `list`（memory/user 轨）或 `expand+id`（key 轨）。
+- `auto`：条目数 ≤ `memoryFullInjectThreshold`（默认 3）且总字符 ≤ `memoryFullInjectCharLimit`（默认 1500）时全量，否则摘要。
+- 配置入口：「Memory Evolve 设置 → 配置」（或 config.yaml）。
+
+### 存量记忆处理（命中驱动豁免）
+
+- 摘要模式下未标记 salience 的旧条目**不是一刀切摘要**：近期被实际使用过的旧记忆保持全文注入——判定条件 = hitCount ≥ 1 且最近访问距今 ≤ `memoryHitExemptDays` 天（默认 30；0 = 关闭豁免）。
+- 豁免窗口外的旧条目降为一行摘要（显式 `[summary:]` 优先、自动摘要兜底），AI 需要全文时用 `list` 取回。
+- 重要旧条目的长期归宿：用 `replace` 重写补上 `salience:2-3` 标记（进入重要性豁免通道，恒全文），或补显式 `[summary:]` 控制摘要形态。
+
 ## 技能管理器（合并自 dsh-skill-browser）
 
 > ⚠️ **与独立插件 dsh-skill-browser（dsh-skills-manager）冲突**：技能管理功能已整体并入本插件（宿主端 `lib/skills-manager.js` + 记忆 Tab「技能管理」子 Tab，API 前缀沿用 `/skills-manager`）。**不要同时启用两者**——两套 disabled shadow 会对同一技能重复注册、两套 custom-dir provider 会重复扫描。迁移步骤：从 `~/.dsh/config.yaml` 移除 `skills-manager` 的 insert，重启 `dsh web`。

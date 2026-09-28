@@ -102,7 +102,9 @@ test('aliases api: GET 全量 / PUT 设置（校验）/ DELETE 清除', async ()
   const request = async (method, path, body) => {
     const res = await fetch(base + path, {
       method,
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      headers: body !== undefined
+        ? { 'content-type': 'application/json', origin: base }
+        : (method === 'POST' || method === 'PUT' ? { 'content-type': 'application/json', origin: base } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     const data = await res.json().catch(() => ({}))

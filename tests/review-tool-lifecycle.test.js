@@ -141,7 +141,10 @@ async function startApi(ctx) {
   const request = async (method, body) => {
     const response = await fetch(`${base}/memory-evolve/api/config`, {
       method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      // 写守卫（审计批次 2）：同源 POST 需要 Origin 与 Host 一致
+      headers: body === undefined
+        ? undefined
+        : { 'content-type': 'application/json', origin: base },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     return { status: response.status, body: await response.json() }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, resolveConfig, renderSnapshot } from '../lib/index.js'
-import { MemoryStore, projectHash } from '../lib/store.js'
+import { MemoryStore, parseEntrySalience, parseEntrySummary, entryBodyOf, projectHash } from '../lib/store.js'
 import { extractEntryId } from '../lib/sync/entryid.js'
 import { approveSuggestions } from '../lib/review.js'
 import { SuggestionQueue } from '../lib/store.js'
@@ -127,6 +127,38 @@ test('key add 的 summary：清洗后为空则不写标签', async () => {
   clean(dir)
 })
 
+test('memory/user 轨 add 的 summary 参数（v2 扩轨）：写入口径与 key 轨一致', async () => {
+  const dir = tempDir()
+  const ctx = fakeCtx()
+  apply(ctx, { memoryDir: dir })
+  const tool = ctx.state.tools.find((t) => t.name === 'memory')
+  const exec = { agent: { id: 'a', session: { header: { cwd: '/proj/pd-sum' } } }, callId: 'c1', signal: new AbortController().signal }
+  // memory 轨：summary + salience 同写
+  const r1 = await tool.execute({
+    action: 'add', target: 'memory', content: '正文第一行\n正文第二行',
+    summary: '一句话摘要\n带换行]与右括号', salience: 2,
+  }, exec)
+  assert.equal(r1.ok, true, r1.message)
+  const mem = storeEntries(join(dir, 'MEMORY.md'))
+  assert.equal(mem.length, 1)
+  assert.equal(parseEntrySummary(mem[0]), '一句话摘要 带换行 与右括号', 'summary 清洗后写入头部')
+  assert.equal(parseEntrySalience(mem[0]), 2, 'summary 与 salience 共存')
+  // 正文逐字保留（与 key 轨同一写入口径 normalizeSummaryText）
+  assert.ok(entryBodyOf(mem[0]).includes('正文第一行\n正文第二行'), mem[0])
+  // user 轨：只写 summary
+  const r2 = await tool.execute({ action: 'add', target: 'user', content: '用户事实正文', summary: '用户摘要' }, exec)
+  assert.equal(r2.ok, true, r2.message)
+  const usr = storeEntries(join(dir, 'USER.md'))
+  assert.equal(parseEntrySummary(usr[0]), '用户摘要')
+  assert.equal(parseEntrySalience(usr[0]), null)
+  // 不传 summary：不写标签（旧行为零变化）
+  const r3 = await tool.execute({ action: 'add', target: 'memory', content: '无摘要条目正文' }, exec)
+  assert.equal(r3.ok, true, r3.message)
+  const mem2 = storeEntries(join(dir, 'MEMORY.md'))
+  assert.equal(mem2.some((e) => e.includes('无摘要条目正文') && e.includes('[summary:')), false)
+  clean(dir)
+})
+
 test('expand：按 id 加载全文，剥身份证与摘要标记；未知 id 报错', async () => {
   const dir = tempDir()
   const ctx = fakeCtx()
@@ -199,8 +231,16 @@ test('renderSnapshot：off（默认）全量注入，on 摘要注入带 [id] 与
   const cwd = '/proj/pd4'
   const agent = { id: 'a', session: { header: { cwd } } }
   const store = new MemoryStore(dir)
-  store.add('key', '[summary:显式摘要] 这是一条很长很长的正文内容第一行\n还有第二行', agent)
-  store.add('key', '没有显式摘要的条目', agent)
+  // ⚠️ 渐进式披露 v2（2026-09-28）：摘要模式新增「按条目长度折叠」——
+  // 正文 ≤ memorySummaryMinChars（默认 400）的短条目保持全文。本用例考的
+  // 是 key 轨摘要行形态（显式 summary 优先 / autoSummary 兜底 / expand 提示），
+  // 故 fixture 用**超阈值长正文**，让折叠规则真正触发。
+  const longBody = '这是一条很长很长的正文内容第一行' + '填'.repeat(450) + '\n还有第二行'
+  store.add('key', `[summary:显式摘要] ${longBody}`, agent)
+  const longBody2 = '没有显式摘要的条目正文首行' + '充'.repeat(450)
+  store.add('key', longBody2, agent)
+  // 短条目（v2 规则：保持全文）
+  store.add('key', '短条目保持全文', agent)
   // off（默认）：全文注入、无 summary 标签
   const off = renderSnapshot(resolveConfig({ memoryDir: dir }), store, agent)
   assert.ok(off.includes('这是一条很长很长的正文内容第一行'))
@@ -212,8 +252,11 @@ test('renderSnapshot：off（默认）全量注入，on 摘要注入带 [id] 与
   assert.ok(on.includes('action=expand+id'))
   assert.ok(on.includes('显式摘要'), 'explicit summary used when present')
   assert.ok(!on.includes('这是一条很长很长的正文内容第一行'), 'full body must not leak in summary mode')
-  // 无显式摘要的条目 → autoSummary 首行兜底
-  assert.ok(on.includes('没有显式摘要的条目'))
+  // 无显式摘要的条目 → autoSummary 首行兜底（截断到 120 字）
+  assert.ok(on.includes('没有显式摘要的条目正文首行'))
+  assert.ok(!on.includes('充'.repeat(450)), 'over-threshold entry must be collapsed, not injected in full')
+  // v2：短条目保持全文（长度规则与整轨模式并存）
+  assert.ok(on.includes('短条目保持全文'), 'short key entry stays full under the v2 length rule')
   clean(dir)
 })
 

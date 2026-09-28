@@ -56,7 +56,11 @@ async function bootApi(overrides = {}) {
   const request = async (method, path, body) => {
     const res = await fetch(base + path, {
       method,
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      // 写守卫（审计批次 2）：同源 POST/PUT 需要 content-type=JSON + Origin
+      // 与 Host 一致——测试替身按真实 Web UI 形态补 Origin 头
+      headers: body !== undefined
+        ? { 'content-type': 'application/json', origin: base }
+        : (method === 'POST' || method === 'PUT' ? { 'content-type': 'application/json', origin: base } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     const data = await res.json().catch(() => ({}))

@@ -1261,6 +1261,33 @@
   background: var(--dsw-alias-state-business-tertiary);
 }
 
+/* Lifecycle badges (pretty view): salience star + hit count.
+   (PR #66 follow-up block 3 — importance and hit statistics.) */
+.mt-entry-salience {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-state-warning-primary, #b7791f);
+  background: var(--dsw-alias-state-warning-tertiary, rgba(183, 121, 31, 0.14));
+}
+
+.mt-entry-hits {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
 /* Per-entry action buttons (pretty view): right-aligned group. */
 .mt-entry-ops {
   flex: none;

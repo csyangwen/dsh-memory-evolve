@@ -38,6 +38,9 @@ interface MemoryFileRow {
   truncated: boolean
   path?: string
   content: string
+  /** 条目级生命周期元数据（hitCount/salience，与 content 条目序一一对应；
+   *  仅 memory/user/key 三轨、服务端装配成功时才有）。 */
+  entryMeta?: EntryMeta[]
 }
 
 /** Locale-bound props (the `memoryEvolve` namespace). */
@@ -49,6 +52,14 @@ export interface MemoryTabViewProps {
 type ViewMode = 'pretty' | 'raw'
 
 /** 一条解析后的 § 条目：可选时间戳 + 可选项目标签 + 可选 git 分支 + 正文 + 原始全文。 */
+/** 条目级生命周期元数据（服务端装配，lib/memory-tab.js buildEntryMeta）。 */
+interface EntryMeta {
+  /** 侧车命中次数（读失败/无记录=0）。 */
+  hitCount: number
+  /** 条目重要性档位（[salience:N] 解析；无=null）。 */
+  salience: number | null
+}
+
 interface MemoryEntry {
   time: string | null
   tag: string | null
@@ -62,6 +73,8 @@ interface MemoryEntry {
   text: string
   /** 剥离前/解析前的完整条目原文（含时间戳），删除时按它精确匹配。 */
   raw: string
+  /** 生命周期元数据（hitCount/salience；服务端未附/异常=null）。 */
+  meta: EntryMeta | null
 }
 
 /** § 条目分隔符，与 lib/store.js 的 ENTRY_DELIMITER 保持一致。 */
@@ -95,9 +108,14 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
     : row.key === 'daily' ? TIME_PREFIX.daily
       : TIME_PREFIX.date
   const entries: MemoryEntry[] = []
+  // 条目级生命周期元数据（与服务端 parseEntries 同序：split+trim+非空过滤）。
+  const metas = Array.isArray(row.entryMeta) ? row.entryMeta : null
+  let metaIdx = 0
   for (const raw of row.content.split(ENTRY_DELIMITER)) {
     let text = raw.trim()
     if (text === '') continue
+    const meta = metas !== null && metaIdx < metas.length ? (metas[metaIdx] ?? null) : null
+    metaIdx++
     const rawText = text // 完整原文（含时间戳），删除时精确匹配用
     let time: string | null = null
     let tag: string | null = null
@@ -144,7 +162,7 @@ function parseEntries(row: MemoryFileRow): MemoryEntry[] {
       // （死代码），且正文中出现的 [summary:…] 文本因不在行首不被误剥。
       text = text.replace(/^\[summary:[^\]]*\]\s*/, '')
     }
-    entries.push({ time, tag, branch, text, branches, dshOnly, raw: rawText })
+    entries.push({ time, tag, branch, text, branches, dshOnly, raw: rawText, meta })
   }
   return entries
 }
@@ -785,6 +803,18 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
                     <div key={index} className="mt-entry">
                       <div className="mt-entry-head">
                         {entry.time !== null && <span className="mt-entry-time">{entry.time}</span>}
+                        {/* 生命周期徽标（PR #66 后续增强块 3）：重要性（无标记
+                            不显示）与命中次数（0 不显示）。 */}
+                        {entry.meta !== null && entry.meta.salience !== null && (
+                          <span className="mt-entry-salience" title={t('memoryTab.salienceBadgeHint')}>
+                            ★{entry.meta.salience}
+                          </span>
+                        )}
+                        {entry.meta !== null && entry.meta.hitCount > 0 && (
+                          <span className="mt-entry-hits" title={t('memoryTab.hitBadgeHint')}>
+                            {t('memoryTab.hitBadge', { count: entry.meta.hitCount })}
+                          </span>
+                        )}
                         {entry.branch !== null && (
                           <span className="mt-entry-branch mt-entry-branch-tag" title={t('memoryTab.gitBranch')}>
                             {entry.branch}

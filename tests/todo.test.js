@@ -597,7 +597,9 @@ async function bootTodoApi(runtime = {}) {
   const request = async (method, path, body) => {
     const res = await fetch(base + path, {
       method,
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      headers: body !== undefined
+        ? { 'content-type': 'application/json', origin: base }
+        : (method === 'POST' || method === 'PUT' ? { 'content-type': 'application/json', origin: base } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     const data = await res.json().catch(() => ({}))

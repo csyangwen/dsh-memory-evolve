@@ -15,6 +15,10 @@
 - **内置技能同步被 COI 开关连带关闭：默认配置下内置技能永远装不上（issue #58）**：`syncBuiltinSkills()` 的调用点原本在 `installCoi()` 内，而 `installCoi` 由 `coiEnabled` 门控（默认 `false`——本插件本职是记忆/待办/技能，调度是按需增强），于是 `memory-consolidate` 与 kimi/codex/grok/hermes 四个 CLI 使用指南在**默认配置下永远不会进技能库**；调用点又包着 try/catch 只打一行 warn，连"从来没跑过"都留不下痕迹（与 §7.5 broadcast 当初"独立子模块挂在 COI 下拆不开"是同款事故）。修复：同步提到插件主装配（`lib/index.js` 的 `apply()` 步骤 6.5），实现抽成 `lib/coi/skills-sync.js` 的 `syncBuiltinSkillsIfEnabled(config, pluginSkillsDir?)`——**判定只看 `coiSyncSkills`，代码里不再出现 `coiEnabled`**；`PLUGIN_SKILLS_DIR` 一并移过去并导出（供测试断言源头确实在包内），`installCoi()` 内的调用与模块级常量删除，该模块只剩适配器指南的写入需要 `normalizeSkillText`。`coiSyncSkills` 的语义随之明确为"启动时是否把内置技能同步到技能库"，与调度开关无关。
 - **收尾的 key 建议没写明用哪个工具（issue #58 第二项）**：`snap.keyDuty` / `snap.subagentKeyTail` 只说"另向 target=key 提交 1 条建议"，而 `memory_suggest` 的 target 白名单是 `['memory','user','todo-life','todo-work','todo-project','todo-daily']`（`lib/review.js`），**不含 key**——照字面选工具即报"不支持 target=key"，会话收尾会反复踩。走待确认队列的正规通道是 memory 工具的 `add`（与 `memory_suggest` 共用 `enqueueSuggestion` 队列）。两处文案改为"另用 memory 工具 action=add 向 target=key 提交 1 条建议（走待确认队列，用户确认后写入并注入）"，中英同步。
 
+### 新增
+
+- **记忆渐进式披露 v2：`summary` 放开到三轨 + 120 字上限 + 按条目长度折叠 + `retag` 补摘要**（用户拍板：仿照 skills 的渐进式披露为记忆加渐进式披露；长记忆只注入概述、需要时调用；摘要在写入时一并生成，存量批量回填）。① **`add` 的 `summary` 参数由 key 轨扩到 memory/user/key 三轨**——此前门控是 `target === 'key' && summary`，memory/user 只能靠 `autoSummary` 截正文首行兜底，而这两轨条目多为单行长段（实测 MEMORY.md 182 条/86,804 字符、均值 477），兜底摘要既损质量又几乎不省字符；② `autoSummary` 默认上限 80 → `SUMMARY_MAX_CHARS = 120`，与显式 `[summary:…]` 的写入口径统一（此前写入层允许 120、注入层只认 80，双口径），清洗逻辑抽成单一事实源 `normalizeSummaryText`（换行/`]`/制表符清洗 + 折叠空白 + 截断）；③ 新增 `memorySummaryMinChars`（默认 400，正整数校验 + `RUNTIME_KEYS` + 设置页/i18n 双语）——**摘要模式下按条目长度折叠**，不再只有「整轨全折」一档：正文（新增 `entryBodyOf`，剥头部元数据后的逐字正文）长于该值的条目折成一行摘要、短条目保持全文注入；`[salience:3]` 与近期命中豁免仍恒全文，`off` 模式完全不受影响（golden 逐字节同基线）；④ `retag` 新增可选 `summary` 参数（新增 `retagEntryMeta`）：按 match 定位单条，**只重写头部元数据标记**（`[summary:…]` 与/或 `[salience:N]`，顺序与 `stampEntry` 一致），**正文逐字节不动**；两者至少给一个，都缺省则诚实拒绝（静默成功会让模型以为摘要已写入）——这是存量摘要批量回填的执行机制（为插一行摘要重发整条正文既浪费又有正文被顺手改写的风险）；⑤ 工具描述（zh/en）写明「**正文较长（>400 字）时写入方应一并给出 `summary`**（≤120 字）」与摘要模式下取全文的方式（memory/user 用 `list`、key 轨用 `expand+id`）。客户端设置页新增该旋钮控件；本机无 esbuild（无 DSH 源码 checkout），`lib/client.js` 产物按源码逐块手工同步，由 `tests/client-config-save.test.js` 的源码↔产物键集一致断言守住。测试：`tests/retag.test.js` 增 ⑧a-⑧g（含**正文字节级**断言：`Buffer.from(entryBodyOf(…), 'utf8')` 逐字节比对）、`tests/memory-progressive-disclosure.test.js` 增块 6-①~⑥（长度折叠/阈值可配/salience:3 优先/off 不受影响/旋钮校验/注入必红）、`tests/progressive-disclosure.test.js` 增「memory/user 轨 add summary」、`tests/store-summary.test.js` 增 `entryBodyOf`/`normalizeSummaryText`。
+
 ### 变更
 
 - **内置技能 `memory-consolidate` 升 `x-version: 2`（外部 PR #58 第三项，按原文摘取）**：补四类实战边界——① **同一轨的写操作串行执行**（同一个 `.md` 是读-改-写，交错执行会互相覆盖、也会撞上 drift guard；一个簇处理完再动下一个）；② **`replace` 是整条替换**：`content` 必须给完整新全文，只传增量或新句子会**静默吞掉**其余段落（2026-09-16 实证：更正一条多段记忆时只写新句子，其余段落整条丢失，靠 memories 仓库的 git 备份才找回；改写前先用 `list`、key 轨可用 `expand` 把原文读全）；③ **key 建议用 memory 工具 `add`（`target=key`）提交，不要用 `memory_suggest`**（后者 target 白名单不含 key，传入即报「不支持 target=key」）；④ 新增「四、故障处理（异常兜底）」——drift guard 报「无法解析往返」拒写时的逃生路径（先备份 → 用插件自带 `lib/store.js` 做 `serializeEntries(parseEntries(text))` 规范化并校验往返条数不变 → 回到工具流程），以及「判断条目是否粘连只认 `parseEntries(text).length`」（用正则数 `\n§\n` 会因正文里逐字引用的内容性 `§` 假阳性）。技能正文取自 PR #58 的 `d78043d`，与该提交逐字节一致。**注意：这一项只有在本版之后才真正装得上**——此前 CRLF 检出下 `skillVersion()` 解析出 0、版本门控退化成"永远相等"，Windows 上 x-version 升级是静默失效的（见上）。
@@ -29,6 +33,18 @@
 - `tests/plugin.test.js` 新增两条**装配级**用例（跑真实 `apply()`）：`coiEnabled:false` 时五个内置技能必须落盘、`coiSyncSkills:false` 时连技能库目录都不创建。已验证「摘掉主装配调用」后第一条必失败。同文件的快照用例补上第二项的断言：key 建议必须点名 `memory 工具 action=add`，且不得出现 `memory_suggest target=key`（防止文案退化回"没写工具名"）。
 
 ---
+## 2026-09-24
+
+### 新增
+
+- **memory add 新增 used 使用申报：注入阅读的命中信号**——模型收尾写入时（单轨与批量 entries 写均可）带可选 `used` 参数（条目独特子串数组）申报本轮实际用到的既有记忆；服务端按 memory→user→key 轨序解析，某轨恰一条命中即 `bumpHits` +1（未匹配/多义忽略不报错、重复 ref 去重、全程失败隔离绝不影响 add 主流程）。快照收尾写入指引同步补申报半句（golden 第 3 次有意再捕获，spec 修订记录 R4——Q5 语义修订为「注入不自动计数；模型经 used 主动申报的使用计入」）。
+- **memory 工具新增 retag action：运行时大模型存量补标**——按 match 定位单条旧条目重打 `[salience:N]` 重要性（正文逐字不动、`[id:]`/`[summary:]` 原样保留；match 不唯一/未命中错误口径同 replace；project/daily 日志轨诚实拒绝）。快照写入指引同步补「存量补标」一行（审查到期轮分批处理、每轮 10-20 条至清零）；快照黄金基线第 2 次有意再捕获（唯一差异段 = keyDuty 补标句，spec 修订记录 R3）。
+- **快照分层注入的命中驱动存量豁免（memoryHitExemptDays，默认 30）**：摘要模式（auto 超阈/on）下，未标记 salience 的旧条目不再一刀切降为一行摘要——hitCount≥1 且最近访问距今 ≤ 阈值天数的旧记忆保持全文注入（daysBetween 与 decay 同源口径；侧车读取失败隔离）。`0` = 关闭豁免；off/auto 全量路径零变化（golden 仍逐字节同基线——摘要头文案不进默认快照）。
+- **memory 工具使用指引与快照注入说明补全生命周期指引**：工具描述新增 salience 用法（长期重要事实/用户约定/核心架构决策传 `salience:2-3`，常规进展不传；整数 1-3 自动钳制）、`list`/`expand` 命中自动计数说明与 `decay` action 说明（按需产出归档候选报告 decay-report.json，绝不自动删除）；快照注入的写入指引（key 建议处）补「核心约定/决策可传 salience:2-3 标注重要性，常规进展不传」。快照黄金基线按**有意变更**流程再捕获（唯一差异行 = 写入指引 keyDuty 段，spec 修订记录 R1）。
+
+### 文档
+
+- 三份 README（使用指南 / 详细说明 / 英文指南）新增「记忆生命周期」小节：salience 参数用法、命中统计机制（list/expand 计数、hit-stats 侧车位置、不进同步）、decay action 与报告契约（含 fallbackCount 语义）、memoryProgressiveDisclosure 三态与两阈值配置、decayThresholds 配置。
 
 ## 2026-09-15
 

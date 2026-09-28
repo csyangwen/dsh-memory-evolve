@@ -268,6 +268,19 @@ The prompt library is an **instruction-paradigm asset library**: code review, de
 
 ---
 
+## Memory Lifecycle: Used Memories Age Better
+
+Memory is more than "write → inject": it ships a full lifecycle layer — importance, hit statistics, decay candidates, and tiered injection:
+
+- **Entry importance (salience)**: when writing memories, pass the optional `salience` parameter (integer 1-3: 3 = core conventions/architecture decisions/high-reuse facts, 2 = important, unset = routine progress; out-of-range values are clamped; effective on the memory/user/key tracks, ignored on the project/daily logs). Entries tagged `[salience:3]` stay **fully injected even in snapshot summary mode** (importance exemption). Already-stored entries can be re-marked with `retag` — locate one entry by match and restamp its level; body text untouched, `[id:]`/`[summary:]` preserved.
+- **Hit statistics (hit-stats sidecar)**: every real hit from the memory tool's `list`/`expand` is counted automatically (count + last-access time written to a sidecar file: memory/user tracks at the memory root, key track under `projects/<hash>/`). The sidecar is **excluded from memory sync**, degrades gracefully when damaged, and never affects the main flow; Memory tab entries show hit count and importance badges. **Usage reporting (used)**: at end-of-turn writes the model may attach a `used` parameter (an array of distinctive entry substrings) reporting which existing memories this turn actually consulted — the server resolves each ref across memory→user→key and a unique hit bumps that entry's count (unmatched/ambiguous refs are ignored without error). Snapshot reading itself never auto-counts; usage reporting lets "memories read from the injected context" accumulate hit signal too.
+- **Decay-archive candidates (decay)**: the memory tool's `decay` action runs on demand — entries whose days-since-last-access exceed `decayThresholds[salience]` become candidates in a **read-only** report at `<memory dir>/decay-report.json`. **Nothing is ever deleted automatically**; the list feeds memory housekeeping (the memory-consolidate skill) or your own judgment, and the review-due reminder carries the current candidate count. The `fallbackCount` field = the **total** number of entries that used the entry-timestamp proxy during screening (including those that did not become candidates).
+- **Snapshot tiered injection (memoryProgressiveDisclosure)**: `off` (default) = full injection, byte-identical to the previous behavior; `on` = always summarize (`[salience:3]` stays full; the rest collapse to one-line summaries the model can expand via list); `auto` = full when entries ≤ `memoryFullInjectThreshold` (default 3) and total chars ≤ `memoryFullInjectCharLimit` (default 1500), otherwise summaries. All adjustable under "Memory Evolve Settings → Config".
+- **Decay thresholds (decayThresholds)**: `[30, 90, 180]` (indexed by salience 1/2/3, in days; 0 = that tier never becomes a candidate), editable via config.yaml or the settings page.
+- **Handling legacy entries**: in summary mode, old entries without a salience tag are **not blanket-summarized** — old memories actually hit recently (default within 30 days, tunable via `memoryHitExemptDays`, 0 = off) stay **fully injected** (hit-driven exemption); entries outside the window collapse to one-line summaries the AI can expand via list. For important legacy entries, rewrite with `replace` to add `salience:2-3` or an explicit `[summary:]`. **Runtime re-marking workflow**: during memory-review turns the model batches `retag` calls for legacy entries (10-20 per turn until done); decay thresholds then apply per the new levels.
+
+---
+
 ## Other Capabilities (One-Line Index)
 
 - **Skill self-evolution**: repeatedly-hit methodologies auto-solidify into skills, so similar tasks execute by the process next time;
