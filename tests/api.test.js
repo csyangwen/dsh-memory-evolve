@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ArchiveStore, MemoryStore, SuggestionQueue, isCanonical } from '../lib/store.js'
@@ -15,6 +16,23 @@ setLocale('zh')
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'dsh-memory-api-test-'))
+}
+
+/** A mock gate exposing only the surface /api/audit/records reads. */
+function mockGate(records) {
+  return {
+    readLog: () => records,
+    health: () => ({
+      available: true,
+      enabled: true,
+      provider: 'mock',
+      mode: 'shadow',
+      bootError: null,
+      budget: { day: '2026-09-25', calls: 0, costCny: 0 },
+      limits: { dailyCallLimit: 100, dailyBudgetCny: 1 },
+      thresholds: { generalization: 0.5, skill_shape: 0.6 },
+    }),
+  }
 }
 
 /** Boot a real HTTP server over installApi's handler. */
@@ -45,6 +63,11 @@ async function bootApi(overrides = {}) {
   }
   installApi(ctx, {
     store, archive, queue, todoStore, getRuntime, updateRuntime,
+    // an object is used as-is (tests that need to observe logSkill writes);
+    // a truthy boolean gets the records-only read-only double.
+    jevGate: overrides.jevGate && typeof overrides.jevGate === 'object'
+      ? overrides.jevGate
+      : overrides.jevGate ? mockGate(overrides.records ?? []) : undefined,
     resolveRevealTarget: (target) => revealTargets[target],
     revealPath: overrides.revealPath ?? (() => {}),
     config: overrides.config ?? { memoryDir: dir, skillDir: join(dir, 'skills') },
@@ -56,7 +79,9 @@ async function bootApi(overrides = {}) {
   const request = async (method, path, body) => {
     const res = await fetch(base + path, {
       method,
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      // POST routes are guarded by sameOriginGuard; a browser fetch always
+      // sends Origin with the same host, so the tests must too.
+      headers: body !== undefined ? { 'content-type': 'application/json', origin: base } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
     const data = await res.json().catch(() => ({}))
@@ -115,6 +140,123 @@ test('api approve/reject/approve-all/reject-all', async () => {
     assert.equal(bad.status, 400)
     const bad2 = await api.request('POST', '/memory-evolve/api/suggestions/approve', { indices: [] })
     assert.equal(bad2.status, 400)
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api audit records endpoint serves the Jev execution log read-only', async () => {
+  const api = await bootApi({ jevGate: true })
+  try {
+    const before = await api.request('GET', '/memory-evolve/api/audit/records')
+    assert.equal(before.status, 200)
+    assert.equal(Array.isArray(before.data.records), true)
+    assert.equal(before.data.records.length, 0, 'fresh queue has no labeling history')
+    assert.equal(before.data.gate.available, true, 'gate health is attached to the response')
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+// ---- v2 design §3.3/§8.5: staged-skill endpoints (Jev approval chain) ----
+
+/** A gate double that records staged-chain log lines and replays them. */
+function stagedGate(records) {
+  const log = [...records]
+  return {
+    readLog: () => [...log].reverse(),
+    health: () => ({ available: true, enabled: true, provider: 'mock', thresholds: { generalization: 0.5, skill_shape: 0.6 } }),
+    logSkill: (rec) => log.push(rec),
+  }
+}
+
+test('api staged-skills: list carries the latest verdict per skill', async () => {
+  const records = [
+    { kind: 'skill-create', operationId: 'op-1', name: 'alpha-skill', contentHash: 'h', stage: 'staged' },
+    { kind: 'skill-verdict', operationId: 'op-1', name: 'alpha-skill', approved: false, scores: { generalization: 0.4, skill_shape: 0.8 }, thresholds: { generalization: 0.5, skill_shape: 0.6 }, reason: '通用性不足' },
+    { kind: 'skill-create', operationId: 'op-2', name: 'beta-skill', contentHash: 'h2', stage: 'staged' },
+    { kind: 'skill-fallback', operationId: 'op-2', name: 'beta-skill', approved: null, destination: 'pending-skills', reason: 'jev 不可用' },
+  ]
+  const api = await bootApi({ jevGate: true, records })
+  try {
+    // seed the staged dir with one skill (the other fell back to pending)
+    mkdirSync(join(api.dir, 'staged-skills', 'alpha-skill'), { recursive: true })
+    writeFileSync(join(api.dir, 'staged-skills', 'alpha-skill', 'SKILL.md'),
+      '---\nname: alpha-skill\ndescription: 测试\n---\n正文')
+    const res = await api.request('GET', '/memory-evolve/api/staged-skills')
+    assert.equal(res.status, 200)
+    assert.equal(res.data.entries.length, 1)
+    const entry = res.data.entries[0]
+    assert.equal(entry.name, 'alpha-skill')
+    assert.equal(entry.status, 'rejected')
+    assert.equal(entry.approved, false)
+    assert.deepEqual(entry.scores, { generalization: 0.4, skill_shape: 0.8 })
+    assert.equal(entry.reason, '通用性不足')
+    assert.equal(entry.operationId, 'op-1')
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api staged-skills: approve installs and writes a manual-override record', async () => {
+  const gate = stagedGate([{ kind: 'skill-verdict', operationId: 'op-1', name: 'gamma-skill', approved: false, reason: 'r' }])
+  const api = await bootApi({ jevGate: gate })
+  try {
+    mkdirSync(join(api.dir, 'staged-skills', 'gamma-skill'), { recursive: true })
+    writeFileSync(join(api.dir, 'staged-skills', 'gamma-skill', 'SKILL.md'),
+      '---\nname: gamma-skill\ndescription: 测试\n---\n正文')
+    const ok = await api.request('POST', '/memory-evolve/api/staged-skills/approve', { name: 'gamma-skill' })
+    assert.equal(ok.status, 200)
+    assert.ok(ok.data.path.endsWith(join('skills', 'gamma-skill', 'SKILL.md')))
+    assert.equal(existsSync(join(api.dir, 'staged-skills', 'gamma-skill')), false, 'moved out of staged')
+    assert.equal(existsSync(join(api.dir, 'skills', 'gamma-skill', 'SKILL.md')), true, 'installed')
+    const overrides = gate.readLog().filter((r) => r.kind === 'skill-manual-override')
+    assert.equal(overrides.length, 1, '§8.4: override has its own audit record')
+    assert.equal(overrides[0].approved, true)
+    assert.equal(overrides[0].name, 'gamma-skill')
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api staged-skills: reject deletes and records the confirmation', async () => {
+  const gate = stagedGate([{ kind: 'skill-verdict', operationId: 'op-1', name: 'delta-skill', approved: false, reason: 'r' }])
+  const api = await bootApi({ jevGate: gate })
+  try {
+    mkdirSync(join(api.dir, 'staged-skills', 'delta-skill'), { recursive: true })
+    writeFileSync(join(api.dir, 'staged-skills', 'delta-skill', 'SKILL.md'),
+      '---\nname: delta-skill\ndescription: 测试\n---\n正文')
+    const ok = await api.request('POST', '/memory-evolve/api/staged-skills/reject', { name: 'delta-skill' })
+    assert.equal(ok.status, 200)
+    assert.equal(existsSync(join(api.dir, 'staged-skills', 'delta-skill')), false, 'deleted')
+    const overrides = gate.readLog().filter((r) => r.kind === 'skill-manual-override')
+    assert.equal(overrides.length, 1)
+    assert.equal(overrides[0].approved, false)
+    assert.equal(overrides[0].destination, 'deleted')
+  } finally {
+    await api.close()
+    rmSync(api.dir, { recursive: true, force: true })
+  }
+})
+
+test('api staged-skills: approve refuses when the live skill exists', async () => {
+  const api = await bootApi({ jevGate: true, records: [] })
+  try {
+    mkdirSync(join(api.dir, 'staged-skills', 'eps-skill'), { recursive: true })
+    writeFileSync(join(api.dir, 'staged-skills', 'eps-skill', 'SKILL.md'),
+      '---\nname: eps-skill\ndescription: 测试\n---\n正文')
+    mkdirSync(join(api.dir, 'skills', 'eps-skill'), { recursive: true })
+    writeFileSync(join(api.dir, 'skills', 'eps-skill', 'SKILL.md'), 'existing')
+    const res = await api.request('POST', '/memory-evolve/api/staged-skills/approve', { name: 'eps-skill' })
+    assert.equal(res.status, 400, 'the refusal surfaces as a 4xx error with the message')
+    assert.ok(String(res.data.error).includes('已存在'), res.data.error)
+    // the live skill is untouched and the staged evidence survives
+    assert.equal(readFileSync(join(api.dir, 'skills', 'eps-skill', 'SKILL.md'), 'utf8'), 'existing')
+    assert.equal(existsSync(join(api.dir, 'staged-skills', 'eps-skill', 'SKILL.md')), true)
   } finally {
     await api.close()
     rmSync(api.dir, { recursive: true, force: true })
