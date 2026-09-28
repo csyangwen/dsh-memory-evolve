@@ -23,8 +23,8 @@ test('isVisibleUserMessage：仅 user 且 source.kind=user', () => {
   assert.ok(isVisibleUserMessage(userMsg('你好')))
   // 工具结果（tool source）不是用户可见输入
   assert.equal(isVisibleUserMessage(msg('user', [text('{...}')], { kind: 'tool' })), false)
-  // workspace/plugin 注入不是用户可见输入
-  assert.equal(isVisibleUserMessage(msg('user', [text('<system-reminder>...')], { kind: 'plugin', plugin: 'x' })), false)
+  // workspace/plugin 注入不是用户可见输入（v4 的 producer-owned kind：plugin:<包名>）
+  assert.equal(isVisibleUserMessage(msg('user', [text('<system-reminder>...')], { kind: 'plugin:dsh-memory-evolve' })), false)
   // advisor 自消息不是用户可见输入
   assert.equal(isVisibleUserMessage(msg('user', [text('[advisor:nit] x')], { kind: ADVISOR_SOURCE_KIND })), false)
 })

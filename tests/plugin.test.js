@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath, RUNTIME_KEYS, validateRuntimePatch } from '../lib/index.js'
 import { setLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
+import { PLUGIN_SOURCE_KIND } from '../lib/coi/source.js'
 
 // This suite pins the legacy Chinese output contract; i18n.test.js covers English.
 setLocale('zh')
@@ -586,7 +587,11 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   // key duty: importance-gated, never a per-turn mandate — and it goes
   // through user confirmation now (提交建议)
   assert.ok(snapshot.includes('重要项目事实'))
-  assert.ok(snapshot.includes('target=key 提交 1 条建议'))
+  assert.ok(snapshot.includes('向 target=key 提交 1 条建议'))
+  // issue #58：必须写明用**哪个**工具——memory_suggest 的 target 白名单里没有
+  // key（见 lib/review.js），只写 "向 target=key 提交建议" 会让模型照字面选错工具。
+  assert.ok(snapshot.includes('memory 工具 action=add'), 'key 建议必须点名 memory 工具的 action=add')
+  assert.ok(!snapshot.includes('memory_suggest target=key'), '不得引导到 memory_suggest（它不接受 key）')
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
   assert.ok(subSnapshot.includes('独立成果'))
@@ -660,17 +665,17 @@ test('renderSnapshot per-turn write switches compose the hint per track', () => 
   // both off: the key duty (default on) keeps the checklist alive
   const none = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false }), store, agent)
   assert.ok(none.includes('每轮收尾'))
-  assert.ok(none.includes('target=key 提交 1 条建议'))
+  assert.ok(none.includes('向 target=key 提交 1 条建议'))
   assert.ok(none.includes('target=project'))
   assert.ok(none.includes('target=daily'))
   // all three off: no write duty at all, hint degrades to on-demand reads
   const allOff = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnProjectWrites: false, perTurnDailyWrites: false, perTurnKeyWrites: false }), store, agent)
-  assert.ok(!allOff.includes('target=key 提交 1 条建议'))
+  assert.ok(!allOff.includes('向 target=key 提交 1 条建议'))
   assert.ok(!allOff.includes('每轮收尾'))
   // key off: only daily/project keep their write duties
   const noKey = renderSnapshot(resolveConfig({ memoryDir: dir, perTurnKeyWrites: false }), store, agent)
   assert.ok(noKey.includes('含 target=daily 与 target=project 各一项'))
-  assert.ok(!noKey.includes('target=key 提交 1 条建议'))
+  assert.ok(!noKey.includes('向 target=key 提交 1 条建议'))
   clean(dir)
 })
 
@@ -803,7 +808,8 @@ test('write watchdog counter: counts turns, resets on daily/project writes, hono
         id: `u${seq}`,
         turn: seq,
         // 'plugin' = 注入/唤醒回合（广播 wake followup 等），'user' = 真人回合
-        source: sourceKind === 'plugin' ? { kind: 'plugin:dsh-memory-evolve', plugin: 'dsh-memory-evolve' } : { kind: 'user' },
+        // （v4 的注入 kind 是 producer-owned 的 `plugin:<包名>`，不再是裸 'plugin'）
+        source: sourceKind === 'plugin' ? { kind: PLUGIN_SOURCE_KIND, form: 'notice' } : { kind: 'user' },
       },
     })
   }
@@ -1200,4 +1206,47 @@ test('systemPrompt context duplicate registration is tolerated (issue #23 idempo
   })
   assert.throws(() => apply(ctx3, { memoryDir: dir3 }), /systemPrompt exploded for another reason/)
   clean(dir3)
+})
+
+// ---------------------------------------------------------------------------
+// issue #58：内置技能同步与 COI 调度解耦
+//
+// 装配级回归（单元级在 tests/skills-sync-decoupled.test.js）。此前的同步调用
+// 点挂在 installCoi() 内，而 installCoi 由 coiEnabled 门控（默认 false）——
+// 默认配置下内置技能永远不会进技能库。这里跑的是**真实的 apply()**：
+// coiEnabled=false 也必须同步（这条用例在旧实现下必失败）。
+
+/** 技能库里已落地的技能目录名。 */
+function installedSkills(skillsDir) {
+  return existsSync(skillsDir) ? readdirSync(skillsDir) : []
+}
+
+test('issue #58：coiEnabled=false 时 apply() 仍然同步内置技能', () => {
+  const dir = tempDir()
+  const skills = join(dir, 'user-skills')
+  const ctx = fakeCtx()
+  try {
+    apply(ctx, { memoryDir: dir, skillDir: skills, coiEnabled: false })
+    const installed = installedSkills(skills)
+    assert.ok(
+      installed.includes('memory-consolidate'),
+      `coiEnabled=false 也必须同步内置技能（旧实现下一个都不会有），实际：${JSON.stringify(installed)}`,
+    )
+    assert.equal(installed.length, 5, '五个内置技能都应落盘')
+  } finally {
+    clean(dir)
+  }
+})
+
+test('issue #58：coiSyncSkills=false 是唯一的关断开关（与 coiEnabled 无关）', () => {
+  const dir = tempDir()
+  const skills = join(dir, 'user-skills')
+  const ctx = fakeCtx()
+  try {
+    // coiEnabled 开着也照样不同步——开关语义只由 coiSyncSkills 决定
+    apply(ctx, { memoryDir: dir, skillDir: skills, coiEnabled: true, coiSyncSkills: false })
+    assert.equal(existsSync(skills), false, 'coiSyncSkills=false 时不得写入技能库')
+  } finally {
+    clean(dir)
+  }
 })

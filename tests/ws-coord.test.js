@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { WsCoordStore, buildWsCoordBlock, wsToolDefinitions, installWsCoord } from '../lib/coi/ws-coord.js'
+import { PLUGIN_SOURCE_KIND } from '../lib/coi/source.js'
 
 /** 独立临时目录（每个测试隔离）。 */
 function tempDir() {
@@ -357,6 +358,9 @@ test('installWsCoord：事件注册 + 软模式 pre-execute 放行/记录 + post
   assert.equal(postResult.kind, 'accept')
   assert.ok(Array.isArray(postResult.additionalContexts) && postResult.additionalContexts.length === 1)
   assert.ok(postResult.additionalContexts[0].content[0].text.includes('占用'))
+  // v4 会话格式：注入消息的 source.kind 必须是 producer-owned 的 `plugin:<包名>`
+  assert.equal(postResult.additionalContexts[0].source.kind, PLUGIN_SOURCE_KIND)
+  assert.equal(postResult.additionalContexts[0].source.plugin, undefined, 'v4 起不得再带 plugin 字段')
   // 非冲突写入：B 写 b.js 无警告
   const exec2 = writeExec('B', '/w/b.js', '/w', 'c2')
   assert.equal(await pre(exec2, async () => 'NEXT2'), 'NEXT2')
@@ -609,6 +613,10 @@ test('公告板独立投递：锁登记触发更新（fs/observed），30s 节�
     emit(ctx.listeners, 'agent/status', { agent: { session: { id: 'B', header: { cwd: '/w' } } }, status: 'running' })
     const first = injects.length
     assert.equal(first, 1, '并行开始收到一条')
+    // 公告板走 agent.inject：v4 会话格式要求 producer-owned source kind
+    assert.equal(injects[0].source.kind, PLUGIN_SOURCE_KIND)
+    assert.equal(injects[0].source.plugin, undefined, 'v4 起不得再带 plugin 字段')
+    assert.equal(injects[0].source.form, 'notice')
     // A 写文件（等价于 fs/observed 自动登记）：observed 锁 note 为空、
     // 成员不变 → 公告板文本不变 → 不投递（30s 节流只是极端兜底，正常
     // 路径靠「文本相同跳过」）
