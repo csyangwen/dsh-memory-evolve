@@ -1,7 +1,7 @@
 ---
 name: memory-consolidate
 x-provider: dsh-memory-evolve
-x-version: 2
+x-version: 3
 description: "Use when the user asks to consolidate, merge, deduplicate, or reorganize accumulated dsh-memory-evolve memories (global long-term memory, user profile, project key facts), or when a periodic memory review should run a full consolidation pass. Covers supersede-keep-newest, similar-entry merging, literal dedup, conflict resolution, project-local archiving, stale-state cleanup, and cross-track relocation, all with archive-based reversibility. 触发场景：用户要求梳理/合并/去重/整理记忆（长期记忆、用户档案、项目 key），记忆条目重复记录、新旧版本并存、表述相近却分散多条，或记忆审查到期需要一次系统性整合归档。"
 ---
 <!-- 本技能由 dsh-memory-evolve 插件内置提供：源头随插件升级同步，禁用请到「技能管理」Tab -->
@@ -25,6 +25,11 @@ description: "Use when the user asks to consolidate, merge, deduplicate, or reor
    （drift guard），外部改写会导致整个文件拒绝写入。
 4. **归档优先，禁用删除**：被合并/被取代的原文一律 `archive`（进 *-archive.md，
    记忆 Tab 归档页可一键移回）。不要用 `remove`，保证每步操作可逆。
+   ⚠️ **轨道能力差异（2026-09-14 实测）**：`archive` 只支持 `memory` / `user` / `key`
+   三轨，**`project`（项目日志）与 `daily` 没有归档能力**——对这两轨调用会直接报
+   「archive 只支持 memory / user / key 三个归档轨」。因此在这两轨上只做 `replace`
+   合并（把旧条目信息并入保留条目），**不删除**被取代的条目（删除不可逆，违反本
+   边界），并在报告中如实标注「该轨无归档能力、旧条目按原样保留」。
 5. **key 轨写入需确认**：memory 工具对 key 轨的 `add` 走待确认队列——涉及新增 key
    条目时照常提交建议，由用户确认后生效，不要绕过。
 6. **同一轨的写操作串行执行**：`replace` / `archive` / `add` 对同一个 `.md` 文件是
