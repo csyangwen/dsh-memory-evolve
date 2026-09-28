@@ -8,6 +8,8 @@
  *   「配置」：运行时配置表单（原记忆 Tab 的「运行时配置」，用户拍板改名为
  *     「配置」；MemoryQueueView feature='config'）——审查、技能沉淀、
  *     每回合写入、各 Tab 开关等，修改立即生效并持久化；
+ *   「审计」：Jev 标注执行纪录（MemoryQueueView feature='audit'）——
+ *     只读面板，回看每次标注的分数/门禁状态/今日调用计数与预算；
  *   「版本」：插件版本检测与手动更新（VersionTabView，一期）——检测到
  *     新发布 tag 时设置 Tab 的 label 出现 🔴 红点（badge 机制，见
  *     index.ts 的 updateBadgeCount），用户在这里决定是否更新。
@@ -22,7 +24,7 @@ import { MemoryQueueView } from './MemoryQueueView.tsx'
 import { VersionTabView } from './VersionTabView.tsx'
 
 /** 设置 Tab 的三个子功能：指南（整体简介）/ 配置（运行时配置）/ 版本（检测更新）。 */
-type SettingsFeature = 'guide' | 'config' | 'version'
+type SettingsFeature = 'guide' | 'config' | 'audit' | 'version'
 
 /** Locale-bound props（memory-evolve 命名空间）。 */
 export interface SettingsTabViewProps {
@@ -62,6 +64,15 @@ export function SettingsTabView(props: ConvViewProps & SettingsTabViewProps): JS
           onClick={() => setFeature('config')}
         >
           {t('settingsTab.feature.config')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'audit'}
+          className={feature === 'audit' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature('audit')}
+        >
+          {t('settingsTab.feature.audit')}
         </button>
         <button
           type="button"

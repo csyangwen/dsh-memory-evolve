@@ -14,7 +14,7 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { RUNTIME_CONFIG_CHANGED } from './todo-tab-lifecycle.js'
 
 /** Which feature sub-tab is active. */
-export type MemoryFeature = 'guide' | 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
+export type MemoryFeature = 'guide' | 'suggestions' | 'todo-suggestions' | 'skills' | 'config' | 'audit'
 
 /** Locale-bound props for the feature panels. */
 export interface MemoryQueueViewProps {
@@ -48,6 +48,68 @@ function suggestTargetClass(target: string): string {
   return target.startsWith('todo-') ? 'todo' : target
 }
 
+/**
+ * Jev 标注徽标（Phase C4）：只给 key 建议展示，把泛化/技能两轴的分值与
+ * 阈值判定结果带到审批面板。shadow 期分数仅供参考，绝不拦截或改写建议。
+ * 未标注（非 key 轨、或 gate 未装配）时返回 null，面板不渲染该列。
+ */
+function jevBadge(t: Translate, jev: SuggestionEntry['jev']): JSX.Element | null {
+  if (jev === undefined || jev === null) return null
+  if (jev.gate === 'pending') {
+    return (
+      <span className="me-badge me-badge-jev me-badge-jev-pending" title={t('panel.jev.pendingHint')}>
+        {t('panel.jev.pending')}
+      </span>
+    )
+  }
+  if (jev.gate !== 'labeled') {
+    // 降级原因（disabled/unavailable/sensitive/limit/budget/error）：
+    // 显示一个中性的「未标注」徽标，原因放悬浮提示——不惊扰审批流程。
+    const reason = jev.reason ?? jev.gate
+    return (
+      <span
+        className="me-badge me-badge-jev me-badge-jev-none"
+        title={t('panel.jev.skippedHint', { reason })}
+      >
+        {t('panel.jev.skipped')}
+      </span>
+    )
+  }
+  const gen = jev.scores?.generalization ?? 0
+  const skill = jev.scores?.skill_shape ?? 0
+  const genOk = jev.verdicts?.generalization ?? false
+  const skillOk = jev.verdicts?.skill_shape ?? false
+  const thresholds = jev.thresholds
+  const tip = t('panel.jev.badgeHint', {
+    gen: gen.toFixed(2),
+    skill: skill.toFixed(2),
+    genGate: genOk ? t('panel.jev.axisPass') : t('panel.jev.axisFail'),
+    skillGate: skillOk ? t('panel.jev.axisPass') : t('panel.jev.axisFail'),
+  })
+  const tipThresholds = thresholds !== undefined
+    ? t('panel.jev.thresholdHint', {
+        gen: thresholds.generalization.toFixed(2),
+        skill: thresholds.skill_shape.toFixed(2),
+      })
+    : ''
+  const model = jev.model !== undefined && jev.model !== null && jev.model !== ''
+    ? t('panel.jev.modelHint', { model: jev.model })
+    : ''
+  return (
+    <span
+      className={`me-badge me-badge-jev ${genOk || skillOk ? 'me-badge-jev-hit' : 'me-badge-jev-miss'}`}
+      title={[tip, tipThresholds, model].filter((line) => line !== '').join('\n')}
+    >
+      <span className="me-jev-axis">
+        {t('panel.jev.axisGen')} <strong className={genOk ? 'me-jev-on' : 'me-jev-off'}>{gen.toFixed(2)}</strong>
+      </span>
+      <span className="me-jev-axis">
+        {t('panel.jev.axisSkill')} <strong className={skillOk ? 'me-jev-on' : 'me-jev-off'}>{skill.toFixed(2)}</strong>
+      </span>
+    </span>
+  )
+}
+
 /** 采纳时可选的目标轨（仅记忆三轨：默认=AI 推荐；可改到更合适的分类）。
  *  待办建议不提供改分类下拉——直接采纳即按推荐写入待办轨。 */
 const SUGGEST_TARGETS = ['memory', 'user', 'key'] as const
@@ -63,6 +125,22 @@ interface SuggestionEntry {
   reason?: string
   /** How many times this fact resurfaced in reviews (deduped queue). */
   hits?: number
+  /**
+   * Jev advisory labeling (Phase C): attached to key-track suggestions only.
+   * gate='pending' while the label is in flight; 'labeled' carries scores and
+   * verdicts; anything else is a degradation reason. Shown as a badge so the
+   * human reads it during approval — it never blocks or rewrites anything.
+   */
+  jev?: {
+    gate: string
+    at?: string
+    scores?: { generalization: number; skill_shape: number }
+    verdicts?: { generalization: boolean; skill_shape: boolean }
+    thresholds?: { generalization: number; skill_shape: number }
+    model?: string | null
+    latencyMs?: number | null
+    reason?: string | null
+  }
 }
 
 /**
@@ -88,6 +166,69 @@ function projectName(cwd: string): string {
   return parts.length > 0 ? (parts[parts.length - 1] as string) : cwd
 }
 
+/** One Jev execution-log row (server: JevGate.readLog). */
+interface AuditRecord {
+  at?: string
+  kind?: string
+  gate: string
+  contentPreview?: string | null
+  scores?: { generalization: number; skill_shape: number } | null
+  verdicts?: { generalization: boolean; skill_shape: boolean } | null
+  thresholds?: { generalization: number; skill_shape: number } | null
+  model?: string | null
+  provider?: string | null
+  latencyMs?: number | null
+  reason?: string | null
+}
+
+/** One skill-approval chain record from jev-log.jsonl (v2 design §3.5). */
+interface SkillChainRecord {
+  at?: string
+  kind?: string
+  operationId?: string | null
+  name?: string | null
+  contentHash?: string | null
+  stage?: string | null
+  approved?: boolean | null
+  destination?: string | null
+  scores?: { generalization: number; skill_shape: number } | null
+  thresholds?: { generalization: number; skill_shape: number } | null
+  model?: string | null
+  provider?: string | null
+  latencyMs?: number | null
+  reason?: string | null
+  note?: string | null
+}
+
+/** A staged skill as returned by GET /api/staged-skills. */
+interface StagedSkill {
+  name: string
+  description?: string
+  content: string
+  status: 'approved' | 'rejected' | 'fallback_pending' | 'unknown'
+  approved: boolean | null
+  scores?: { generalization: number; skill_shape: number } | null
+  thresholds?: { generalization: number; skill_shape: number } | null
+  reason?: string | null
+  operationId?: string | null
+  provider?: string | null
+  model?: string | null
+  latencyMs?: number | null
+  judgedAt?: string | null
+}
+
+/** Gate health snapshot (server: JevGate.health()). */
+interface AuditGate {
+  available: boolean
+  enabled: boolean
+  provider?: string | null
+  mode?: string | null
+  bootError?: string | null
+  budget?: { day: string; calls: number; costCny: number } | null
+  limits?: { dailyCallLimit?: number | null; dailyBudgetCny?: number | null } | null
+  thresholds?: { generalization: number; skill_shape: number } | null
+}
+
 /** One pending skill awaiting user confirmation. */
 interface PendingSkill {
   name: string
@@ -100,6 +241,7 @@ interface RuntimeConfig {
   reviewEnabled: boolean
   reviewInterval: number
   skillReviewEnabled: boolean
+  skillJevApproval: boolean
   perTurnProjectWrites: boolean
   perTurnDailyWrites: boolean
   perTurnKeyWrites: boolean
@@ -266,6 +408,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       reviewEnabled: draft.reviewEnabled,
       reviewInterval: draft.reviewInterval,
       skillReviewEnabled: draft.skillReviewEnabled,
+      skillJevApproval: draft.skillJevApproval === true,
       perTurnProjectWrites: draft.perTurnProjectWrites,
       perTurnDailyWrites: draft.perTurnDailyWrites,
       perTurnKeyWrites: draft.perTurnKeyWrites,
@@ -502,6 +645,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           📁 {projectName(entry.cwd)}
                         </span>
                       )}
+                      {jevBadge(t, entry.jev)}
                       {(entry.hits ?? 1) > 1 && (
                         <span className="me-badge me-badge-hits" title={t('panel.suggestions.hitsHint')}>
                           {t('panel.suggestions.hits', { count: entry.hits ?? 1 })}
@@ -678,6 +822,22 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.skillReviewEnabled}
                     onChange={(event) => patchDraft({ skillReviewEnabled: event.target.checked })}
+                  />
+                </label>
+                {/* v2 设计 §3.1：Jev 技能审批——开启后自动沉淀产出的技能先由
+                    Jev 双轴裁决，通过才落库；Jev 不可用时不放行，降级待确认。
+                    只有自动沉淀开启时才允许开启（服务端硬校验，见 §8.1）。 */}
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.skillJevApproval')}
+                    <em className="me-field-hint">{t('panel.config.skillJevApproval.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.skillJevApproval === true}
+                    disabled={draft.skillReviewEnabled !== true}
+                    onChange={(event) => patchDraft({ skillJevApproval: event.target.checked })}
                   />
                 </label>
                 {/* 记忆写入看门狗（PR #37，用户拍板 2026-09-04：默认关——
@@ -996,6 +1156,328 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
           )}
         </section>
       )}
+
+      {feature === 'audit' && <AuditRecordsView t={t} />}
+      {feature === 'audit' && <SkillApprovalView t={t} />}
     </div>
+  )
+}
+
+/**
+ * 「审计」子页：Jev 执行纪录。只读面板——回看每次标注的结果、门禁健康、
+ * 今日调用次数与预算，以及最新一批标注的分数分布。所有数据来自
+ * GET /api/audit/records 与 /api/audit/health；不触发任何标注动作
+ * （批量标注由记忆文件的 KEY 页签入口承担）。
+ */
+export function AuditRecordsView(props: { t: Translate }): JSX.Element {
+  const { t } = props
+  const [records, setRecords] = useState<AuditRecord[] | null>(null)
+  const [gate, setGate] = useState<AuditGate | null>(null)
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  const load = (): void => {
+    void Promise.all([
+      api<{ records: AuditRecord[]; gate: AuditGate }>('/api/audit/records?limit=100'),
+    ]).then(([res]) => {
+      setRecords(res.records)
+      setGate(res.gate)
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    })
+  }
+
+  useEffect(() => { load() }, [])
+
+  const budget = gate?.budget
+  const limits = gate?.limits
+  const labeled = (records ?? []).filter((row) => row.gate === 'labeled')
+  const degraded = (records ?? []).filter((row) => row.gate !== 'labeled')
+  const avgGen = labeled.length > 0
+    ? labeled.reduce((sum, row) => sum + (row.scores?.generalization ?? 0), 0) / labeled.length
+    : null
+  const avgSkill = labeled.length > 0
+    ? labeled.reduce((sum, row) => sum + (row.scores?.skill_shape ?? 0), 0) / labeled.length
+    : null
+
+  return (
+    <section className="me-block">
+      <div className="me-block-head">
+        <h3 className="me-heading">{t('panel.audit.title')}</h3>
+      </div>
+      <p className="me-help">{t('panel.audit.help')}</p>
+      {notice !== null && (
+        <div className={`me-notice me-notice-${notice.kind}`}>{notice.text}</div>
+      )}
+
+      {gate !== null && (
+        <div className="me-audit-health">
+          <div className="me-audit-stat">
+            <span className="me-audit-stat-label">{t('panel.audit.state')}</span>
+            <span
+              className={`me-audit-stat-value ${gate.available && gate.enabled ? 'me-audit-on' : 'me-audit-off'}`}
+              title={gate.bootError ?? ''}
+            >
+              {gate.available && gate.enabled
+                ? t('panel.audit.stateOn', { provider: String(gate.provider ?? '?') })
+                : t('panel.audit.stateOff')}
+            </span>
+            {gate.bootError !== undefined && gate.bootError !== null && gate.bootError !== '' && (
+              <span className="me-audit-note">{gate.bootError}</span>
+            )}
+          </div>
+          <div className="me-audit-stat">
+            <span className="me-audit-stat-label">{t('panel.audit.callsToday')}</span>
+            <span className="me-audit-stat-value">
+              {String(budget?.calls ?? 0)}
+              {limits !== undefined && limits.dailyCallLimit !== undefined && (
+                <span className="me-audit-note"> / {String(limits.dailyCallLimit)}</span>
+              )}
+            </span>
+          </div>
+          {limits !== undefined && limits.dailyBudgetCny !== undefined && (
+            <div className="me-audit-stat">
+              <span className="me-audit-stat-label">{t('panel.audit.budget')}</span>
+              <span className="me-audit-stat-value">
+                {String(budget?.costCny ?? 0)} / {String(limits.dailyBudgetCny)}
+              </span>
+            </div>
+          )}
+          {gate.thresholds !== undefined && (
+            <div className="me-audit-stat">
+              <span className="me-audit-stat-label">{t('panel.audit.thresholds')}</span>
+              <span className="me-audit-stat-value">
+                {t('panel.audit.thresholdsValue', {
+                  gen: gate.thresholds.generalization.toFixed(2),
+                  skill: gate.thresholds.skill_shape.toFixed(2),
+                })}
+              </span>
+            </div>
+          )}
+          {labeled.length > 0 && (
+            <div className="me-audit-stat">
+              <span className="me-audit-stat-label">{t('panel.audit.avg')}</span>
+              <span className="me-audit-stat-value">
+                {avgGen !== null && avgSkill !== null
+                  ? t('panel.audit.avgValue', { gen: avgGen.toFixed(2), skill: avgSkill.toFixed(2) })
+                  : '—'}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {records === null ? (
+        <p className="me-muted">{t('panel.loading')}</p>
+      ) : records.length === 0 ? (
+        <p className="me-empty">{t('panel.audit.empty')}</p>
+      ) : (
+        <ul className="me-list me-audit-list">
+          {records.map((row, index) => (
+            <li key={`${row.at ?? ''}-${index}`} className="me-item me-audit-item">
+              <div className="me-item-head">
+                <span
+                  className={`me-badge me-badge-jev ${row.gate === 'labeled' ? 'me-badge-jev-hit' : 'me-badge-jev-none'}`}
+                >
+                  {row.gate === 'labeled' ? t('panel.audit.rowLabeled') : t('panel.audit.rowSkipped')}
+                </span>
+                {row.gate === 'labeled' && row.scores !== undefined && (
+                  <span className="me-audit-scores">
+                    <span className="me-jev-axis">
+                      {t('panel.jev.axisGen')} <strong>{row.scores.generalization.toFixed(2)}</strong>
+                    </span>
+                    <span className="me-jev-axis">
+                      {t('panel.jev.axisSkill')} <strong>{row.scores.skill_shape.toFixed(2)}</strong>
+                    </span>
+                  </span>
+                )}
+                {row.latencyMs !== undefined && row.latencyMs !== null && (
+                  <span className="me-audit-note">{String(row.latencyMs)}ms</span>
+                )}
+                {row.model !== undefined && row.model !== null && row.model !== '' && (
+                  <span className="me-audit-note">{String(row.model)}</span>
+                )}
+                <span className="me-item-time" title={row.at ?? ''}>
+                  {row.at !== undefined && row.at !== null && row.at !== '' ? formatTime(row.at) : '—'}
+                </span>
+              </div>
+              {row.reason !== undefined && row.reason !== null && row.reason !== '' && (
+                <p className="me-item-reason">{row.reason}</p>
+              )}
+              {row.contentPreview !== undefined && row.contentPreview !== null && (
+                <p className="me-audit-preview">{row.contentPreview}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {degraded.length > 0 && records !== null && records.length > 0 && (
+        <p className="me-help">{t('panel.audit.degraded', { count: degraded.length })}</p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * The skill-approval chain (v2 design §3.3/§8.5).
+ *
+ * Skills are listed from the staged directory; each row shows the latest Jev
+ * verdict for it. Rejected skills stay staged and the row offers a manual
+ * override-install or a confirmed delete. A broken log line or a missing file
+ * degrades to 'unknown' instead of breaking the page.
+ */
+export function SkillApprovalView(props: { t: Translate }): JSX.Element {
+  const { t } = props
+  const [skills, setSkills] = useState<StagedSkill[] | null>(null)
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [openBody, setOpenBody] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = (): void => {
+    void api<{ entries: StagedSkill[] }>('/api/staged-skills').then((res) => {
+      setSkills(res.entries ?? [])
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    })
+  }
+
+  useEffect(() => { load() }, [])
+
+  const showBody = (name: string): void => {
+    setOpenBody((prev) => (prev === name ? null : name))
+  }
+
+  const override = (name: string): void => {
+    setBusy(name)
+    void api<{ ok: boolean; path?: string }>('/api/staged-skills/approve', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }).then(() => {
+      setNotice({ kind: 'ok', text: t('panel.audit.overrideDone', { name }) })
+      load()
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    }).finally(() => { setBusy(null) })
+  }
+
+  const remove = (name: string): void => {
+    setBusy(name)
+    void api<{ ok: boolean }>('/api/staged-skills/reject', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }).then(() => {
+      setNotice({ kind: 'ok', text: t('panel.audit.deleteDone', { name }) })
+      if (openBody === name) setOpenBody(null)
+      load()
+    }).catch((error: Error) => {
+      setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
+    }).finally(() => { setBusy(null) })
+  }
+
+  const statusBadge = (entry: StagedSkill): JSX.Element => {
+    if (entry.approved === true) {
+      return <span className="me-badge me-badge-jev me-badge-jev-hit">{t('panel.audit.approved')}</span>
+    }
+    if (entry.approved === false) {
+      return <span className="me-badge me-badge-jev me-badge-jev-none">{t('panel.audit.rejected')}</span>
+    }
+    return <span className="me-badge me-badge-jev">{t('panel.audit.noVerdict')}</span>
+  }
+
+  return (
+    <section className="me-block">
+      <div className="me-block-head">
+        <h3 className="me-heading">{t('panel.audit.skillsTitle')}</h3>
+      </div>
+      <p className="me-help">{t('panel.audit.skillsHelp')}</p>
+      {notice !== null && (
+        <div className={`me-notice me-notice-${notice.kind}`}>{notice.text}</div>
+      )}
+      {skills === null ? (
+        <p className="me-muted">{t('panel.loading')}</p>
+      ) : skills.length === 0 ? (
+        <p className="me-empty">{t('panel.audit.skillsEmpty')}</p>
+      ) : (
+        <ul className="me-list me-audit-list">
+          {skills.map((entry) => (
+            <li key={entry.name} className="me-item me-audit-item">
+              <div className="me-item-head">
+                {statusBadge(entry)}
+                <strong className="me-item-name">{entry.name}</strong>
+                {entry.scores !== undefined && entry.scores !== null && (
+                  <span className="me-audit-scores">
+                    <span className="me-jev-axis">
+                      {t('panel.jev.axisGen')} <strong>{entry.scores.generalization.toFixed(2)}</strong>
+                    </span>
+                    <span className="me-jev-axis">
+                      {t('panel.jev.axisSkill')} <strong>{entry.scores.skill_shape.toFixed(2)}</strong>
+                    </span>
+                  </span>
+                )}
+                {entry.thresholds !== undefined && entry.thresholds !== null && (
+                  <span className="me-audit-note">
+                    {t('panel.audit.thresholdsValue', {
+                      gen: entry.thresholds.generalization.toFixed(2),
+                      skill: entry.thresholds.skill_shape.toFixed(2),
+                    })}
+                  </span>
+                )}
+                {entry.model !== undefined && entry.model !== null && entry.model !== '' && (
+                  <span className="me-audit-note">{String(entry.model)}</span>
+                )}
+                {entry.latencyMs !== undefined && entry.latencyMs !== null && (
+                  <span className="me-audit-note">{String(entry.latencyMs)}ms</span>
+                )}
+                {entry.judgedAt !== undefined && entry.judgedAt !== null && entry.judgedAt !== '' && (
+                  <span className="me-item-time" title={entry.judgedAt}>{formatTime(entry.judgedAt)}</span>
+                )}
+              </div>
+              {entry.reason !== undefined && entry.reason !== null && entry.reason !== '' && (
+                <p className="me-item-reason">{entry.reason}</p>
+              )}
+              {entry.operationId !== undefined && entry.operationId !== null && (
+                <p className="me-audit-note">
+                  {t('panel.audit.opId', { op: entry.operationId.slice(0, 8) })}
+                </p>
+              )}
+              {openBody === entry.name && (
+                <div className="me-audit-body">
+                  <p className="me-item-reason">{t('panel.audit.bodyTitle')}</p>
+                  <pre className="me-pre">{entry.content}</pre>
+                </div>
+              )}
+              <div className="me-item-actions">
+                <button
+                  type="button"
+                  className="me-button me-button-ghost"
+                  onClick={() => showBody(entry.name)}
+                >
+                  {t('panel.audit.viewBody')}
+                </button>
+                {entry.approved === false && (
+                  <>
+                    <button
+                      type="button"
+                      className="me-button"
+                      disabled={busy === entry.name}
+                      onClick={() => override(entry.name)}
+                    >
+                      {t('panel.audit.overrideInstall')}
+                    </button>
+                    <button
+                      type="button"
+                      className="me-button me-button-danger"
+                      disabled={busy === entry.name}
+                      onClick={() => remove(entry.name)}
+                    >
+                      {t('panel.audit.confirmDelete')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

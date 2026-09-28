@@ -7,6 +7,7 @@ import {
   isSkillName, parseFrontmatter, listSkills, readSkill, hasReadSkill, skillManageTool,
   approvePendingSkill, listPendingSkills, rejectPendingSkill,
 } from '../lib/skills.js'
+import { approveStagedSkill } from '../lib/skills.js'
 
 // This suite pins the legacy Chinese output contract; i18n.test.js covers English.
 import { setLocale } from '../lib/i18n.js'
@@ -330,5 +331,155 @@ test('skillReviewEnabled true lets create land directly in the live dir', async 
   const created = await tool.execute({ action: 'create', name: 'direct-skill', description: '直接创建', body: GOOD_BODY('direct-skill', '直接创建') }, mainExec())
   assert.equal(created.ok, true)
   assert.equal(readFileSync(join(dir, 'direct-skill', 'SKILL.md'), 'utf8'), GOOD_BODY('direct-skill', '直接创建'))
+  clean(dir)
+})
+
+// ---- v2 design §3.3: Jev approval fork (skillReviewEnabled + skillJevApproval) ----
+
+/** A minimal gate double: audits one body and records every log call. */
+function fakeGate(verdict) {
+  const calls = []
+  return {
+    calls,
+    auditSkill: async (name, body, operationId) => ({
+      approved: verdict.approved,
+      scores: { generalization: 0.8, skill_shape: 0.8 },
+      thresholds: { generalization: 0.5, skill_shape: 0.6 },
+      reason: verdict.reason ?? '测试理由',
+      gate: 'labeled',
+    }),
+    logSkill: (record) => calls.push(record),
+  }
+}
+
+function jevTool(dir, gate, runtime) {
+  return skillManageTool(
+    fakeCtx(),
+    { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 },
+    () => ({ skillReviewEnabled: true, skillJevApproval: true, ...(runtime ?? {}) }),
+    gate,
+  )
+}
+
+test('Jev approval: approved verdict installs into the live dir', async () => {
+  const dir = tempDir()
+  const gate = fakeGate({ approved: true })
+  const tool = jevTool(dir, gate)
+  const body = GOOD_BODY('jev-approved', 'Jev 通过的技能')
+  const out = await tool.execute({ action: 'create', name: 'jev-approved', description: 'Jev 通过的技能', body }, FAKE_EXEC())
+  assert.equal(out.ok, true)
+  assert.ok(out.message.includes('通过 Jev 审批'), out.message)
+  // landed in the live dir, not staged and not pending
+  assert.equal(readFileSync(join(dir, 'jev-approved', 'SKILL.md'), 'utf8'), body)
+  assert.equal(existsSync(join(dir, 'staged-skills', 'jev-approved')), false)
+  assert.equal(existsSync(join(dir, 'pending-skills', 'jev-approved')), false)
+  // full chain logged under one operationId
+  const kinds = gate.calls.map((r) => r.kind)
+  assert.deepEqual(kinds, ['skill-create', 'label', 'skill-verdict', 'skill-install'])
+  const opId = gate.calls[0].operationId
+  assert.ok(opId, 'operationId generated')
+  assert.equal(gate.calls.every((r) => r.operationId === opId), true, 'one operationId for the whole chain')
+  assert.equal(gate.calls[0].contentHash.length, 16, 'content hash, not the body')
+  clean(dir)
+})
+
+test('Jev approval: rejected verdict keeps the skill staged, not installed', async () => {
+  const dir = tempDir()
+  const gate = fakeGate({ approved: false, reason: '通用性不足' })
+  const tool = jevTool(dir, gate)
+  const out = await tool.execute({ action: 'create', name: 'jev-rejected', description: 'x', body: GOOD_BODY('jev-rejected', 'x') }, FAKE_EXEC())
+  assert.equal(out.ok, true)
+  assert.ok(out.message.includes('未通过 Jev 审批'), out.message)
+  assert.equal(existsSync(join(dir, 'jev-rejected')), false, 'never installed')
+  const staged = readFileSync(join(dir, 'staged-skills', 'jev-rejected', 'SKILL.md'), 'utf8')
+  assert.ok(staged.includes('jev-rejected'), 'evidence kept in staged')
+  assert.equal(gate.calls.some((r) => r.kind === 'skill-rejected'), true)
+  // human override still installs it
+  const override = approveStagedSkill(join(dir, 'staged-skills'), dir, 'jev-rejected')
+  assert.equal(override.ok, true)
+  assert.equal(existsSync(join(dir, 'jev-rejected', 'SKILL.md')), true)
+  clean(dir)
+})
+
+test('Jev approval: null verdict degrades to the human pending queue', async () => {
+  const dir = tempDir()
+  const gate = fakeGate({ approved: null, reason: 'jev-core 不可用' })
+  const tool = jevTool(dir, gate)
+  const out = await tool.execute({ action: 'create', name: 'jev-null', description: 'x', body: GOOD_BODY('jev-null', 'x') }, FAKE_EXEC())
+  assert.equal(out.ok, true)
+  assert.ok(out.message.includes('待确认队列'), out.message)
+  assert.equal(existsSync(join(dir, 'jev-null')), false, 'never installed')
+  assert.equal(existsSync(join(dir, 'staged-skills', 'jev-null')), false, 'moved out of staged')
+  assert.equal(existsSync(join(dir, 'pending-skills', 'jev-null', 'SKILL.md')), true, 'landed in pending')
+  assert.equal(gate.calls.some((r) => r.kind === 'skill-fallback'), true)
+  clean(dir)
+})
+
+test('Jev approval: no gate injected degrades to pending too', async () => {
+  const dir = tempDir()
+  const tool = skillManageTool(
+    fakeCtx(),
+    { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 },
+    () => ({ skillReviewEnabled: true, skillJevApproval: true }),
+    null,
+  )
+  const out = await tool.execute({ action: 'create', name: 'no-gate', description: 'desc', body: GOOD_BODY('no-gate', 'desc') }, FAKE_EXEC())
+  assert.equal(out.ok, true)
+  assert.equal(existsSync(join(dir, 'pending-skills', 'no-gate', 'SKILL.md')), true)
+  assert.equal(existsSync(join(dir, 'no-gate')), false)
+  clean(dir)
+})
+
+test('Jev approval: same name + same content is idempotent', async () => {
+  const dir = tempDir()
+  // A duplicate review can arrive while the first verdict left the skill
+  // staged (a rejection keeps it staged as evidence). Same name + same
+  // content must not re-audit or re-install.
+  const gate = fakeGate({ approved: false })
+  const tool = jevTool(dir, gate)
+  const body = GOOD_BODY('idem-staged', 'idem')
+  const first = await tool.execute({ action: 'create', name: 'idem-staged', description: 'idem', body }, FAKE_EXEC())
+  assert.equal(first.ok, true)
+  const firstOps = gate.calls.length
+  const again = await tool.execute({ action: 'create', name: 'idem-staged', description: 'idem', body }, FAKE_EXEC())
+  assert.equal(again.ok, true)
+  assert.ok(again.message.includes('跳过重复创建'), again.message)
+  assert.equal(gate.calls.length, firstOps, 'no second audit/install chain')
+  assert.equal(existsSync(join(dir, 'idem-staged', 'SKILL.md')), false, 'still not installed')
+  // Once a skill is actually live, the existing-skill guard fires first
+  const liveGate = fakeGate({ approved: true })
+  const liveTool = jevTool(dir, liveGate)
+  const liveBody = GOOD_BODY('idem-live', 'idem')
+  await liveTool.execute({ action: 'create', name: 'idem-live', description: 'idem', body: liveBody }, FAKE_EXEC())
+  const dup = await liveTool.execute({ action: 'create', name: 'idem-live', description: 'idem', body: liveBody }, FAKE_EXEC())
+  assert.equal(dup.ok, false)
+  assert.ok(dup.message.includes('已存在'), dup.message)
+  clean(dir)
+})
+
+test('Jev approval: same name + different content is refused, evidence untouched', async () => {
+  const dir = tempDir()
+  const gate = fakeGate({ approved: false })
+  const tool = jevTool(dir, gate)
+  await tool.execute({ action: 'create', name: 'conflict-skill', description: 'one', body: GOOD_BODY('conflict-skill', 'one') }, FAKE_EXEC())
+  const out = await tool.execute({ action: 'create', name: 'conflict-skill', description: 'two', body: GOOD_BODY('conflict-skill', 'two') }, FAKE_EXEC())
+  assert.equal(out.ok, false)
+  assert.ok(out.message.includes('同名'), out.message)
+  clean(dir)
+})
+
+test('Jev approval off: skillReviewEnabled=true still lands directly (old semantics)', async () => {
+  const dir = tempDir()
+  const gate = fakeGate({ approved: true })
+  const tool = skillManageTool(
+    fakeCtx(),
+    { skillDir: dir, memoryDir: dir, skillManageToolName: 'skill_manage', skillMaxBytes: 65536 },
+    () => ({ skillReviewEnabled: true, skillJevApproval: false }),
+    gate,
+  )
+  const out = await tool.execute({ action: 'create', name: 'plain-direct', description: 'x', body: GOOD_BODY('plain-direct', 'x') }, FAKE_EXEC())
+  assert.equal(out.ok, true)
+  assert.equal(existsSync(join(dir, 'plain-direct', 'SKILL.md')), true)
+  assert.equal(gate.calls.length, 0, 'Jev never consulted when its switch is off')
   clean(dir)
 })

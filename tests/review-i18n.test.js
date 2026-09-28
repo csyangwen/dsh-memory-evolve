@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MemoryStore, SuggestionQueue } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, SuggestionQueue } from '../lib/store.js'
 import { TodoStore } from '../lib/todo.js'
 import { approveSuggestions, enqueueSuggestion } from '../lib/review.js'
 import { setLocale, getLocale, translate, REVIEW_CMD_DICT } from '../lib/i18n.js'
@@ -18,6 +18,7 @@ test('duplicate suggestions report as skipped (not failed) in every locale', () 
   try {
     const store = new MemoryStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     enqueueSuggestion(queue, 'memory', 'Env fact A', 'because')
     store.add('memory', 'Env fact A', undefined) // the suggestion now duplicates the stored entry
@@ -29,7 +30,7 @@ test('duplicate suggestions report as skipped (not failed) in every locale', () 
       if (locale === 'zh') store.add('memory', 'Env fact B', undefined)
 
       const expectedLine = translate(REVIEW_CMD_DICT, 'reviewcmd.existsSkip', { n: 1, target: 'memory' }, locale)
-      const report = approveSuggestions(store, todoStore, queue, [1], undefined)
+      const report = approveSuggestions(store, todoStore, archive, queue, [1], undefined)
       assert.equal(report.lines.length, 1)
       assert.equal(
         report.lines[0],

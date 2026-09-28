@@ -227,7 +227,190 @@
   border-color: color-mix(in srgb, var(--dsw-static-purple-5, #9333ea) 45%, transparent);
 }
 
-/* 项目级建议的来源项目徽标（key / todo-project）：中性色 + 虚线边框，
+/* Jev 辅助标注徽标（Phase C4）：两根轴的分值并排，命中阈值用青色、
+   未命中用灰色——shadow 期它是审批参考而非判定，视觉权重低于目标徽标 */
+.me-badge-jev {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: none;
+  border: 1px solid transparent;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.me-jev-axis {
+  white-space: nowrap;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.me-jev-axis strong {
+  font-weight: 700;
+}
+
+.me-jev-on { color: var(--dsw-static-green-5, #16a34a); }
+
+.me-jev-off { color: var(--dsw-alias-label-secondary); }
+
+.me-badge-jev-hit {
+  color: var(--dsw-static-teal-6, #0d9488);
+  background: color-mix(in srgb, var(--dsw-static-teal-5, #14b8a6) 14%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-static-teal-5, #14b8a6) 45%, transparent);
+}
+
+.me-badge-jev-miss {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.me-badge-jev-none,
+.me-badge-jev-pending {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.me-badge-jev-pending {
+  font-style: italic;
+}
+
+/* 「审计」子页：门禁健康统计条 + 纪录列表 */
+.me-audit-health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.me-audit-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.me-audit-stat-label {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.me-audit-stat-value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.me-audit-on { color: var(--dsw-static-teal-6, #0d9488); }
+
+.me-audit-off { color: var(--dsw-alias-label-secondary); }
+
+.me-audit-note {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.me-audit-scores {
+  display: inline-flex;
+  gap: 10px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.me-audit-list .me-item {
+  padding-top: 6px;
+}
+
+.me-audit-preview {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 技能审批链路：正文展开区 + 危险操作按钮（复用 .me-btn 体系） */
+.me-audit-body {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.me-pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 6px;
+}
+
+/* 按钮别名：技能审批链路面板使用 .me-button* 命名，与 .me-btn 体系同风格 */
+.me-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.me-button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.me-button:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.me-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.me-button-ghost {
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.me-button-ghost:hover:not(:disabled) {
+  border-color: var(--dsw-alias-interactive-fg-default);
+  color: var(--dsw-alias-label-primary);
+}
+
+.me-button-danger {
+  border-color: color-mix(in srgb, var(--dsw-static-red-5, #ef4444) 55%, transparent);
+  color: var(--dsw-static-red-6, #dc2626);
+}
+
+.me-button-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-static-red-5, #ef4444) 12%, transparent);
+}
+
+/* 项目级建议的来源项目徽标（key / todo-project）：中性色 + 虚线边框，/* 项目级建议的来源项目徽标（key / todo-project）：中性色 + 虚线边框，
    视觉上区别于"写入哪类记忆"的彩色目标徽标——它标注的是"哪个项目"。 */
 .me-badge-project {
   color: var(--dsw-alias-label-secondary);

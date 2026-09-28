@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, resolveConfig, renderSnapshot } from '../lib/index.js'
-import { MemoryStore, projectHash } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, projectHash } from '../lib/store.js'
 import { extractEntryId } from '../lib/sync/entryid.js'
 import { approveSuggestions } from '../lib/review.js'
 import { SuggestionQueue } from '../lib/store.js'
@@ -107,7 +107,7 @@ test('key add 的 summary 参数：清洗换行与 ] 后写入 [summary:...] 标
   assert.ok(m[1].length > 0 && m[1].length <= 120)
   // 用户确认 → 落盘 KEY.md，标签原样保留
   const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
-  approveSuggestions(new MemoryStore(dir), new TodoStore(dir), queue, [1], undefined)
+  approveSuggestions(new MemoryStore(dir), new TodoStore(dir), new ArchiveStore(dir), queue, [1], undefined)
   const entries = storeEntries(keyFileOf(dir, cwd))
   assert.equal(entries.length, 1)
   assert.match(entries[0], /\[summary:[^\]]*\]\n正文内容/)

@@ -28,6 +28,7 @@ const PANEL_KEYS = [
   'reviewEnabled',
   'reviewInterval',
   'skillReviewEnabled',
+  'skillJevApproval',
   'perTurnProjectWrites',
   'perTurnDailyWrites',
   'perTurnKeyWrites',

@@ -10,7 +10,7 @@ import { installCanvas } from '../lib/canvas.js'
 
 // This suite pins the legacy Chinese output contract; i18n.test.js covers English.
 setLocale('zh')
-import { MemoryStore, projectHash } from '../lib/store.js'
+import { ArchiveStore, MemoryStore, projectHash } from '../lib/store.js'
 
 /** Whether `git` is available in this environment (skip git tests otherwise). */
 function gitAvailable() {
@@ -189,6 +189,7 @@ test('resolveConfig defaults and validation', () => {
   assert.equal(config.perTurnKeyWrites, true)
   assert.equal(config.memoryTabEnabled, true)
   assert.equal(config.skillReviewEnabled, false)
+  assert.equal(config.skillJevApproval, false, 'Jev approval is off by default (§8.6 migration)')
   assert.equal(config.skillManageToolName, 'skill_manage')
   assert.ok(config.memoryDir.endsWith('memories'))
   assert.ok(config.skillDir.endsWith(join('.agents', 'skills')))
@@ -205,6 +206,11 @@ test('resolveConfig defaults and validation', () => {
   assert.throws(() => resolveConfig({ searchDocsExts: ['BAD*'] }), /searchDocsExts/)
   assert.throws(() => resolveConfig({ searchDocsProviders: [] }), /searchDocsProviders/)
   assert.throws(() => resolveConfig('x'), /对象/)
+  // v2 §8.1/§8.6: Jev approval requires the auto-harvest source; refusing the
+  // illegal combination at static-config time keeps a corrupt state file or a
+  // hand-written plugin.json from silently installing skills unreviewed.
+  assert.throws(() => resolveConfig({ skillReviewEnabled: false, skillJevApproval: true }), /skillJevApproval.*skillReviewEnabled|先开启 skillReviewEnabled/)
+  assert.equal(resolveConfig({ skillReviewEnabled: true, skillJevApproval: true }).skillJevApproval, true)
 })
 
 test('apply registers memory tool and snapshot context by default', () => {
@@ -583,9 +589,9 @@ test('renderSnapshot injects key facts but keeps project and daily on-demand', a
   assert.ok(snapshot.includes('一次调用'))
   assert.ok(snapshot.includes('entries 数组'))
   assert.ok(snapshot.includes('内容不要自带时间/日期前缀'))
-  // key duty: importance-gated, never a per-turn mandate — and it goes
+  // key duty: cross-task-reuse gated, never a per-turn mandate — and it goes
   // through user confirmation now (提交建议)
-  assert.ok(snapshot.includes('重要项目事实'))
+  assert.ok(snapshot.includes('跨任务复用'))
   assert.ok(snapshot.includes('target=key 提交 1 条建议'))
   // subagent sessions get the restrained wording instead of the per-turn duty
   const subSnapshot = renderSnapshot(config, store, { id: 's', session: { header: { origin: 'subagent' } } })
@@ -969,7 +975,7 @@ test('memory tool key writes queue for confirmation; branches param survives the
   const { SuggestionQueue } = await import('../lib/store.js')
   const { TodoStore } = await import('../lib/todo.js')
   const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
-  const report = approveSuggestions(new MemoryStore(dir), new TodoStore(dir), queue, [1, 2], undefined)
+  const report = approveSuggestions(new MemoryStore(dir), new TodoStore(dir), new ArchiveStore(dir), queue, [1, 2], undefined)
   assert.equal(report.remaining, 0)
   const entry = storeEntries(keyFile)
   assert.match(entry[0], /^\[\d{4}-\d{2}-\d{2}\] \[branch:main\] main 分支的构建约定$/)

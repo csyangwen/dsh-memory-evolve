@@ -461,11 +461,12 @@ test('suggestions approve: todo suggestions ignore target overrides (todo stays 
   try {
     const store = new MemoryStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     const agent = { id: 'a', session: { header: { cwd: '/proj/p' } } }
     enqueueSuggestion(queue, 'todo-work', '这句话必须还是待办', 'r', agent)
     // 即使误传覆盖为记忆轨，待办建议仍写待办
-    const report = approveSuggestions(store, todoStore, queue, [1], agent, undefined, new Map([[1, 'memory']]))
+    const report = approveSuggestions(store, todoStore, archive, queue, [1], agent, undefined, new Map([[1, 'memory']]))
     assert.equal(report.remaining, 0)
     assert.equal(store.entriesOf('memory').length, 0)
     assert.equal(todoStore.itemsOf('work').length, 1)
@@ -480,11 +481,12 @@ test('todo suggestions: enqueue target=todo-* → approve writes the todo track'
   try {
     const store = new TodoStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     const agent = { id: 'a', session: { header: { cwd: '/proj/p' } } }
     enqueueSuggestion(queue, 'todo-life', '每天锻炼半小时', '审查发现的健康习惯', agent)
     enqueueSuggestion(queue, 'todo-project', '重构解析器模块', '审查发现的架构债', agent)
-    const report = approveSuggestions(store, todoStore, queue, [1, 2], agent)
+    const report = approveSuggestions(store, todoStore, archive, queue, [1, 2], agent)
     assert.equal(report.remaining, 0)
     assert.ok(report.lines[0].includes('待办'))
     assert.equal(todoStore.itemsOf('life').length, 1)
@@ -501,13 +503,14 @@ test('suggestions approve: per-index target override re-classifies into another 
   try {
     const store = new MemoryStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     const agent = { id: 'a', session: { header: { cwd: '/proj/p' } } }
     enqueueSuggestion(queue, 'memory', '本该是项目关键记忆的事实', '分类不够准', agent)
     enqueueSuggestion(queue, 'user', '用户偏好整理', 'AI 建议到 user 了', agent)
     enqueueSuggestion(queue, 'todo-work', '这句话其实不是待办', 'AI 建议到待办了', agent)
     // 覆盖：1 → key（按建议时记录的 cwd 写入项目 KEY.md）；2 → memory；3 → 保持 todo-work
-    const report = approveSuggestions(store, todoStore, queue, [1, 2, 3], agent, undefined, new Map([[1, 'key'], [2, 'memory']]))
+    const report = approveSuggestions(store, todoStore, archive, queue, [1, 2, 3], agent, undefined, new Map([[1, 'key'], [2, 'memory']]))
     assert.equal(report.remaining, 0)
     const keyAgent = { session: { header: { cwd: '/proj/p' } } }
     assert.equal(store.entriesOf('key', keyAgent).length, 1)
@@ -526,10 +529,11 @@ test('suggestions approve: key override without a cwd fails and keeps the entry'
   try {
     const store = new MemoryStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     // 建议来自无 cwd 的会话（entry.cwd = null），UI 采纳也不带 agent（同 API 路径）
     enqueueSuggestion(queue, 'memory', '无工作目录会话的事实', 'r', { id: 'a', session: { header: {} } })
-    const report = approveSuggestions(store, todoStore, queue, [1], undefined, undefined, new Map([[1, 'key']]))
+    const report = approveSuggestions(store, todoStore, archive, queue, [1], undefined, undefined, new Map([[1, 'key']]))
     assert.equal(report.remaining, 1)
     assert.ok(report.lines[0].includes('✗'))
     // 原建议保留在队列里
@@ -734,10 +738,11 @@ test('todo disabled: approval keeps todo suggestions while approving memory sugg
   try {
     const store = new MemoryStore(dir)
     const todoStore = new TodoStore(dir)
+    const archive = new ArchiveStore(dir)
     const queue = new SuggestionQueue(join(dir, 'SUGGESTIONS.jsonl'))
     enqueueSuggestion(queue, 'memory', '可写入的记忆', 'r')
     enqueueSuggestion(queue, 'todo-work', '不得写入的待办', 'r')
-    const report = approveSuggestions(store, todoStore, queue, [1, 2], undefined, undefined, undefined, { isTodoEnabled: () => false })
+    const report = approveSuggestions(store, todoStore, archive, queue, [1, 2], undefined, undefined, undefined, { isTodoEnabled: () => false })
     assert.equal(store.entriesOf('memory').length, 1)
     assert.equal(todoStore.itemsOf('work').length, 0)
     assert.equal(report.remaining, 1)
