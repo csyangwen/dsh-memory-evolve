@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { apply, gitBranch, gitBranchList, inject, resolveConfig, renderSnapshot, resolveRevealTarget, toWindowsPath, RUNTIME_KEYS, validateRuntimePatch } from '../lib/index.js'
-import { setLocale } from '../lib/i18n.js'
+import { setLocale, getLocale } from '../lib/i18n.js'
 import { installCanvas } from '../lib/canvas.js'
 import { PLUGIN_SOURCE_KIND } from '../lib/coi/source.js'
 
@@ -1249,4 +1249,47 @@ test('issue #58：coiSyncSkills=false 是唯一的关断开关（与 coiEnabled 
   } finally {
     clean(dir)
   }
+})
+
+// —— DSH 0.2.0 适配：settings 服务读法与提交事件改名（2026-09-28）——
+// 0.2.0-rc.1 起 settings.get() 被移除（改 describe()），'settings/updated' 改名
+// 'settings/document-updated'。此处验证 apply() 的 locale 监听器在新老宿主上
+// 都能就地跟随语言切换——否则语言设置要重启才生效（静默降级，无报错）。
+test('locale watcher follows both the legacy and the 0.2.0 settings events', () => {
+  // 场景 1（老宿主）：get() 形态 + 'settings/updated'
+  const legacy = { get: (ns) => (ns === 'locale' ? { preference: 'en' } : undefined) }
+  const ctxLegacy = fakeCtx({ services: { settings: legacy } })
+  apply(ctxLegacy, { memoryDir: tempDir(), reviewEnabled: false })
+  assert.ok(Array.isArray(ctxLegacy.state.listeners['settings/updated']), 'legacy event subscribed')
+  assert.ok(Array.isArray(ctxLegacy.state.listeners['settings/document-updated']), 'new event subscribed too')
+  assert.equal(getLocale(), 'en', 'boot-time resolve reads the legacy get() service')
+
+  // 场景 2（新宿主）：只有 describe()，事件走 'settings/document-updated'
+  const describeOnly = {
+    describe: () => [{ ns: 'locale', value: { preference: 'zh' }, schema: {}, revision: 1 }],
+  }
+  const dir2 = tempDir()
+  const ctxNew = fakeCtx({ services: { settings: describeOnly } })
+  apply(ctxNew, { memoryDir: dir2, reviewEnabled: false })
+  assert.equal(getLocale(), 'zh', 'boot-time resolve reads the describe() service')
+
+  // 用户把语言切成 en → 提交事件带 ns='locale' → 插件立刻改口
+  // （服务返回可变引用：apply() 期间是 zh，翻开关后再读就是 en）
+  let preference = 'zh'
+  const flipped = {
+    describe: () => [{ ns: 'locale', value: { preference }, schema: {}, revision: preference === 'en' ? 2 : 1 }],
+  }
+  const ctxFlip = fakeCtx({ services: { settings: flipped } })
+  const dir3 = tempDir()
+  apply(ctxFlip, { memoryDir: dir3, reviewEnabled: false })
+  assert.equal(getLocale(), 'zh', 'boot resolves the describe() service before the flip')
+  preference = 'en'
+  for (const listener of ctxFlip.state.listeners['settings/document-updated']) listener('locale', 2)
+  assert.equal(getLocale(), 'en', 'live language switch applies without restart')
+  for (const listener of ctxFlip.state.listeners['settings/document-updated']) listener('models', 3)
+  assert.equal(getLocale(), 'en', 'other namespaces leave the locale untouched')
+
+  setLocale('zh')
+  clean(dir2)
+  clean(dir3)
 })
