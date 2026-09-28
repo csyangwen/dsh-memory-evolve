@@ -62,11 +62,16 @@ async function bootSkillsManager(overrides = {}) {
   // issue #6：记录最近一次 skills.list 收到的 scope（preset 视图 scope），
   // 用于断言 260810 快照分层后管理界面确实按 preset scope 查询目录。
   let lastListScope = undefined
+  // 0.1.7：视图 scope 改成按次租约（acquireScope → asyncDispose），这里配对计数，
+  // 用于断言每次读取都还了租约——持有不放会钉住已退役的 preset 修订。
+  let leaseAcquires = 0
+  let leaseReleases = 0
 
   const skillsService = {
     list: async (opts) => {
       lastListCwd = opts?.cwd ?? null
       lastListScope = opts?.scope
+      if (overrides.listThrows === true) throw new Error('catalog unavailable')
       return [...catalog.values()]
     },
     get: async (name) => catalog.get(name),
@@ -97,10 +102,25 @@ async function bootSkillsManager(overrides = {}) {
   const ctx = {
     skills: skillsService,
     // issue #6：agentPresets 服务（260810 快照起 skill-local 按 preset scope
-    // 分层，管理界面查询目录需带默认 preset 的 standing scope key）。
+    // 分层，管理界面查询目录需带默认 preset 的视图 scope）。
+    // 0.1.7 把 standingKeyFor() 换成带租约的 acquireScope()：返回
+    // { key, [Symbol.asyncDispose] }，调用方读完必须释放。
     // overrides.agentPresets 可传 null 模拟「无该服务的旧环境」。
     agentPresets: overrides.agentPresets === undefined
-      ? { standingKeyFor: async () => ({ agentPreset: 'standard' }) }
+      ? {
+          acquireScope: async () => {
+            leaseAcquires += 1
+            let released = false
+            return {
+              key: { agentPreset: 'standard' },
+              [Symbol.asyncDispose]: async () => {
+                if (released) return
+                released = true
+                leaseReleases += 1
+              },
+            }
+          },
+        }
       : overrides.agentPresets,
     get(name) {
       // 受限 ctx 的服务探测：未提供的服务返回 undefined（skills.js 同款模式）
@@ -145,6 +165,7 @@ async function bootSkillsManager(overrides = {}) {
     base, catalog, put, bravo, stateFile, changeListeners, providerCtl, request,
     lastListCwd: () => lastListCwd,
     lastListScope: () => lastListScope,
+    leaseStats: () => ({ acquires: leaseAcquires, releases: leaseReleases }),
     close: () => new Promise((resolve) => server.close(resolve)),
     cleanup: () => { rmSync(dir, { recursive: true, force: true }) },
   }}
@@ -445,7 +466,7 @@ test('skills-manager: file browse/read stays root-scoped', async () => {
 
 // issue #6：260810 快照起 skill-local 注册在 agent preset 的 scope 层，无 scope
 // 的 skills.list() 只读 global 层 → 技能管理列表空白。修复=列表/浏览/读/写/
-// 禁用校验全部带默认 preset 的 standing scope key 查询目录。
+// 禁用校验全部带默认 preset 的视图 scope 查询目录。
 test('skills-manager: catalog queries carry the default preset scope (issue #6)', async () => {
   const sm = await bootSkillsManager()
   try {
@@ -464,6 +485,26 @@ test('skills-manager: catalog queries carry the default preset scope (issue #6)'
     const disable = await sm.request('POST', '/skills-manager/api/skills/disable', { name: 'alpha' })
     assert.equal(disable.status, 200)
     assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    // 4) 每次读取都还了租约（0.1.7 acquireScope 的契约：用完即释放）
+    const leases = sm.leaseStats()
+    assert.ok(leases.acquires > 0, 'expected at least one scoped read')
+    assert.equal(leases.releases, leases.acquires)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// 0.1.7：读取失败同样要释放租约（withScope 的 finally）。漏掉这条，一次失败
+// 就把默认 preset 的修订永久钉住。
+test('skills-manager: a failing catalog read still releases the preset lease', async () => {
+  const sm = await bootSkillsManager({ listThrows: true })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list.status, 500)
+    const leases = sm.leaseStats()
+    assert.ok(leases.acquires > 0, 'expected at least one scoped read')
+    assert.equal(leases.releases, leases.acquires)
   } finally {
     await sm.close()
     sm.cleanup()

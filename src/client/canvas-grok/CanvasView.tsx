@@ -9,8 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  IconPlusOutline16,
-  IconSearchOutline16,
+  IconPlusOutlineRegular,
+  IconSearchOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CanvasBoard } from './CanvasBoard.tsx'
 import { CanvasDialogs } from './CanvasDialogs.tsx'
@@ -641,7 +641,7 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
         </div>
 
         <label className="cg-search">
-          <IconSearchOutline16 />
+          <IconSearchOutlineRegular />
           <input
             value={query}
             placeholder="搜索画板节点…"
@@ -651,13 +651,13 @@ export function CanvasView(props: ConvViewProps & CanvasViewProps): JSX.Element 
 
         <div className="cg-toolbar-group">
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('path')}>
-            <IconPlusOutline16 /> 路径上板
+            <IconPlusOutlineRegular /> 路径上板
           </button>
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('note')}>
-            <IconPlusOutline16 /> 便签
+            <IconPlusOutlineRegular /> 便签
           </button>
           <button type="button" className="cg-btn cg-ghost" onClick={() => setDialog('catalog')}>
-            <IconPlusOutline16 /> 搜索上板
+            <IconPlusOutlineRegular /> 搜索上板
           </button>
         </div>
 
