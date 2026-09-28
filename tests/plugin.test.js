@@ -803,7 +803,7 @@ test('write watchdog counter: counts turns, resets on daily/project writes, hono
         id: `u${seq}`,
         turn: seq,
         // 'plugin' = 注入/唤醒回合（广播 wake followup 等），'user' = 真人回合
-        source: sourceKind === 'plugin' ? { kind: 'plugin', plugin: 'dsh-memory-evolve' } : { kind: 'user' },
+        source: sourceKind === 'plugin' ? { kind: 'plugin:dsh-memory-evolve', plugin: 'dsh-memory-evolve' } : { kind: 'user' },
       },
     })
   }
