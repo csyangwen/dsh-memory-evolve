@@ -26,9 +26,10 @@ description: "Use when the user asks to consolidate, merge, deduplicate, or reor
 4. **归档优先，禁用删除**：被合并/被取代的原文一律 `archive`（进 *-archive.md，
    记忆 Tab 归档页可一键移回）。不要用 `remove`，保证每步操作可逆。
    ⚠️ **轨道能力差异（2026-09-14 实测）**：`archive` 只支持 `memory` / `user` / `key`
-   三轨；`project`（项目日志）与 `daily` 无归档能力，调用即报「archive 只支持
-   memory / user / key 三个归档轨」——这两轨的整理**只做 `replace` 合并、不做删除**，
-   确需移除的内容只能改写为最短自足表述，或在汇报里如实标注「无法移除」。
+   三轨，**`project`（项目日志）与 `daily` 没有归档能力**——对这两轨调用会直接报
+   「archive 只支持 memory / user / key 三个归档轨」。因此在这两轨上只做 `replace`
+   合并（把旧条目信息并入保留条目），**不删除**被取代的条目（删除不可逆，违反本
+   边界），并在报告中如实标注「该轨无归档能力、旧条目按原样保留」。
 5. **key 轨写入需确认**：memory 工具对 key 轨的 `add` 走待确认队列——涉及新增 key
    条目时照常提交建议，由用户确认后生效，不要绕过。
 6. **同一轨的写操作串行执行**：`replace` / `archive` / `add` 对同一个 `.md` 文件是
