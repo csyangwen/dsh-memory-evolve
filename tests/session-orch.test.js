@@ -267,13 +267,13 @@ test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', 
   assert.equal(created.meta.cwd, '/project/blog', 'cwd 继承发起会话（否则新会话落默认工作区）')
   assert.equal(created.agentOptions.provider, 'deepseek', 'provider 继承发起会话')
   assert.equal(created.agentOptions.model, 'deepseek-chat', 'model 继承发起会话')
-  // 思考等级继承：seed 注入 request/header（AgentOptions 无 reasoningEffort，
-  // 靠历史 header 恢复；新会话无历史 → 与产品经理思考等级不一致的坑）
-  assert.ok(Array.isArray(created.seed), '同模型时 seed 注入 request/header')
-  assert.equal(created.seed[0].type, 'request/header')
-  assert.equal(created.seed[0].seq, 0, 'seed 事件 seq 必须从 0 开始（DSH 校验 contiguous from 0）')
-  assert.equal(created.seed[0].data.header.config.model, 'deepseek-chat')
-  assert.equal(created.seed[0].data.header.config.reasoningEffort, 'high', '思考等级继承发起会话')
+  // 思考等级继承：走 AgentOptions.reasoningEffort
+  // ⚠️ 2026-09-29 根因修复：不再用 seed 注入 request/header——该事件落在 seq 0（任何
+  // turn 之外），而 v4 格式要求 request/header 处于已打开的 turn 内
+  // （dsh-session-format-v3-to-v4 lib/index.js:571/:990）→ 每个 spawn 出来的会话
+  // 日志在重载时报「request/header is outside an open turn」（GUI 历史加载失败）。
+  assert.equal(created.seed, undefined, '同模型时也不得传 seed（v4：request/header 必须在打开的 turn 内）')
+  assert.equal(created.agentOptions.reasoningEffort, 'high', '思考等级经 AgentOptions 继承发起会话')
   // 工作区挂接：cwd 对应已注册 workspace → attachSession 被调用
   // （左侧"项目"分组；曾漏 attach 导致 cwd 正确但会话在「未分组」）
   assert.deepEqual(ctx.attached, [res.sessionId], '新会话挂到 cwd 对应工作区')
@@ -289,9 +289,8 @@ test('spawn: 创建标准会话 + 首条消息=完整提示词 + 记录落盘', 
   assert.equal(agents.state.created[1].meta.cwd, '/other')
   assert.equal(agents.state.created[1].agentOptions.model, 'my-model')
   assert.equal(agents.state.created[1].agentOptions.provider, 'deepseek')
-  assert.ok(Array.isArray(agents.state.created[1].seed), '换模型时仍注入 header（provider/model 本身）')
-  assert.equal(agents.state.created[1].seed[0].data.header.config.model, 'my-model')
-  assert.equal(agents.state.created[1].seed[0].data.header.config.reasoningEffort, undefined, '换模型不继承思考等级')
+  assert.equal(agents.state.created[1].seed, undefined, '换模型时同样不传 seed')
+  assert.equal(agents.state.created[1].agentOptions.reasoningEffort, undefined, '换模型不继承思考等级')
   // 首条消息 = 完整提示词（等价替用户发消息）
   const agent = agents.live.get(res.sessionId)
   assert.equal(agent.followups.length, 1)
@@ -420,10 +419,9 @@ test('spawn 显式 model：按模型名自动解析 provider（与 GUI 模型选
   assert.equal(created.agentOptions.model, 'qwen3.7-plus')
   assert.equal(res.provider, 'qwen-token-plan-cn', '返回带实际 provider')
   assert.match(res.message, /qwen-token-plan-cn/, 'message 提示解析结果')
-  // seed：provider 与发起会话不同 → header 用新 provider/model、不带思考等级
-  assert.equal(created.seed[0].data.header.config.provider, 'qwen-token-plan-cn')
-  assert.equal(created.seed[0].data.header.config.model, 'qwen3.7-plus')
-  assert.equal(created.seed[0].data.header.config.reasoningEffort, undefined, '不同 provider 不继承思考等级')
+  // 不同 provider → 不继承思考等级，且绝不 seed 注入 header
+  assert.equal(created.seed, undefined, '不同 provider 也不传 seed')
+  assert.equal(created.agentOptions.reasoningEffort, undefined, '不同 provider 不继承思考等级')
   // ② 显式 provider 参数优先于自动解析
   const res2 = await tool.execute({ action: 'spawn', prompt: '任务2', model: 'qwen3.7-plus', provider: 'zai-coding-cn' }, { agent: requesterAgent })
   assert.equal(res2.ok, true)
