@@ -183,6 +183,27 @@ const persistedFeatures = new Map<string, TabFeature | null>()
 const persistedFileKeys = new Map<string, string | null>()
 
 /**
+ * 文件列表的跨重挂缓存（按 sessionId 分桶）。
+ *
+ * 会话页 Tab 的红点刷新只能靠「dispose + 重新注册 slot」实现（DSH ui-slots
+ * 的 register() 只返回 dispose，没有就地更新 label 的 API），每次确认/删除
+ * 待确认条目都会让本 Tab 卸载重建。重挂后若从 null 重新拉，文件页签行与条目
+ * 列表会整块闪「加载中」。这里缓存上次结果：重挂直接复用缓存渲染，只有缓存
+ * 过期（或本会话还没拉过）才后台刷新——刷新期间旧数据继续显示，无空窗。
+ */
+interface FilesCache {
+  files: MemoryFileRow[]
+  cwd: string | null
+  branch: string | null
+  branches: string[]
+  loadedAt: number
+}
+const filesCache = new Map<string, FilesCache>()
+
+/** 缓存新鲜期：重挂间隔通常远小于此值，命中即不再空拉一次。 */
+const FILES_STALE_MS = 10_000
+
+/**
  * 记忆 Tab 专属指南内容（「指南」子 Tab）：
  * 详细介绍记忆功能本身——五轨记忆、文件页签、git 分支感知、编辑维护、
  * 待确认记忆建议机制。文案来自全局 locale（memoryTab.guide.* 键组）。
@@ -253,12 +274,14 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   // 跨重挂持久化：badge 变化时宿主会 deferral.refresh()（dispose+重新注册），
   // 组件被卸载重挂——功能 tab / 文件 tab 的选择必须恢复，否则处理完一条
   // 建议后视图就跳回文件页（模块级变量在重挂间共享）。
-  const [files, setFiles] = useState<MemoryFileRow[] | null>(null)
+  // 首帧就用缓存（若有）：重挂时不再出现「加载中」空窗
+  const initialCache = filesCache.get(String(sessionId))
+  const [files, setFiles] = useState<MemoryFileRow[] | null>(initialCache?.files ?? null)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-  const [cwd, setCwd] = useState<string | null>(null)
+  const [cwd, setCwd] = useState<string | null>(initialCache?.cwd ?? null)
   /** 当前 git 分支（null=非 git/无法获取）；branches=全部分支（下拉选项）。 */
-  const [branch, setBranch] = useState<string | null>(null)
-  const [branches, setBranches] = useState<string[]>([])
+  const [branch, setBranch] = useState<string | null>(initialCache?.branch ?? null)
+  const [branches, setBranches] = useState<string[]>(initialCache?.branches ?? [])
   const [view, setView] = useState<ViewMode>('pretty')
   const [query, setQuery] = useState('')
   // 美观视图分页（大文件如项目日志按条目分页渲染，每页 PAGE_SIZE 条）
@@ -317,17 +340,36 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   useEffect(() => { persistedFileKeys.set(sessionId, activeKey) }, [activeKey, sessionId])
 
   const load = useCallback((): void => {
-    setFiles(null)
+    const cacheKey = String(sessionId)
+    const cached = filesCache.get(cacheKey)
+    if (cached !== undefined) {
+      // 重挂 / 回访本会话：先用缓存立刻渲染（无「加载中」空窗），随后刷新覆盖
+      setFiles(cached.files)
+      setCwd(cached.cwd)
+      setBranch(cached.branch)
+      setBranches(cached.branches)
+    } else {
+      setFiles(null)
+    }
     void api<{ files: MemoryFileRow[]; cwd: string | null; branch: string | null; branches: string[] }>(
-      `/api/memory-files?sessionId=${encodeURIComponent(String(sessionId))}`,
+      `/api/memory-files?sessionId=${encodeURIComponent(cacheKey)}`,
     ).then((res) => {
-      setFiles(res.files)
-      setCwd(res.cwd)
-      setBranch(res.branch)
-      setBranches(res.branches ?? [])
+      const next: FilesCache = {
+        files: res.files,
+        cwd: res.cwd,
+        branch: res.branch,
+        branches: res.branches ?? [],
+        loadedAt: Date.now(),
+      }
+      filesCache.set(cacheKey, next)
+      setFiles(next.files)
+      setCwd(next.cwd)
+      setBranch(next.branch)
+      setBranches(next.branches)
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: error.message })
-      setFiles([])
+      // 有缓存时保留旧数据显示（一次刷新失败不该把已有内容清空）
+      if (cached === undefined) setFiles([])
     })
   }, [sessionId])
 
@@ -335,8 +377,18 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
   // （稳定版复审 P1-4：旧代码空依赖只拉一次，跨会话复用实例时文件列表
   // 停留在上一会话）。
   useEffect(() => {
+    // 缓存仍新鲜（刚操作过、重挂间隔很短）就不重复拉：直接吃缓存，避免
+    // 每次确认/删除建议都白拉一遍文件列表。
+    const cached = filesCache.get(String(sessionId))
+    if (cached !== undefined && Date.now() - cached.loadedAt < FILES_STALE_MS) {
+      setFiles(cached.files)
+      setCwd(cached.cwd)
+      setBranch(cached.branch)
+      setBranches(cached.branches)
+      return
+    }
     load()
-  }, [load])
+  }, [load, sessionId])
 
   // 默认选中第一个可用文件；激活 key 失效时自动回退到可用文件
   useEffect(() => {

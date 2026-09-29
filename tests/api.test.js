@@ -104,9 +104,12 @@ test('api approve/reject/approve-all/reject-all', async () => {
     const approve = await api.request('POST', '/memory-evolve/api/suggestions/approve', { indices: [1] })
     assert.equal(approve.status, 200)
     assert.equal(approve.data.remaining, 1)
+    // 客户端靠这个字段就地删行（不再整块重拉列表），路由必须原样透传
+    assert.deepEqual(approve.data.removedIndices, [1])
     assert.equal(api.store.entriesOf('user').length, 1)
     const reject = await api.request('POST', '/memory-evolve/api/suggestions/reject', { indices: [1] })
     assert.equal(reject.data.remaining, 0)
+    assert.deepEqual(reject.data.removedIndices, [1])
     // approve-all on empty queue is a no-op
     const all = await api.request('POST', '/memory-evolve/api/suggestions/approve-all')
     assert.equal(all.status, 200)
