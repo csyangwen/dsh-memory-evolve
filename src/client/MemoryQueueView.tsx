@@ -6,12 +6,30 @@
  * suggestion queue, the pending skill queue, and the runtime-config form.
  * Styling reuses the `me-` class prefix from styles.css.
  *
- * Every mutation re-loads its data and calls `onChanged` so the owning tab
- * can refresh the badge counts (and the session-tab red dot).
+ * 队列数据与编辑草稿放在模块级 store（./memory-queue-store.ts）：会话页 Tab
+ * 的红点数字只能靠「dispose + 重新注册 slot」刷新，而重注册会让本视图整体
+ * 卸载重建。状态若留在组件里就会闪「加载中」、整块重拉接口、丢掉没提交的
+ * 编辑。数据与草稿搬到 store 后，重挂只是重渲染；操作成功后按服务端回报的
+ * 「实际移除序号」就地删除（不再整块重拉），只有徽标仍经 onChanged 走事件
+ * 通道刷新（让会话页标签的小红点即时更新，不等 30s 轮询）。
  */
 import { useEffect, useState } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { RUNTIME_CONFIG_CHANGED } from './todo-tab-lifecycle.js'
+import {
+  applyRemovedIndices,
+  hydrateQueue,
+  isQueueFresh,
+  markConfigSaved,
+  patchConfigDraft,
+  reconcileQueueEntries,
+  removePendingSkill,
+  setSuggestionEdit,
+  setSuggestionTarget,
+  suggestionKey,
+  useQueueStore,
+} from './memory-queue-store.ts'
+import type { PendingSkill, SuggestionEntry } from './memory-queue-store.ts'
 
 /** Which feature sub-tab is active. */
 export type MemoryFeature = 'guide' | 'suggestions' | 'todo-suggestions' | 'skills' | 'config'
@@ -52,31 +70,21 @@ function suggestTargetClass(target: string): string {
  *  待办建议不提供改分类下拉——直接采纳即按推荐写入待办轨。 */
 const SUGGEST_TARGETS = ['memory', 'user', 'key'] as const
 
-/** One pending suggestion entry (subset of the queue record). */
-interface SuggestionEntry {
-  time: string
-  sessionId?: string | null
-  /** 建议产生时的会话工作目录（项目级条目定位用；可能为 null=无 cwd 的老条目）。 */
-  cwd?: string | null
-  target: string
-  content: string
-  reason?: string
-  /** How many times this fact resurfaced in reviews (deduped queue). */
-  hits?: number
-}
-
 /**
- * 一条建议 + 服务端原始队列下标。
+ * 一行展示数据：条目 + 服务端磁盘队列的原始 1-based 序号。
  *
- * 展示层按 hits 倒序排列（反复出现的建议最可能值得确认），但操作时必须
- * 回传服务端磁盘队列的原始 1-based 序号——服务端 approve/reject/archive
- * 按原始顺序解释序号（lib/review.js）。若只排序不改号，任一 hits>1 的
- * 条目排到前面后，「采纳第 1 条」实际处理的是另一条（误采纳/误拒绝）。
+ * 展示层按 hits 倒序排列（反复出现的建议最可能值得确认），但操作时必须回传
+ * 服务端磁盘队列的原始 1-based 序号——服务端 approve/reject/archive 按原始
+ * 顺序解释序号（lib/review.js）。若只排序不改号，任一 hits>1 的条目排到前面
+ * 后，「采纳第 1 条」实际处理的是另一条（误采纳/误拒绝）。
+ *
+ * 编辑草稿不按这个序号存：序号会随删除整体前移，按下标存会错位到别的条目
+ * （旧代码因此只能每次操作后 setEdits({}) 全清）。草稿一律用建议的稳定键。
  */
-interface SuggestionRow {
+interface DisplayRow {
   entry: SuggestionEntry
-  /** 服务端队列中的原始下标（0-based；对外操作时 +1 转 1-based 序号）。 */
-  origIndex: number
+  /** 服务端队列中的原始 1-based 序号。 */
+  index: number
 }
 
 /**
@@ -86,13 +94,6 @@ interface SuggestionRow {
 function projectName(cwd: string): string {
   const parts = cwd.split(/[\\/]/).filter((part) => part.length > 0)
   return parts.length > 0 ? (parts[parts.length - 1] as string) : cwd
-}
-
-/** One pending skill awaiting user confirmation. */
-interface PendingSkill {
-  name: string
-  description: string
-  content: string
 }
 
 /** Runtime config view (subset returned by /api/config). */
@@ -170,71 +171,81 @@ const isEn = (): boolean => typeof navigator !== 'undefined' && navigator.langua
 
 export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
   const { t, feature, onChanged } = props
-  const [entries, setEntries] = useState<SuggestionRow[] | null>(null)
-  const [skills, setSkills] = useState<PendingSkill[] | null>(null)
-  const [config, setConfig] = useState<RuntimeConfig | null>(null)
-  const [draft, setDraft] = useState<RuntimeConfig | null>(null)
-  /** Edited text per 1-based suggestion index (textarea values). */
-  const [edits, setEdits] = useState<Record<number, string>>({})
-  /** 采纳时的目标轨选择（1-based index → 覆盖轨；缺省=AI 推荐的分类）。 */
-  const [targetPicks, setTargetPicks] = useState<Record<number, string>>({})
+  // 队列数据与编辑草稿来自模块级 store：本视图会因会话页 Tab 红点刷新而整体
+  // 重挂（宿主 dispose + 重新注册 slot，见 memory-queue-store.ts 头注释），
+  // 状态留在组件里就会闪空窗、整块重拉并丢掉未提交的编辑。
+  const { entries, skills, draft, edits, targetPicks } = useQueueStore()
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
+  /** 拉取三份数据并落地到 store（不清空现有数据：失败也保留上次结果）。 */
   const load = (): void => {
     void Promise.all([
       api<{ entries: SuggestionEntry[] }>('/api/suggestions'),
       api<{ entries: PendingSkill[] }>('/api/pending-skills'),
       api<{ config: RuntimeConfig }>('/api/config'),
     ]).then(([s, sk, c]) => {
-      // Facts that resurfaced in several reviews are the most likely to be
-      // worth confirming — show them first. 每条携带服务端原始队列下标，
-      // 操作时回传原始序号（见 SuggestionRow 注释），保证与服务端对齐。
-      const sorted = [...s.entries]
-        .map((entry, index) => ({ entry, origIndex: index }))
-        .sort((a, b) => (b.entry.hits ?? 1) - (a.entry.hits ?? 1))
-      setEntries(sorted)
-      setSkills(sk.entries)
-      setEdits({})
-      setTargetPicks({})
-      setConfig(c.config)
-      setDraft((prev) => prev ?? c.config)
+      hydrateQueue({ entries: s.entries, skills: sk.entries, config: c.config })
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
     })
   }
 
   useEffect(() => {
-    load()
+    // 刚操作过（store 已与服务端同步、数据仍在新鲜期内）就不重复拉：重挂只
+    // 重渲染。真正过期（或首次）才后台刷新——期间旧数据继续显示，无空窗。
+    if (!isQueueFresh()) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /**
+   * 操作成功后的静默对账：只重拉队列本身，用来消除「服务端回报的位次」与
+   * 「本地快照」之间的漂移（期间别的会话可能刚入队）。不清空界面、不闪空窗、
+   * 不丢草稿；失败也不打断——本地乐观结果继续用，下次刷新自愈。
+   */
+  const reconcile = (): void => {
+    void api<{ entries: SuggestionEntry[] }>('/api/suggestions')
+      .then((s) => reconcileQueueEntries(s.entries))
+      .catch(() => { /* 对账尽力而为 */ })
+  }
 
   const runSuggestions = (op: 'approve' | 'archive' | 'reject', indices: number[]): void => {
     setBusy(true)
     const body: { indices?: number[]; contents?: string[]; targets?: Record<string, string> } = {}
     body.indices = indices
     if (op === 'approve') {
-      const contents = indices.map((index) => edits[index] ?? '')
+      // entries 是服务端原始顺序，序号 index 直接对应 entries[index - 1]；
+      // 编辑草稿与目标轨按稳定键取（见 memory-queue-store.ts 的 key 说明）。
+      const rows = indices.map((index) => entries?.[index - 1])
+      const contents = rows.map((entry) => (entry === undefined ? '' : edits[suggestionKey(entry)] ?? ''))
       // Send contents only when the user actually edited some entry; an
       // all-empty contents array would otherwise be treated as a real edit
       // of every entry ("" is not nullish), overwriting the suggestion.
       if (contents.some((content) => content !== '')) body.contents = contents
       // 目标覆盖：只传与推荐轨不同的选择（不选 = 推荐轨，行为不变）。
-      // 按原始序号定位条目（entries 是排序后的展示数组，不能直接按下标取）。
       const overrides: Record<string, string> = {}
-      for (const index of indices) {
-        const pick = targetPicks[index]
-        const row = (entries ?? []).find((candidate) => candidate.origIndex + 1 === index)
-        if (pick !== undefined && pick !== row?.entry.target) overrides[String(index)] = pick
-      }
+      indices.forEach((index, position) => {
+        const entry = rows[position]
+        if (entry === undefined) return
+        const pick = targetPicks[suggestionKey(entry)]
+        if (pick !== undefined && pick !== entry.target) overrides[String(index)] = pick
+      })
       if (Object.keys(overrides).length > 0) body.targets = overrides
     }
-    void api<{ lines?: string[]; removed?: number; remaining: number }>(`/api/suggestions/${op}`, {
+    void api<{ lines?: string[]; removed?: number; remaining: number; removedIndices?: number[] }>(`/api/suggestions/${op}`, {
       method: 'POST',
       body: JSON.stringify(body),
     }).then((report) => {
       setNotice({ kind: 'ok', text: summarizeReport(report) })
-      load()
+      if (report.removedIndices === undefined) {
+        // 服务端没回报实际移除序号（老宿主）：退回重拉一次，绝不留下假条目
+        load()
+      } else {
+        // 就地删除真正落地的那些条目——写失败的会留在队列里，与服务端一致
+        applyRemovedIndices(report.removedIndices)
+        // 再静默对账一次：位次漂移 / 期间新入队的建议一并补齐
+        reconcile()
+      }
       onChanged()
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
@@ -248,7 +259,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       body: JSON.stringify({ name }),
     }).then(() => {
       setNotice({ kind: 'ok', text: t('panel.skills.done', { op: op === 'approve' ? t('panel.skills.approve') : t('panel.skills.reject') }) })
-      load()
+      // 服务端回执即结果：本地删掉这条待确认技能，不重拉整份列表
+      removePendingSkill(name)
       onChanged()
     }).catch((error: Error) => {
       setNotice({ kind: 'error', text: t('panel.config.failed', { message: error.message }) })
@@ -294,8 +306,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       method: 'POST',
       body: JSON.stringify({ patch }),
     }).then((res) => {
-      setConfig(res.config)
-      setDraft(res.config)
+      // 服务端回显即真值：config 与草稿一起对齐（草稿在 store 里，重挂不丢）
+      markConfigSaved(res.config)
       // 配置保存成功后广播运行时配置变更事件：待办 Tab 生命周期监听它，
       // 关闭 todoEnabled 时立即隐藏 Tab、重新启用时恢复（见 index.ts apply）。
       window.dispatchEvent(new CustomEvent(RUNTIME_CONFIG_CHANGED, { detail: res.config }))
@@ -305,17 +317,17 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
     }).finally(() => setBusy(false))
   }
 
-  const patchDraft = (patch: Partial<RuntimeConfig>): void => {
-    setDraft((prev) => (prev === null ? prev : { ...prev, ...patch }))
-  }
+  const patchDraft = (patch: Partial<RuntimeConfig>): void => patchConfigDraft(patch)
 
   /** 当前面板的建议行（序号=服务端原始队列的 1-based index）：记忆面板=非待办类，
-   *  待办面板=todo-* 类。展示排序不影响序号——序号取 origIndex，与服务端对齐。 */
+   *  待办面板=todo-* 类。按 hits 倒序展示（反复出现的建议最可能值得确认），
+   *  但序号始终取服务端原始位次，排序不影响操作对象。 */
   const suggestionRows = (entries ?? [])
-    .map((row) => ({ entry: row.entry, index: row.origIndex + 1 }))
+    .map((entry, origIndex): DisplayRow => ({ entry, index: origIndex + 1 }))
     .filter(({ entry }) => (feature === 'todo-suggestions')
       ? entry.target.startsWith('todo-')
       : !entry.target.startsWith('todo-'))
+    .sort((a, b) => (b.entry.hits ?? 1) - (a.entry.hits ?? 1))
 
   return (
     <div className="me-panel">
@@ -513,8 +525,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                           <select
                             className="me-pick-target"
                             title={t('panel.suggestions.targetHint')}
-                            value={targetPicks[index] ?? entry.target}
-                            onChange={(event) => setTargetPicks((prev) => ({ ...prev, [index]: event.target.value }))}
+                            value={targetPicks[suggestionKey(entry)] ?? entry.target}
+                            onChange={(event) => setSuggestionTarget(suggestionKey(entry), event.target.value)}
                           >
                             {SUGGEST_TARGETS.map((target) => (
                               <option key={target} value={target}>{suggestTargetLabel(t, target)}</option>
@@ -551,8 +563,8 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     <textarea
                       className="me-item-edit"
                       rows={3}
-                      value={edits[index] ?? entry.content}
-                      onChange={(event) => setEdits((prev) => ({ ...prev, [index]: event.target.value }))}
+                      value={edits[suggestionKey(entry)] ?? entry.content}
+                      onChange={(event) => setSuggestionEdit(suggestionKey(entry), event.target.value)}
                     />
                     <p className="me-item-reason">
                       {entry.reason !== undefined && entry.reason !== '' ? entry.reason : t('panel.suggestions.editHint')}
