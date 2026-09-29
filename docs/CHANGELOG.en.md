@@ -4,6 +4,12 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+## 2026-09-29
+
+### Fixed
+
+- **The delimiter constraint on memory writes was rejection-only, with no advance notice — the model had to hit the error once to learn it**: `§` is the memory file's entry delimiter (`ENTRY_DELIMITER = '\n§\n'` in `lib/store.js`), and carrying it in a body **silently splits one entry into two** on the next parse, so `add` / `replace` / archive rewrites all reject it outright. The rejection is correct; the problem is that **the constraint only lived inside the error message**: the model could not see it at the moment it decided what to write, so the only way to learn was to write, get rejected, and rewrite (observed locally: two rejections in one session, the second caused by explaining the rule with the character itself in the body). Fix: move the constraint to the **three places visible at write time** — (1) the `param.content` description (zh/en) now states that the character is forbidden, that carrying it fails the whole call, and that sections should be cited as "section N.N", plus an explicit note not to put the character into the body even when explaining the rule; (2) `param.entries` carries the same constraint (the end-of-turn batch write is the main path); (3) the snapshot's end-of-turn write guidance `snap.batchWriteDuty` and `snap.keyDuty` each gain a "self-check before writing" clause (that is the moment the model plans what to write). The rejection message (`msg.sectionContainsDelimiter`) also changed from "you cannot" to "you cannot + here is how" (remove the character and retry; cite sections as "section N.N"). Pure wording increment, zero behavioural change; the new `tests/separator-disclosure.test.js` locks "visible before writing" in as a contract (with an injection-must-go-red negative self-test).
+
 ## 2026-09-28
 
 ### Fixed
