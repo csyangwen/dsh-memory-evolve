@@ -185,6 +185,37 @@ test('runGit：正常路径不受影响（close 先到 → 按退出码判定，
   }
 })
 
+test('runGit：给 git 子进程固定 LC_ALL=C，避免非英文 locale 下 stderr 被本地化（#75）', async () => {
+  const child = new StuckChild()
+  let seenEnv = null
+  // 经 opts.spawnFn 观察 env；不 new 真实进程，避免 Windows 上再开一个 git。
+  const pending = runGit('/nonexistent', ['status'], {
+    spawnFn: (cmd, args, opts) => {
+      seenEnv = opts.env
+      return child
+    },
+  })
+  child.emit('close', 0)
+  await expectSettled(pending, 500)
+
+  assert.ok(seenEnv, 'spawn 应收到 env 参数')
+  assert.equal(seenEnv.LC_ALL, 'C', 'git 子进程必须用 C locale（中文/其他语言系统不得把错误文案本地化）')
+  // 网络命令仍要保留防凭证卡死开关
+  const netChild = new StuckChild()
+  let netEnv = null
+  const netPending = runGit('/nonexistent', ['fetch', 'origin'], {
+    network: true,
+    spawnFn: (cmd, args, opts) => {
+      netEnv = opts.env
+      return netChild
+    },
+  })
+  netChild.emit('close', 0)
+  await expectSettled(netPending, 500)
+  assert.equal(netEnv.LC_ALL, 'C', '网络命令同样必须固定 C locale')
+  assert.equal(netEnv.GIT_TERMINAL_PROMPT, '0', '网络命令必须保留 GIT_TERMINAL_PROMPT=0 防凭证卡死')
+})
+
 test('runGit：spawn 报错（如 git 不存在）走 error 分支并带出原因', async () => {
   const child = new StuckChild()
   const pending = runGit('/nonexistent', ['status'], { spawnFn: () => child })
