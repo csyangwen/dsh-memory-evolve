@@ -21,13 +21,14 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryQueueView } from './MemoryQueueView.tsx'
 import { TabGuideView, type GuideSection } from './TabGuideView.tsx'
+import { MemoryAuditView } from './MemoryAuditView.tsx'
 
 /**
  * 功能子 tab（记忆专属）：指南 / 待确认记忆建议。
  * 整体指南与运行时配置已抽到「Memory Evolve 设置」Tab（SettingsTabView）；
  * 本 Tab 的「指南」是记忆功能自己的详细介绍（非整体简介）。
  */
-type TabFeature = 'guide' | 'suggestions'
+type TabFeature = 'guide' | 'suggestions' | 'audit'
 
 /** One memory-file row from the host. */
 interface MemoryFileRow {
@@ -593,6 +594,15 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
           {t('memoryTab.feature.suggestions')}
           {badge.suggestions > 0 && <span className="mt-feature-count">{badge.suggestions}</span>}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={feature === 'audit'}
+          className={feature === 'audit' ? 'mt-file-tab mt-file-tab-active' : 'mt-file-tab'}
+          onClick={() => setFeature(feature === 'audit' ? null : 'audit')}
+        >
+          {t('memoryTab.feature.audit')}
+        </button>
         <span className="mt-tab-sep" role="presentation" />
         {files !== null && (files ?? []).map((row) => (
           <button
@@ -620,6 +630,10 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
           // 记忆专属指南：详细介绍记忆 Tab 自己的功能（五轨/文件页签/分支/
           // 编辑维护/待确认建议机制）。整体插件指南在「Memory Evolve 设置」Tab。
           <TabGuideView sections={memoryGuideSections(t)} />
+        ) : feature === 'audit' ? (
+          // 用量审计：只读统计三条可归档轨道（memory / user / key）的条数与字节占用，
+          // 对比默认预算提示是否需要清理（issue #57）。
+          <MemoryAuditView t={t} sessionId={String(sessionId)} />
         ) : (
           <MemoryQueueView
             t={t}

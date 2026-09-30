@@ -2181,3 +2181,43 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---- memory usage audit (issue #57): per-track entry/byte table ---- */
+
+.me-audit-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.me-audit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 4.5rem 5.5rem 5.5rem 4.5rem;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+
+.me-audit-row span:not(.me-audit-track) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.me-audit-track {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.me-audit-row-head {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.me-audit-row-over {
+  color: var(--dsw-alias-state-warning-primary, #b8860b);
+  background: color-mix(in srgb, #b8860b 10%, transparent);
+}
