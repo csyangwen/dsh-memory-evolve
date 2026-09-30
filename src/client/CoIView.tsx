@@ -712,7 +712,9 @@ function GuidePane(): JSX.Element {
 
 function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   /** 可见性 query：带 DSH 会话 id 时后端按层级过滤（临时/会话=本会话，项目=本会话 cwd）。 */
-  const visQs = (dsSessionId ?? '') !== '' ? `&sessionId=${encodeURIComponent(String(dsSessionId))}` : ''
+  const identityQs = (dsSessionId ?? '') !== '' ? `sessionId=${encodeURIComponent(String(dsSessionId))}` : ''
+  const visQs = identityQs !== '' ? `&${identityQs}` : ''
+  const detailQs = identityQs !== '' ? `?${identityQs}` : ''
   const [adapters, setAdapters] = useState<Adapter[]>([])
   const [templates, setTemplates] = useState<CoiTemplate[]>([])
   const [sessions, setSessions] = useState<CoiSession[]>([])
@@ -772,23 +774,23 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
     } catch (err) {
       setError(errText(err))
     }
-  }, [searchQ, page])
+  }, [searchQ, page, visQs])
 
   const loadDetail = useCallback(async (id: string): Promise<void> => {
     try {
-      const data = await fetchJson<{ ok: boolean; task: CoiTask }>(`/tasks/${encodeURIComponent(id)}`)
+      const data = await fetchJson<{ ok: boolean; task: CoiTask }>(`/tasks/${encodeURIComponent(id)}${detailQs}`)
       setDetail(data.task)
     } catch (err) {
       setNotice({ kind: 'error', text: errText(err) })
     }
-  }, [])
+  }, [detailQs])
 
   const removeTask = async (id: string): Promise<void> => {
     // 稳定版复审 P1-6：文案里的 {id} 占位符必须替换成真实任务 id，
     // 否则对话框显示字面量 {id}（旧版未替换，用户不知道删的是哪个任务）
     if (!window.confirm(t('tasks.confirmDelete').replace('{id}', id))) return
     try {
-      const res = await deleteJson<{ ok: boolean; message?: string }>(`/tasks/${encodeURIComponent(id)}`)
+      const res = await deleteJson<{ ok: boolean; message?: string }>(`/tasks/${encodeURIComponent(id)}${detailQs}`)
       if (res.ok !== true) {
         setNotice({ kind: 'error', text: msgOr(res.message, '删除失败') })
         return
@@ -804,13 +806,13 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
 
   const loadLog = useCallback(async (id: string): Promise<void> => {
     try {
-      const data = await fetchJson<{ ok: boolean; text: string }>(`/tasks/${encodeURIComponent(id)}/log?tail=8000`)
+      const data = await fetchJson<{ ok: boolean; text: string }>(`/tasks/${encodeURIComponent(id)}/log?tail=8000${visQs}`)
       setLog(data.text)
       setLogError(null)
     } catch (err) {
       setLogError(errText(err))
     }
-  }, [])
+  }, [visQs])
 
   // 列表 3s 轮询（TasksPane 卸载即停止）；顺带刷新已打开详情的元信息。
   useEffect(() => {
@@ -840,7 +842,7 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
     fetchJson<{ tasks: CoiTask[] }>(`/tasks?status=completed&limit=50${visQs}`)
       .then((data) => setRefTasks(data.tasks))
       .catch(() => { /* 同上 */ })
-  }, [])
+  }, [visQs])
 
   // 选中任务 → 拉详情与首屏日志。
   useEffect(() => {
@@ -923,7 +925,7 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
       // 稳定版复审 P1-6：先发 force:false——host 对「正在写文件」等任务
       // 会返回确认提示而不是直接终止（跳过它会绕过安全检查）；被拒时
       // 把服务端提示原样给用户二次确认后再带 force 重发（catch 分支）。
-      await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: false })
+      await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: false, dsSessionId: dsSessionId ?? '' })
       setNotice({ kind: 'ok', text: t('tasks.killed') })
       void loadTasks()
       void loadDetail(detail.id)
@@ -932,7 +934,7 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
       const msg = errText(err)
       if (window.confirm(msg)) {
         try {
-          await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: true })
+          await postJson(`/tasks/${encodeURIComponent(detail.id)}/cancel`, { force: true, dsSessionId: dsSessionId ?? '' })
           setNotice({ kind: 'ok', text: t('tasks.killed') })
           void loadTasks()
           void loadDetail(detail.id)
@@ -946,7 +948,7 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   const retry = async (): Promise<void> => {
     if (detail === null) return
     try {
-      const res = await postJson<{ ok: boolean; taskId?: string; message?: string }>(`/tasks/${encodeURIComponent(detail.id)}/retry`)
+      const res = await postJson<{ ok: boolean; taskId?: string; message?: string }>(`/tasks/${encodeURIComponent(detail.id)}/retry`, { dsSessionId: dsSessionId ?? '' })
       setNotice({ kind: 'ok', text: res.message ?? `${t('tasks.retried')}${res.taskId !== undefined ? `：${res.taskId}` : ''}` })
       void loadTasks()
     } catch (err) {
@@ -1291,7 +1293,9 @@ function TasksPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
 /* ------------------------------------------------------------------ */
 
 function SessionsPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
-  const visQs = (dsSessionId ?? '') !== '' ? `&sessionId=${encodeURIComponent(String(dsSessionId))}` : ''
+  const identityQs = (dsSessionId ?? '') !== '' ? `sessionId=${encodeURIComponent(String(dsSessionId))}` : ''
+  const visQs = identityQs !== '' ? `&${identityQs}` : ''
+  const detailQs = identityQs !== '' ? `?${identityQs}` : ''
   const [sessions, setSessions] = useState<CoiSession[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -1311,7 +1315,7 @@ function SessionsPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
     } catch (err) {
       setError(errText(err))
     }
-  }, [scopeFilter, q])
+  }, [scopeFilter, q, visQs])
 
   useEffect(() => {
     void load()
@@ -1319,7 +1323,7 @@ function SessionsPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
 
   const saveNote = async (id: string): Promise<void> => {
     try {
-      await postJson('/sessions/note', { id, note: noteDraft })
+      await postJson('/sessions/note', { id, note: noteDraft, dsSessionId: dsSessionId ?? '' })
       setEditId(null)
       setNotice({ kind: 'ok', text: t('config.saved') })
       void load()
@@ -1331,7 +1335,7 @@ function SessionsPane({ dsSessionId }: { dsSessionId?: string }): JSX.Element {
   const remove = async (id: string): Promise<void> => {
     if (!window.confirm(t('sessions.confirmDelete'))) return
     try {
-      await deleteJson(`/sessions/${encodeURIComponent(id)}`)
+      await deleteJson(`/sessions/${encodeURIComponent(id)}${detailQs}`)
       void load()
     } catch (err) {
       setNotice({ kind: 'error', text: errText(err) })

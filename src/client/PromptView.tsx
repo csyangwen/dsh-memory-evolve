@@ -37,6 +37,7 @@ interface Prompt {
 /** 活跃注入条目（与 host 端 InjectionStore 一致）。roundsLeft=null 表示无限。 */
 interface Injection {
   id: string
+  sessionId: string
   sourcePromptId: string | null
   title: string
   content: string
@@ -481,7 +482,7 @@ export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element 
     try {
       const [p, i, c] = await Promise.all([
         api<{ prompts: Prompt[] }>('/memory-evolve/api/prompts'),
-        api<{ injections: Injection[] }>('/memory-evolve/api/prompts/injections'),
+        api<{ injections: Injection[] }>(`/memory-evolve/api/prompts/injections?sessionId=${encodeURIComponent(props.sessionId ?? '')}`),
         api<{ categories: string[] }>('/memory-evolve/api/prompts/categories'),
       ])
       setPrompts(p.prompts)
@@ -490,7 +491,7 @@ export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element 
     } catch (err) {
       showError(say('loadFailed').replace('{message}', errText(err)))
     }
-  }, [showError])
+  }, [showError, props.sessionId])
 
   useEffect(() => {
     void load()
@@ -641,7 +642,7 @@ export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element 
     try {
       const data = await api<{ injection: Injection }>(
         `/memory-evolve/api/prompts/${encodeURIComponent(selectedId)}/inject`,
-        { method: 'POST', body: JSON.stringify(nums) },
+        { method: 'POST', body: JSON.stringify({ ...nums, sessionId: props.sessionId }) },
       )
       await afterInjected(data.injection)
     } catch (err) {
@@ -660,7 +661,7 @@ export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element 
     try {
       const data = await api<{ injection: Injection }>(
         `/memory-evolve/api/prompts/${encodeURIComponent(selectedId)}/inject`,
-        { method: 'POST', body: JSON.stringify({ rounds, every }) },
+        { method: 'POST', body: JSON.stringify({ rounds, every, sessionId: props.sessionId }) },
       )
       await afterInjected(data.injection)
     } catch (err) {
@@ -741,7 +742,7 @@ export function PromptView(props: ConvViewProps & PromptViewProps): JSX.Element 
         )
         : await api<{ injection: Injection }>(
           `/memory-evolve/api/prompts/${encodeURIComponent(created.prompt.id)}/inject`,
-          { method: 'POST', body: JSON.stringify(nums) },
+          { method: 'POST', body: JSON.stringify({ ...nums, sessionId: props.sessionId }) },
         )
       if (immediate) {
         const name = data.injection.title
