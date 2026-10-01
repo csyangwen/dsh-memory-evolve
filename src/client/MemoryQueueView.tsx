@@ -107,6 +107,8 @@ interface RuntimeConfig {
   /** 本地搜索四档模式：all / filename / content / off。 */
   searchDocsMode: string
   coiEnabled: boolean
+  /** 启动时把插件内置技能（CLI 使用指南等）同步进技能库（与 COI 调度开关无关，issue #58）。 */
+  coiSyncSkills: boolean
   broadcastEnabled: boolean
   sessionSearchEnabled: boolean
   sessionEnabled: boolean
@@ -274,6 +276,7 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
       searchDocsEnabled: draft.searchDocsEnabled,
       searchDocsMode: draft.searchDocsMode,
       coiEnabled: draft.coiEnabled,
+      coiSyncSkills: draft.coiSyncSkills,
       broadcastEnabled: draft.broadcastEnabled,
       advisorEnabled: draft.advisorEnabled,
       sessionSearchEnabled: draft.sessionSearchEnabled,
@@ -840,6 +843,18 @@ export function MemoryQueueView(props: MemoryQueueViewProps): JSX.Element {
                     className="me-switch"
                     checked={draft.coiEnabled}
                     onChange={(event) => patchDraft({ coiEnabled: event.target.checked })}
+                  />
+                </label>
+                <label className="me-field">
+                  <span className="me-field-label">
+                    {t('panel.config.coiSyncSkills')}
+                    <em className="me-field-hint">{t('panel.config.coiSyncSkills.hint')}</em>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="me-switch"
+                    checked={draft.coiSyncSkills}
+                    onChange={(event) => patchDraft({ coiSyncSkills: event.target.checked })}
                   />
                 </label>
                 <label className="me-field">
