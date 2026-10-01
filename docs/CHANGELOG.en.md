@@ -4,6 +4,12 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+## Unreleased
+
+### Fixed
+
+- **Skill Management shows an empty list on DSH 0.2.0-rc.2: `standingKeyFor` removed + a boot race permanently cached the failure (two-layer root cause)**: ① rc.2 replaced `agentPresets.standingKeyFor()` with `acquireScope(id?)` (returns an `{ key, [Symbol.asyncDispose] }` lease); `resolveScope`'s `typeof presets.standingKeyFor !== 'function'` guard classified the new host as "no service" → scope stayed `undefined` → catalog queries read only the global layer → empty list (same symptom as issue #6). Fixed with a **dual path**: old snapshots keep `standingKeyFor` (standing mount is permanent); new hosts use `acquireScope` and **hold the lease resident** (so the default preset can't be reclaimed at runtime), releasing it via `asyncDispose` when the inject cycle ends. ② Even with ① fixed the list stayed empty: plugin install runs before preset declarations (bundle/profile patch layers) mount, so `acquireScope(undefined)` throws `Unknown agent preset` at that moment — and the old code cached that failure as `scopeCache = null` **forever**, so the list stayed empty even after presets were mounted. The `standingKeyFor` era never validated preset existence and always succeeded, so this timing assumption never surfaced. Fixed: **failed probes are never cached** (retried per request until success; concurrent requests share one in-flight probe); only definitive outcomes ("no service" / neither generation's API recognized) are cached. Two regressions added to `tests/skills-manager.test.js` (acquireScope path, retry-not-cache).
+
 ## 2026-09-28
 
 ### Fixed
