@@ -470,6 +470,52 @@ test('skills-manager: catalog queries carry the default preset scope (issue #6)'
   }
 })
 
+// DSH 0.2.0-rc.2：agentPresets 移除 standingKeyFor，改为 acquireScope(id?) 返回
+// { key, [Symbol.asyncDispose] } 租约。双路径兼容：新宿主（只有 acquireScope）也必须带 scope。
+test('skills-manager: acquireScope lease path carries the preset scope (DSH 0.2.0-rc.2)', async () => {
+  const sm = await bootSkillsManager({
+    agentPresets: {
+      acquireScope: async () => ({
+        key: { agentPreset: 'standard' },
+        [Symbol.asyncDispose]: async () => {},
+      }),
+    },
+  })
+  try {
+    const list = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list.status, 200)
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
+// boot 竞态（rc.2 实测事故）：插件装配早于 preset 声明挂载，首次 acquireScope 抛
+// "Unknown agent preset"。失败不得永久缓存——之后必须逐请求重试，preset 挂上即恢复。
+test('skills-manager: failed scope probe is retried, not cached forever (boot race)', async () => {
+  let attempts = 0
+  const sm = await bootSkillsManager({
+    agentPresets: {
+      acquireScope: async () => {
+        attempts += 1
+        if (attempts === 1) throw new Error('Unknown agent preset: standard')
+        return { key: { agentPreset: 'standard' }, [Symbol.asyncDispose]: async () => {} }
+      },
+    },
+  })
+  try {
+    // 启动 reconcile 消耗首次失败探测；后续 HTTP 请求重试成功 → scope 恢复。
+    const list = await sm.request('GET', '/skills-manager/api/skills')
+    assert.equal(list.status, 200)
+    assert.deepEqual(sm.lastListScope(), { agentPreset: 'standard' })
+    assert.ok(attempts >= 2, `失败必须触发重试，got attempts=${attempts}`)
+  } finally {
+    await sm.close()
+    sm.cleanup()
+  }
+})
+
 // issue #6：无 agentPresets 服务的环境（旧快照/TUI）→ scope 回退 undefined，
 // 查询退化为无 scope（旧行为），接口仍正常返回。
 test('skills-manager: no agentPresets service falls back to scopeless queries', async () => {

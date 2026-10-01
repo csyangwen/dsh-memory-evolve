@@ -4,6 +4,16 @@
 
 > [English](CHANGELOG.en.md)
 
+## 未发布
+
+### 修复
+
+- **技能管理在 DSH 0.2.0-rc.2 上列表全空：`standingKeyFor` 被移除 + 启动竞态把失败永久缓存（两层根因）**：① rc.2 把 `agentPresets` 的 `standingKeyFor()` 换成 `acquireScope(id?)`（返回 `{ key, [Symbol.asyncDispose] }` 租约），`resolveScope` 的 `typeof presets.standingKeyFor !== 'function'` 守卫把新宿主判成「无服务」→ scope 永远 `undefined` → 目录查询只读 global 层 → 列表空白（与 issue #6 同款症状）。修复为**双路径**：旧快照走 `standingKeyFor`（standing mount 常驻），新宿主走 `acquireScope` 并**常驻持有租约**（防默认 preset 运行期间被回收），inject 周期结束时 `asyncDispose` 释放。② 修完 ① 仍空：插件装配早于 preset 声明（bundle/profile patch 层）挂载，启动那一刻 `acquireScope(undefined)` 抛 `Unknown agent preset`，旧代码把这次失败 `scopeCache = null` **永久缓存** → 之后 preset 挂上了也永远空白。`standingKeyFor` 时代不校验 preset 是否存在、永远成功，这个时序假设从未暴露。修复：**探测失败不缓存**（每请求重试直到成功；并发请求共享同一次在途探测），只有「服务缺失/两代接口都不认识」这类确定性结论才缓存；`tests/skills-manager.test.js` 新增 acquireScope 路径与「失败重试不缓存」两个回归。
+
+### 变更
+
+- **`coiSyncSkills` 进运行时开关（RUNTIME_KEYS + 「设置」Tab）**：内置技能同步开关此前只有 cordis config 一条路（改配置要重启且无 UI）。「Memory Evolve 设置 → 配置」新增「内置技能同步」开关：持久化进 stateFile、重启生效；保存时即时补同步（打开=立即同步，关闭=停止后续同步、不删已同步文件，与「禁用技能」同款可逆语义）；启动同步调用改读 `getRuntime()`（config + stateFile 覆盖层），此前只读 cordis config、stateFile 覆盖对同步无效。
+
 ## 2026-09-28
 
 ### 修复
