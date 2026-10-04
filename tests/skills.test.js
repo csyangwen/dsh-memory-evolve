@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -331,4 +331,150 @@ test('skillReviewEnabled true lets create land directly in the live dir', async 
   assert.equal(created.ok, true)
   assert.equal(readFileSync(join(dir, 'direct-skill', 'SKILL.md'), 'utf8'), GOOD_BODY('direct-skill', '直接创建'))
   clean(dir)
+})
+
+// ————————————————— 跨设备（EXDEV）采纳 —————————————————
+// 2026-09-19 实机复现：DEVELOPMENT 环境里 pending-skills 在 DSH home
+// （/data/storage/el2/base/dsh-home），技能库在用户 home（/storage/Users/...）——
+// 两个不同 mount。approvePendingSkill 原先裸用 renameSync，跨设备必然抛
+// EXDEV: cross-device link not permitted，待确认技能永远无法采纳。
+//
+// 下面两个用例分别验证降级路径与失败不残留。跨设备用例只在真跨设备环境生效：
+// 探针必须真做一次重命名（源不存在只会得到 ENOENT，而 ENOENT ≠ EXDEV，
+// 那样用例会永远静默跳过、断言永不执行）。
+
+/** Roots to look for a device boundary under; requires both to be writable. */
+function crossDeviceRoots() {
+  const candidates = [
+    ['/data/storage/el2/base/dsh-home/tmp', '/storage/Users/currentUser/.agents'],
+    [tmpdir(), process.cwd()],
+  ]
+  for (const [a, b] of candidates) {
+    try {
+      if (!existsSync(a) || !existsSync(b)) continue
+      writeFileSync(join(a, '.xdev-probe'), 'x')
+      rmSync(join(a, '.xdev-probe'), { force: true })
+      writeFileSync(join(b, '.xdev-probe'), 'x')
+      rmSync(join(b, '.xdev-probe'), { force: true })
+      return { a, b }
+    } catch {
+      // not writable — try the next pair
+    }
+  }
+  return null
+}
+
+/** True when renaming across the pair really fails with EXDEV. */
+function isCrossDevice(a, b) {
+  // 陷阱：探针必须**真的搬一个存在的文件**。若拿不存在的路径去 rename，只会得到
+  // ENOENT，而 ENOENT ≠ EXDEV → isCrossDevice 恒为 false → 跨设备用例永远静默
+  // 跳过、断言永不执行（本仓库曾有一版正是这样写的，看着通过其实什么都没测）。
+  const probe = join(a, 'xdev-probe')
+  try {
+    writeFileSync(probe, 'x')
+    try {
+      renameSync(probe, join(b, 'xdev-probe'))
+      rmSync(join(b, 'xdev-probe'), { force: true })
+      return false // same device — rename succeeded
+    } catch (error) {
+      return error?.code === 'EXDEV'
+    } finally {
+      rmSync(probe, { force: true })
+    }
+  } catch {
+    return false
+  }
+}
+
+/** Relative paths of every file under `dir`, sorted (proves recursion). */
+function treeEntries(dir, prefix = '') {
+  const out = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) out.push(...treeEntries(join(dir, entry.name), rel))
+    else out.push(rel)
+  }
+  return out.sort()
+}
+
+test('approvePendingSkill 跨设备（EXDEV）时降级为 copy+delete 并完整搬移嵌套目录', () => {
+  const roots = crossDeviceRoots()
+  if (!roots || !isCrossDevice(roots.a, roots.b)) {
+    console.log('  (skipped: no cross-device writable pair in this environment)')
+    return
+  }
+  const from = mkdtempSync(join(roots.a, 'xdev-from-'))
+  const to = mkdtempSync(join(roots.b, 'xdev-to-'))
+  try {
+    const body = GOOD_BODY('pending-skill', '待确认技能')
+    mkdirSync(join(from, 'pending-skills', 'pending-skill', 'references'), { recursive: true })
+    writeFileSync(join(from, 'pending-skills', 'pending-skill', 'SKILL.md'), body)
+    writeFileSync(join(from, 'pending-skills', 'pending-skill', 'references', 'guide.md'), 'guide')
+
+    const approved = approvePendingSkill(join(from, 'pending-skills'), to, 'pending-skill')
+    assert.equal(approved.ok, true, `cross-device approve must succeed, got: ${approved.message}`)
+    assert.equal(readFileSync(join(to, 'pending-skill', 'SKILL.md'), 'utf8'), body)
+    // 嵌套目录必须一起搬（降级走的是逐文件递归，不是只拷 SKILL.md）
+    assert.deepEqual(treeEntries(join(to, 'pending-skill')), ['SKILL.md', 'references/guide.md'])
+    assert.equal(existsSync(join(from, 'pending-skills', 'pending-skill')), false, 'source removed after copy')
+
+    // 已安装后再批准 → 拒绝覆盖
+    const again = approvePendingSkill(join(from, 'pending-skills'), to, 'pending-skill')
+    assert.equal(again.ok, false)
+  } finally {
+    clean(from)
+    clean(to)
+  }
+})
+
+test('降级拷贝失败时：源侧完好、技能库不留半成品（语义守护）', () => {
+  // 不变量：降级里源目录只在**每个条目都拷成功之后**才删除；失败必须抛错并
+  // 保持源侧完好，否则用户重试时技能已凭空消失（而库里可能残留一个让
+  // existsSync 误判为"已安装"的 SKILL.md → 之后每次 approve 都被挡回，死局）。
+  //
+  // 诚实边界：无法在纯真实文件系统上可靠合成"cpSync 拷到一半失败"，因此本
+  // 用例并不构成对旧 cpSync 实现的判别性回归测试——它守护的是语义本身
+  // （失败不吞、源不丢、库里不留半成品），而不是"比 cpSync 更好"这一点。
+  // 改善的原子性只能靠 code review 与 cpSync 非原子这一事实来支撑。
+  //
+  // 真实失败用 /proc/1/root 驱动（非 root 恒 EACCES）；不要试图 patch
+  // node:fs——ESM 的名字绑定与 require('node:fs') 实测不是同一个对象，
+  // 补丁对 ESM 模块完全不可见。
+  if (!existsSync('/proc/1/root')) {
+    console.log('  (skipped: /proc/1/root unavailable — needs Linux)')
+    return
+  }
+  const dir = tempDir()
+  try {
+    const body = GOOD_BODY('pending-skill', '待确认技能')
+    const pendingDir = join(dir, 'pending-skills')
+    const skillDir = join(dir, 'library', 'skills')
+    const src = join(pendingDir, 'pending-skill')
+    mkdirSync(join(src, 'references'), { recursive: true })
+    writeFileSync(join(src, 'SKILL.md'), body)
+    // 一个"读不动的条目"：递归进去时 readdirSync 抛 EACCES
+    try {
+      symlinkSync('/proc/1/root', join(src, 'unreadable'))
+    } catch {
+      console.log('  (skipped: cannot create the symlink probe)')
+      return
+    }
+
+    // 同设备下 rename 会直接成功、不进降级——需真实跨设备对才能逼出降级分支
+    const roots = crossDeviceRoots()
+    if (!roots || !isCrossDevice(roots.a, roots.b)) {
+      console.log('  (skipped: no cross-device pair to force the fallback)')
+      return
+    }
+
+    assert.throws(() => approvePendingSkill(pendingDir, skillDir, 'pending-skill'),
+      'a mid-copy failure must surface, not be swallowed')
+    // 源侧完好，用户可重试
+    assert.equal(existsSync(join(src, 'SKILL.md')), true, 'pending SKILL.md must survive a failed copy')
+    assert.equal(readFileSync(join(src, 'SKILL.md'), 'utf8'), body)
+    // 技能库里不能出现被 existsSync 误判为"已安装"的半成品
+    assert.equal(existsSync(join(skillDir, 'pending-skill', 'SKILL.md')), false, 'no partial SKILL.md may land in the library')
+  } finally {
+    clean(dir)
+  }
 })
