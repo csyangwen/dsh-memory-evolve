@@ -55,7 +55,7 @@ function injectCanvasStyles(): () => void {
   tag.setAttribute(STYLE_ATTR, '1')
   tag.textContent = styles
   document.head.appendChild(tag)
-  return () => { tag.remove() }
+  return () => {} // 常驻：同上（避免插件重载后样式丢失）
 }
 
 /**
