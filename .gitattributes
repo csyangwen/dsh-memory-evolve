@@ -1,0 +1,4 @@
+# CSS 被构建脚本原样内联进 lib/client.js：强制 LF，否则 core.autocrlf 会把工作区
+# 转成 CRLF，内联后整段样式在产物里变成 CRLF，产生数千行假 diff
+# （见 scripts/build.mjs 的产物格式敏感点说明）。
+*.css text eol=lf
