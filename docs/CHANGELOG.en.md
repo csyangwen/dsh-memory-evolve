@@ -4,6 +4,25 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+### Fixed
+
+- **Four modules (five read sites) still read the removed `Session.events`: skill patching is permanently refused, image forwarding and "last activity" fail silently (issues #90 / #61 / #62, same root as #38 / #49)**: since DSH 0.1.2-alpha.4 the `Session` no longer exposes a `.events` array (use `ownEvents()` / `snapshotEvents()` / `eventAt()`); #38 adapted `lib/review.js` only and #49 `lib/advisor/*` only, leaving five read sites behind — all of them in the shape "when unreadable, degrade or refuse silently", so nothing throws and only the feature is missing:
+
+  | Site | User-visible effect |
+  |---|---|
+  | `lib/skills.js` `hasReadSkill()` | `skill_manage action=patch` **always** answers "you must read skill X first", while `create`/`read`/`list` work — it looks like a permission problem (issue #90; #61 reports another path through the same site) |
+  | `lib/notify.js` `resolveSessionImage()` | `de_channel_send` / `de_notify` with `sessionImage: true` / `attachmentId` report "cannot read this session's events" |
+  | `lib/notify.js` `querySessionImages()` | `de_session_images` finds no images at all (one of the symptoms in issue #62) |
+  | `lib/coi/attachments.js` `findImageRef()` | returns `null`; the caller skips silently |
+  | `lib/session-orch.js` `#lastActiveAt()` | the session list's "last activity" is always empty (issue #62) |
+
+  Fix: `session.ownEvents?.() ?? session.events` — new hosts go through `ownEvents()`, old hosts fall back to `.events`, both behave identically and nothing throws. **Do not add `?? []` along the way**: the guard at all five sites is `if (!Array.isArray(events))`, which distinguishes "unreadable (the session is not in this process)" from "readable but empty"; `?? []` short-circuits the former into the latter — measured: `tests/notify.test.js` immediately goes red in 2 cases (the honest-degradation assertions turn into "this session has no images").
+
+### Tests
+
+- New `tests/session-own-events.test.js` (3 cases): (1) `hasReadSkill()` must be `true` for a session carrying only `ownEvents()` (otherwise issue #90 returns), falls back to `.events` when `ownEvents` is absent, and conservatively returns `false` when neither exists; (2) `resolveSessionImage()` reads this session's images through the `ownEvents()` shape; (3) "cannot read the session's events" and "readable but no images" must give different answers (this pins the `?? []` trap above).
+- Related suites all green: `skills` 13, `skills-manager` 18, `notify` 42, `notify-web` 4, `coi-attachments` 12, `session-orch` 18, `broadcast-image` 19, `plugin` 35.
+
 ## 2026-09-28
 
 ### Fixed
