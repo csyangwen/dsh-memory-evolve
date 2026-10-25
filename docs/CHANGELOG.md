@@ -4,6 +4,19 @@
 
 > [English](CHANGELOG.en.md)
 
+## 2026-10-25
+
+### 新增
+
+- **全局轨（`memory` / `user`）渐进式披露 + 配置面板两个开关（默认 `off`＝行为不变）**：`keyProgressiveDisclosure` 只解决了 key 轨，而**全量注入的最大头是全局 `MEMORY.md`**——实测本机 486 条 / 518 KB，整份快照 260,744 字符里 257,110 字符（98.6%）来自 memory 段、2,726 字符来自 user 段。新增 `memoryProgressiveDisclosure` / `userProgressiveDisclosure`（`auto` / `off` / `on`，与 key 轨同构、彼此独立）：`on`（或 `auto` 未命中阈值）时两条全局轨改为注入 `- [日期] [短id] 摘要`，模型用 `memory action=expand+id` 取回正文——同一份数据实测 260,744 → **55,130 字符（省 78.9%）**。`auto` 的双阈值是**条目数 ≤ 20 且总字符 ≤ 8000**（key 轨的 3 条 / 1500 字符是为「关键记忆」这一小集合定的，直接沿用会把任何真实全局轨都判成摘要，故单独设阈值）；`off` 保持历史行为逐字节不变（仍在剥掉 `[id:…]` / `[summary:…]` 后全量注入），默认配置下的上下文与升级前完全一致。短 id 取条目身份证，缺身份证时用 `legacyIdFor()` 派生（确定性，不依赖 `syncEnabled`）；日期取条目头部的 `[YYYY-MM-DD]`，没有则省略该字段。注入头同步新增 `snap.memorySummaryHead` / `snap.userSummaryHead`（中英），把「用 `memory action=expand+id` 加载全文」写进提示词——摘要模式下不写这句，模型会把摘要当成记忆全文。
+- **`expand` 从 key 轨扩展到 `memory` / `user` 轨**：摘要注入却没有取全文的手段就是纯损失，因此 `memory` 工具的 `expand` 放开目标（此前只认 `key`，其余返回「expand 仅支持 target=key」）。id 解析与 key 轨同一套规则——优先 `[id:xxxx]`，缺身份证时 `legacyIdFor()` 派生；命中后返回**剥掉 `[id:…]` 与 `[summary:…]` 的正文**（与 key 轨一致：程序元数据不进上下文）；未命中报「未找到 id={id} 的条目」。`msg.expandKeyOnly` / `msg.expandNotFound` 两处文案随之改为三轨通用。
+- **配置面板新增两个下拉（`memory` / `user` 轨渐进式披露）**：`src/client/MemoryQueueView.tsx` 的运行时配置面板加这两项，`src/client/index.ts` 补中英label 与 hint（hint 写明阈值与实测收益；user 轨注明「条目短、收益小，一般保持 off」），保存时随 `keyProgressiveDisclosure` 等一起提交 `/api/config`。宿主侧 `RUNTIME_KEYS` 与 `validateRuntimePatch` 一并放开这两个键（非法值报「必须是 \"auto\" / \"off\" / \"on\"」）。
+
+### 测试
+
+- `tests/progressive-disclosure.test.js` 新增 4 例（沿用同一套 `renderSnapshot` 驱动）：① 全局轨 `off`（默认）全量注入、不出摘要行、两次渲染逐字节一致；② `on` → 摘要行带日期与短 id、正文不注入、`expand` 能按 id 取回全文并剥掉元数据；③ `auto` 双阈值（小数据量全量，条目数或字符数任一超限转摘要——阈值可调小，便于用小数据集覆盖两条分支）；④ 两个开关互相独立，非法值被 `validateRuntimePatch` 拒绝。
+- `tests/client-config-save.test.js` 的面板键表补 `memoryProgressiveDisclosure` / `userProgressiveDisclosure`：该用例断言「面板保存的键集合 == 宿主 RUNTIME_KEYS 的可写子集」，漏一个就红——新开关不接进去会让保存静默丢配置。
+
 ## 2026-09-28
 
 ### 修复
