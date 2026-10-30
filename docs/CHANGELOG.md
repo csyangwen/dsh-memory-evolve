@@ -4,6 +4,17 @@
 
 > [English](CHANGELOG.en.md)
 
+## 2026-10-30
+
+### 修复
+
+- **「对话区加宽」「消息气泡加宽」两个开关在 DSH 0.2.x 上完全无效——CSS 变量被子元素声明遮蔽 + 气泡锚点已被官方移除（issue #99）**：现象是开关能开、`html[data-dsh-ui-wide-chat]` 属性正常挂上、localStorage 也正常写入，但**宽度纹丝不动**，反复关闭再打开同样没用——因为 JS 侧只负责挂属性，宽度全由 CSS 决定，而两条 CSS 规则都不命中。
+  - **根因一（对话区加宽）**：`--dsh-chat-content-width` 的声明位置在 0.2.x **下移了一层**。0.1.x 声明在 ConversationRoot 根 div（`.root`，挂 `[data-phase]`），旧规则写在那里是对的；0.2.x 改为声明在 `.body` 上——`--dsh-chat-content-width: var(--dsh-chat-user-width, clamp(680px, calc(var(--dsh-conversation-column-width,0px) * .64), 920px))`，而 `.body` 正是 `[data-conversation-content]` 挂载的元素。CSS 自定义属性按**最近的声明**生效，写在外层 `[data-phase]` 的值被子元素自己的声明完整遮蔽，**不是 specificity 不够**（加 `!important` 到外层同样无效，子元素声明永远更近）。修复：双锚点并写（`[data-phase]` 保留旧版兼容 + `[data-conversation-content]` 命中新版声明处），取值改 `100%`——0.2.x 的兜底 clamp 上限是 920px，宽视口下写 95% 只比 920px 多二十几像素，观感仍是「没变」；100% 同时解除这个固定上限。
+  - **根因二（消息气泡加宽）**：旧锚点 `[data-time-hover-root]` 是 0.1.x 的 MessageItem 属性，0.2.x 已移除（全页 `querySelectorAll` 计数 0，源码里 MessageItem 也 0 命中），现在用户消息行只挂 `[data-pending-steering]` 与 `[data-submission-echo]`——后者是提交中才出现的瞬时状态，不能当稳定锚点。新版真正的宽度上限在 CSS Modules 类上：`.userStack { max-width: min(calc(var(--dsh-chat-content-width, 748px) * .702), 82%) }`。修复：改用 `[class*="_userStack"]`（hash 前缀随构建变化、`_userStack` 后缀稳定；该后缀在整个 `@deepseek-ai/*` 包里只在定义处与映射表各出现一次，无误伤），并外层补 `[data-conversation-content]` 收窄作用域；取值 80% → 92%。
+  - **手机端同源失效**：`mobile.css` 第 10 节的两条规则（对话区满宽 100%、气泡满宽 100%）用的是同一批锚点，一起失效，已同步改为双锚点与 `_userStack`。
+  - **测试**：新增 `tests/wide-chat-anchors.test.js`（5 例），读 CSS 源文本做静态断言——锚点必须落在变量的**声明处**、不得再出现 `[data-time-hover-root]`、取值必须是 100%、`_userStack` 必须被 `[data-conversation-content]` 限定。这类失效**不会让任何运行时测试变红**（属性照挂、开关照存、没有任何报错），只能靠静态断言钉死；已用 HEAD 版 CSS 反向验证过这 5 例全部报红（非假绿灯）。
+  - **实测**（DSH 0.2.1-rc.3，1256×808 与 1920 视口）：1256 视口对话列 680 → **905px**、1920 视口 920 → **1569px**；用户气泡 `max-width` 82% → **92%**；关闭开关后 680px / `min(477.36px,82%)` 完整回退，无横向溢出（`scrollWidth == clientWidth`）。源码依据：`@deepseek-ai/dsh-client-ui-chat` 的 `ConversationRoot.module.css` 与 `MessageItem.module.css`。
+
 ## 2026-10-29
 
 ### 修复
