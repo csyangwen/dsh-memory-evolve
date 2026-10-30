@@ -462,14 +462,18 @@ html[data-dsh-mobile] .mt-models-table {
  * ================================================================ */
 
 /* 对话区占满屏宽：DSH 对话区宽度由 CSS 变量 --dsh-chat-content-width
-   控制（ConversationRoot.module.css 默认 748px 桌面窄栏），手机上
-   覆盖为 100%——消息列、统计行、审批面板全部跟随；输入框派生变量
-   （= content + 32px）被其自身 width: min(..., 100%) 兜底，不会溢出。
+   控制（手机上默认窄栏），覆盖为 100%——消息列、统计行、审批面板全部
+   跟随；输入框派生变量（= content + 32px）被其自身 width: min(..., 100%)
+   兜底，不会溢出。
+   锚点同 ui-settings-styles.css：0.2.x 起变量声明下移到 .body
+   （= [data-conversation-content]），写在外层 [data-phase] 会被子元素自己
+   的声明遮蔽，故双锚点并写（旧版只有 [data-phase] 命中，新版两条都命中）。
    !important：对抗 DSH UI 设置模块 wideChat 功能（html[data-dsh-ui-
-   wide-chat="on"] [data-phase] { --dsh-chat-content-width: 95% }——
-   PC 桌面规则在窄屏同样命中，且特异性与本规则相同、源顺序不确定谁
-   赢），手机适配协议优先于桌面功能开关，方向相反必须 !important。 */
-html[data-dsh-mobile] [data-phase] {
+   wide-chat="on"] … { --dsh-chat-content-width: 100% }——PC 桌面规则在
+   窄屏同样命中，且本规则与它特异性接近、源顺序不确定谁赢），手机适配
+   协议优先于桌面功能开关，方向相反必须 !important。 */
+html[data-dsh-mobile] [data-phase],
+html[data-dsh-mobile] [data-conversation-content] {
   --dsh-chat-content-width: 100% !important;
 }
 
@@ -479,16 +483,16 @@ html[data-dsh-mobile] [data-phase] {
    对话区满宽由上方 --dsh-chat-content-width: 100% 规则控制即可，输入框
    宽度由其自身 width: min(..., 100%) 兜底，容器级覆盖一律不加。 */
 
-/* 用户消息气泡满宽：默认 max-width: min(525px, 82%)（MessageItem.
-   module.css .bubble），手机上放开为 100%，消除两侧留白；短消息仍按
-   内容自适应（max-width 只设上限，不强制撑满）。锚点：用户消息行
-   userRow 有恒定 data-time-hover-root 属性（MessageItem.tsx），
-   bubble 恒为其**第一个 div 子元素**（steering 标记是 span、
-   MessageIconActions 是第二个 div）→ div:first-of-type 唯一命中。
-   !important：同上对抗 ui-settings wideBubble 的 80% 规则
-   （html[data-dsh-ui-wide-bubble="on"] [data-time-hover-root] >
-   div:first-of-type），PC 规则窄屏同样命中，方向相反必须 !important。 */
-html[data-dsh-mobile] [data-time-hover-root] > div:first-of-type {
+/* 用户消息气泡满宽：默认有宽度上限（0.2.x 在 .userStack 上是
+   max-width: min(calc(var(--dsh-chat-content-width, 748px) * .702), 82%)），
+   手机上放开为 100%，消除两侧留白；短消息仍按内容自适应（max-width 只设
+   上限，不强制撑满）。
+   锚点迁移（2026-10-30）：旧锚点 [data-time-hover-root] 是 DSH 0.1.x 的
+   MessageItem.tsx 属性，0.2.x 已移除（全页计数 0）→ 改用 CSS Modules 稳定
+   后缀 [class*="_userStack"]（hash 前缀随构建变化，后缀不变）。
+   !important：同上对抗 ui-settings wideBubble 的 92% 规则（PC 规则窄屏
+   同样命中，方向相反必须 !important）。 */
+html[data-dsh-mobile] [class*="_userStack"] {
   max-width: 100% !important;
 }
 
