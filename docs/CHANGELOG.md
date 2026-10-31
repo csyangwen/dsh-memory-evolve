@@ -17,6 +17,15 @@
 
 - `tests/skills-manager.test.js` 新增 3 例、改写 2 例（假 `agentPresets` 已按 0.2.1 契约改为 `acquireScope()`/`serviceFor()`）：① **回归崩点**——目录里放一条无 `source`/`path` 的运行时技能，列表必须 200、该条 `source: 'runtime'` / `protected: false`，禁用返回明确 403；② **活跃会话视图**——`agents.get(sessionId)` + `serviceFor(agent,'skills')` 命中 preset 挂载组实例、`scope` 收到 Agent 本体、不借 preset lease，预设层独有的技能能显示出来；③ **冷会话/无会话**——走 `acquireScope()` 的 lease key（`view: 'preset'`），无 `agentPresets` 服务时回退无 scope（`view: 'global'`）。全量 **894 例通过**。
 - 端到端：用隔离实例验证真实 composition（`--profile web` + 3099 端口 + `--patch` overlay 关掉 IM/代理插件，避免与常驻实例抢长连接）：`GET /skills-manager/api/skills` 返回 200，`view: 'preset'`，18 条（17 条 `user-agents` + 1 条 `runtime`），`armor-playbook` 的 `source` 已归一化为 `runtime`、`protected: false`。
+## 2026-10-25
+
+### 改进
+
+- **`memory list` 的 `filter` 升级为三级检索语义，并新增 `rank` 参数（修掉「整句提问必然返回空」）**：旧实现是「**整串**大小写不敏感子串 → 时间正序 → limit 截断」，有两个结构性缺陷：① 只接受**一个**子串——中文整句提问（无空格）几乎必然零命中，本机 12 问实测**整句命中@3 = 0/12**，而摘要注入模式下模型恰恰只能靠这个入口找条目（`expand` 需要 id）；② 命中后**没有相关性排序**——泛词会淹没结果（`filter=ST` 命中 171/489 条，首条还是含英文 ST 的无关条目）。新语义按优先级三级：**整串子串（旧语义，命中集逐条不变）→ 多词 OR（空白分词）→ 词法相关性召回（整句兜底，最多 20 条候选）**；`rank: true` 时对命中集再做相关性排序（中文**字符二元组** TF-IDF 余弦 + 关键词覆盖加成 + 同分时新的在前），并返回 `matched`（截断前命中数）与 `filterMode` 元数据、`limit` 截断时在 message 里明说。实现落在新模块 `lib/memory-rank.js`（零依赖、无 import、稀疏索引：共享词表 + 每条例按 dim 升序的 `Int32Array`/`Float32Array`）；`lib/store.js` 的 `query()` 与归档轨的 list 分支**共用同一入口**（此前两处各写一份子串过滤，本仓库已因此出过两次事故）。两处细节是实测逼出来的：① **打分前必须剥掉条目头部的方括号 token**（日期/`[id]`/`[branch]`/`[dsh-only]`/`[summary]`/`[git]`）——日期里的数字若参与打分，两条只有日期不同的同文条目会因"词表多了几个数字"而得分不同，「同分时新的在前」永远轮不到（本机实测翻车后修正）；② **`rank: true` 时 `recent` 的反转必须让位**，否则排序被倒过来。兼容性：不传 `rank` 时旧**整串命中集**逐条不变（含空格且整串确实命中的旧调用完全不受影响），只有"旧实现返回空"的那类查询才走新兜底；空字符串/纯空白 `filter` 视作不过滤（旧实现会按空白串匹配、返回空）。**不做向量**（本机实测：本地 `nomic-embed-text` 中文命中@3 仅 2/12，低于本模块 4/12，且要引入常驻 Ollama 依赖）。实测（本机真实记忆 489 条）：整句 P@3 0/12 → **4/12**（P@1 2/12、MRR 0.257）；带关键词 + `rank:true` 时 P@1 5/12 → **7/12**、P@3 6/12 → **8/12**、MRR 0.465 → **0.642**；489 条首次查询（含建索引）< 50 ms、缓存命中 < 20 ms；索引为稀疏定长数组，全局轨**稳态（GC 后）约 3.1 MB 堆**（建索引期间的临时对象峰值约 9.1 MB；等价 `Map<token, weight>` 口径会是 34.6 MB，切忌换回去）。
+
+### 测试
+
+- 新增 `tests/memory-search-rank.test.js`（12 例）。关键设计：语料**内联**在测试里（不依赖 `~/.dsh/memories`，也不依赖隐藏的浮动语料），并用「不传 rank 时与旧 `includes` 逐条一致」当作**回滚安全网**——将来有人改回旧语义，这条会先红。覆盖：分词（中文二元组 / ASCII 词）、单关键词与旧语义逐条一致、整串命中时不退化、整串无命中且含空格才退化为多词 OR、中文整句走 lexical 召回且不再为空（含 20 条上限）、相关性排序与同分裁决（新的在前）与确定性、`rank:true` 时 `recent` 不反转、程序元数据（`[id:…]`）不参与打分、489 条性能与缓存、以及工具层（多词兜底 / `rank` + `limit` 的 `filterMode`/`matched`/message 提示 / 无命中时保留旧提示文案）。已验证：把 `lib/store.js` 的三级语义退回旧的纯子串过滤，12 例中 **4 例必失败**（正是 store 与工具层那四例）。
 
 ## 2026-09-28
 
