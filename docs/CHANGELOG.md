@@ -4,6 +4,16 @@
 
 > [English](CHANGELOG.en.md)
 
+## 2026-11-01
+
+### 修复
+
+- **`de_notify` / `de_channel_send` 附件文件名丢失：IM 侧全显示成 `file.bin`**：工具 schema 声称 path/url 来源的附件「fileName 缺省自动推断」，但发送内核（`lib/notify.js`）此前把原始附件对象**原样透传**给渠道 `entry.sendMedia`——`path`/`url` 渠道插件各自会读，唯独没人从路径里把展示名抠出来；渠道侧拿不到 `fileName` 时只能兜底成 `file.bin` 占位名（实测：发安装包 `Cloudreve-Music-Player-0.2.80-x64-setup.exe`，用户飞书里收到的显示名是 `file.bin`，内容完好但文件名全部失真）。修复在内核层做**单一来源**推断 `withInferredFileName()`：显式 `fileName` > `path` 的 basename（同时支持 `\` 与 `/` 分隔，Windows 宿主路径也能推对）> `url` 路径的 pathname basename（query 串自动剥离）；`base64` 来源推不出就**保持缺省**（内核不发明名字，渠道侧兜底语义不变）。`de_notify` 与 `de_channel_send` 两条发送路径统一接入，web 渠道不受影响（其图片附件走 `resolveAttachments` 独立命名链路）。
+
+### 测试
+
+- `tests/notify.test.js` 新增 8 例：① path 无 fileName → 推断出 basename（含中文文件名）；② url → pathname basename 且剥离 query；③ 显式 fileName 优先于 path；④ base64 无 fileName → 原样透传不发明名字；⑤ Windows 反斜杠路径两分隔符都能取末段；⑥ `de_notify` 附件路径同样生效（两内核单一来源）；⑦ content 并入 caption 与 fileName 推断共存不互踩；⑧ 畸形 url 不崩溃、fileName 保持缺省。变异检验：摘掉 `withInferredFileName` 两处接入点后 5 例转红、恢复后 `notify.test.js` 50/50 全绿。
+
 ## 2026-10-29
 
 ### 修复
