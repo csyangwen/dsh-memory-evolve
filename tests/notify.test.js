@@ -639,3 +639,89 @@ test('sessionImageQueryEnabled: RUNTIME_KEYS + validateRuntimePatch + 默认关'
   assert.throws(() => validateRuntimePatch('sessionImageQueryEnabled', 'yes'), /布尔值/)
   assert.equal(resolveConfig({}).sessionImageQueryEnabled, false)
 })
+
+// ---------------------------------------------------------------------------
+// 2026-11-01 修复：附件展示文件名推断（file.bin 回归）
+// 渠道侧拿不到 fileName 时兜底成 file.bin，用户收到的文件名全部失真。
+// 内核统一推断（显式 > path basename > url pathname basename），推不出不发明。
+// ---------------------------------------------------------------------------
+
+test('direct: file attachment without fileName → inferred from path basename', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', path: '/tmp/build/云e云_0.2.80_x64-setup.exe' }],
+  })
+  assert.equal(entry.calls.length, 1)
+  assert.equal(entry.calls[0].media.fileName, '云e云_0.2.80_x64-setup.exe')
+})
+
+test('direct: url attachment → basename from pathname, query stripped', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', url: 'https://example.com/dl/report.pdf?token=abc' }],
+  })
+  assert.equal(entry.calls[0].media.fileName, 'report.pdf')
+})
+
+test('direct: explicit fileName wins over path', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', path: '/tmp/weird-name.exe', fileName: 'renamed.exe' }],
+  })
+  assert.equal(entry.calls[0].media.fileName, 'renamed.exe')
+})
+
+test('direct: base64 without fileName stays untouched (kernel must not invent names)', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', base64: 'aGVsbG8=' }],
+  })
+  assert.equal(entry.calls[0].media.fileName, undefined)
+})
+
+test('direct: windows backslash path → basename on both separators', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', path: 'C:\\Users\\dev\\dist\\app-setup.exe' }],
+  })
+  assert.equal(entry.calls[0].media.fileName, 'app-setup.exe')
+})
+
+test('notify: attachments also get inferred fileName (single source for both kernels)', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelNotify({
+    channels: 'feishu',
+    content: '任务完成',
+    attachments: [{ kind: 'image', path: '/tmp/shots/screen.png' }],
+  })
+  const mediaCall = entry.calls.find((c) => c.media?.kind === 'image')
+  assert.ok(mediaCall, 'sendMedia 必须被调用')
+  assert.equal(mediaCall.media.fileName, 'screen.png')
+})
+
+test('direct: content caption merge still works alongside fileName inference', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    content: '这是报告',
+    attachments: [{ kind: 'file', path: '/tmp/r.pdf' }],
+  })
+  assert.equal(entry.calls.length, 1)
+  assert.equal(entry.calls[0].media.fileName, 'r.pdf')
+  assert.equal(entry.calls[0].media.caption, '这是报告')
+})
+
+test('direct: malformed url does not crash and leaves fileName absent', async () => {
+  const entry = feishuEntry()
+  globalThis[REGISTRY_KEY] = { feishu: entry }
+  await sendChannelDirect({
+    attachments: [{ kind: 'file', url: 'https://@@not-a-url' }],
+  })
+  assert.equal(entry.calls[0].media.fileName, undefined)
+})
