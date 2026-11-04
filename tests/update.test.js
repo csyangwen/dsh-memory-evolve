@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import {
+  REMOTE_TIMEOUT_MS,
   acquireUpdateLock,
   compareVersions,
   createUpdateChecker,
@@ -661,10 +662,11 @@ async function readTxState(checker) {
 // ---------------------------------------------------------------------------
 
 import { createServer } from 'node:http'
+import { Readable } from 'node:stream'
 import { installApi } from '../lib/api.js'
 
-/** 最小 API 服务器（updateOps 用真实 checker 指向 consumer 仓库）。 */
-async function bootUpdateApi(repoDir) {
+/** 最小 API 上下文（updateOps 用真实 checker 指向 consumer 仓库）。 */
+function makeApiCtx(repoDir) {
   const dir = tempRoot()
   const checker = createUpdateChecker({ repoDir, fallbackDir: dir, now: advancingClock() })
   const ctx = {
@@ -678,6 +680,12 @@ async function bootUpdateApi(repoDir) {
     config: { memoryDir: dir, skillDir: join(dir, 'skills') },
     updateOps: checker,
   })
+  return ctx
+}
+
+/** 最小 API 服务器（updateOps 用真实 checker 指向 consumer 仓库）。 */
+async function bootUpdateApi(repoDir) {
+  const ctx = makeApiCtx(repoDir)
   const server = createServer((req, res) => ctx.handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
@@ -692,6 +700,47 @@ async function bootUpdateApi(repoDir) {
   }
   return { request, close: () => new Promise((r) => server.close(r)) }
 }
+
+/**
+ * 直接用伪造的 req 调用路由 handler：真实 HTTP 服务器只能从本机回环连入，
+ * 造不出"非回环对端"，这里手动挂 socket.remoteAddress。
+ */
+async function invokeUpdateHandler(repoDir, { headers, socket, body }) {
+  const ctx = makeApiCtx(repoDir)
+  const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
+  req.method = 'POST'
+  req.url = '/memory-evolve/api/update'
+  req.headers = headers
+  if (socket !== undefined) req.socket = socket
+  const captured = { status: 0, body: null }
+  const res = {
+    writeHead: (status) => { captured.status = status },
+    end: (text) => { captured.body = JSON.parse(text ?? '{}') },
+  }
+  await ctx.handler(req, res)
+  return captured
+}
+
+test('[P1-1] 远端检测超时放宽到 30s（慢链路不再随机 error）', async () => {
+  const { consumer } = setupRepo()
+  const calls = []
+  const checker = createUpdateChecker({
+    repoDir: consumer,
+    now: advancingClock(),
+    run: async (cmd, args, opts) => {
+      calls.push({ args, timeout: opts?.timeout })
+      return realRun(cmd, args, opts)
+    },
+  })
+  const state = await checker.status(true)
+  assert.equal(state.status, 'outdated')
+  const lsRemote = calls.find((c) => c.args[0] === 'ls-remote')
+  assert.ok(lsRemote, 'status 必须执行 ls-remote 检测')
+  // 实测本机 `git ls-remote --tags origin` 2.1s–17.0s：8s 上限会随机超时，
+  // 远端只读命令统一用 REMOTE_TIMEOUT_MS（对齐 lib/sync/repo.js 30s）。
+  assert.equal(lsRemote.timeout, REMOTE_TIMEOUT_MS)
+  assert.ok(REMOTE_TIMEOUT_MS >= 30000, '远端检测超时不得低于 30s')
+})
 
 test('[P1-5] API 契约：status DTO 白名单不泄漏内部字段', async () => {
   const { consumer } = setupRepo()
@@ -728,18 +777,56 @@ test('[P1-5] API 契约：POST update 同源校验（Content-Type/Origin）', as
   }
 })
 
-test('[P1-5] API 契约：POST 缺 Origin 被拒（更新必须由 Web UI 发起）', async () => {
+test('[P1-5] API 契约：POST 缺 Origin + 回环对端放行（桌面端宿主转发）', async () => {
   const { consumer } = setupRepo()
   const { request, close } = await bootUpdateApi(consumer)
   try {
-    // request 封装不设 Origin header；Node fetch 同源 POST 默认不带 Origin
-    // （与浏览器不同）→ sameOriginGuard 必须拒绝（CodeX 复审 P1-5）。
-    const r = await request('POST', '/memory-evolve/api/update', { expectedTag: 'v9.9.9' })
-    assert.equal(r.status, 400)
-    assert.equal(r.data.code, 'bad-request')
+    // request 封装不设 Origin header（Node fetch 同源 POST 默认不带 Origin，
+    // 桌面端 DSH 宿主转发 Web UI 请求时同样不带）。请求来自本机回环，
+    // 必须放行并真正执行更新——回归「更新到 v…」按钮在桌面端永远 400。
+    const r = await request('POST', '/memory-evolve/api/update', { expectedTag: 'v1.1.0' })
+    assert.equal(r.status, 200)
+    assert.equal(r.data.ok, true)
+    assert.equal(sh(consumer, ['describe', '--tags', '--exact-match']), 'v1.1.0')
   } finally {
     await close()
   }
+})
+
+test('[P1-5] API 契约：POST 缺 Origin + 非回环对端仍被拒（CSRF 面不放宽）', async () => {
+  const { consumer } = setupRepo()
+  const jsonHeaders = { 'content-type': 'application/json', host: '127.0.0.1:19387' }
+  // 1) TCP 对端非回环（局域网/公网）→ 拒绝。
+  const remote = await invokeUpdateHandler(consumer, {
+    headers: jsonHeaders,
+    socket: { remoteAddress: '203.0.113.7' },
+    body: { expectedTag: 'v1.1.0' },
+  })
+  assert.equal(remote.status, 400)
+  assert.equal(remote.body.code, 'bad-request')
+  assert.match(remote.body.error, /缺少 Origin 头/)
+  // 2) transport 不提供 socket 信息且 Host 非回环 → 同样拒绝。
+  const noSocket = await invokeUpdateHandler(consumer, {
+    headers: { 'content-type': 'application/json', host: 'example.com' },
+    body: { expectedTag: 'v1.1.0' },
+  })
+  assert.equal(noSocket.status, 400)
+  assert.match(noSocket.body.error, /缺少 Origin 头/)
+  // 3) transport 不提供 socket 信息但 Host 是回环主机 → 放行（桌面端宿主形态）。
+  const loopbackHost = await invokeUpdateHandler(consumer, {
+    headers: jsonHeaders,
+    body: { expectedTag: 'v1.1.0' },
+  })
+  assert.equal(loopbackHost.status, 200)
+  assert.equal(loopbackHost.body.ok, true)
+  // 4) 连 Host 都没有（纯粹进程内合成请求）→ 放行（浏览器必带 Host）。
+  const { consumer: consumer2 } = setupRepo()
+  const synthesized = await invokeUpdateHandler(consumer2, {
+    headers: { 'content-type': 'application/json' },
+    body: { expectedTag: 'v1.1.0' },
+  })
+  assert.equal(synthesized.status, 200)
+  assert.equal(synthesized.body.ok, true)
 })
 
 test('badge 返回独立 update 字段（不执行 git）', async () => {

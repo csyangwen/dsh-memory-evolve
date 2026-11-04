@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { Readable } from 'node:stream'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -190,6 +191,22 @@ async function makeServer(ctx) {
   }
 }
 
+/** 伪造 req 直调 handler：真实服务器只能从回环连入，造不出"非回环对端"。 */
+async function invokeRaw(handler, { method, url, headers, socket, body }) {
+  const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
+  req.method = method
+  req.url = url
+  req.headers = headers
+  if (socket !== undefined) req.socket = socket
+  const captured = { status: 0, json: null }
+  const res = {
+    writeHead: (status) => { captured.status = status },
+    end: (text) => { captured.json = JSON.parse(text ?? '{}') },
+  }
+  await handler(req, res)
+  return captured
+}
+
 /** 模拟一个 agent 注册 + 一轮完整会话。 */
 function setupSession(rig, sessionId = 'session-1', userText = '帮我写个函数', agentText = '好的，我来写') {
   const { agent, session, events } = stubAgent(sessionId)
@@ -349,15 +366,36 @@ test('API：错误路径（BAD_SESSION、同源 403、非法 patch）', async (t
   assert.equal(bad.status, 400)
   assert.equal(bad.json.code, 'BAD_SESSION')
 
-  // 写操作缺 Origin（同源防护）
+  // 写操作缺 Origin：对端是本机回环 → 放行（桌面端宿主转发请求不带 Origin，
+  // 一律 403 会让桌面端所有写操作失效）。
   const noOrigin = await fetch(base + '/memory-evolve/api/advisor/toggle', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ sessionId: 'session-1', enabled: true }),
   })
-  const noOriginJson = await noOrigin.json()
-  assert.equal(noOrigin.status, 403)
-  assert.equal(noOriginJson.code, 'FORBIDDEN')
+  assert.equal(noOrigin.status, 200)
+  assert.equal((await noOrigin.json()).ok, true)
+
+  // 缺 Origin 但对端非回环（伪造 socket）→ 仍 403（CSRF 面不放宽）。
+  const remote = await invokeRaw(rig.ctx.handler, {
+    method: 'POST',
+    url: '/memory-evolve/api/advisor/toggle',
+    headers: { 'content-type': 'application/json', host: '127.0.0.1:19387' },
+    socket: { remoteAddress: '203.0.113.7' },
+    body: { sessionId: 'session-1', enabled: false },
+  })
+  assert.equal(remote.status, 403)
+  assert.equal(remote.json.code, 'FORBIDDEN')
+
+  // 缺 Origin 且 transport 无 socket 信息 + Host 非回环 → 仍 403。
+  const noSocket = await invokeRaw(rig.ctx.handler, {
+    method: 'POST',
+    url: '/memory-evolve/api/advisor/toggle',
+    headers: { 'content-type': 'application/json', host: 'example.com' },
+    body: { sessionId: 'session-1', enabled: false },
+  })
+  assert.equal(noSocket.status, 403)
+  assert.equal(noSocket.json.code, 'FORBIDDEN')
 
   // 跨站 Origin
   const cross = await fetch(base + '/memory-evolve/api/advisor/toggle', {
