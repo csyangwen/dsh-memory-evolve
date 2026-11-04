@@ -49,7 +49,10 @@ function intercept(t, { sync, async } = {}) {
   childProcess.spawn = (command, args, options) => {
     calls.push({ command, args, options })
     if (async) return async(command, args, options)
-    return nativeSpawn(command, args, { ...options, windowsHide: true })
+    return nativeSpawn(command, args, {
+      ...options, windowsHide: true,
+      detached: process.platform === 'win32' ? false : options?.detached,
+    })
   }
   syncBuiltinESMExports()
   t.after(() => {
