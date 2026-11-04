@@ -13,6 +13,7 @@ import { getSearchProviders } from '../lib/search-docs.js'
 import { resolveMainRemote } from '../lib/sync/identity.js'
 import { projectSyncInfo, spawnWorker, syncStatusSync } from '../lib/sync/index.js'
 import { runStatus } from '../lib/sync/worker.js'
+import { runGit } from '../lib/sync/repo.js'
 
 const nativeSpawnSync = childProcess.spawnSync
 const nativeSpawn = childProcess.spawn
@@ -153,5 +154,26 @@ test('the sync worker runs in the background without changing arguments or outpu
   assert.equal(result.ok, true)
   assert.equal(result.stdout, '{"ok":true}\n')
   assert.equal(calls.length, 1)
+  assertHidden(calls)
+})
+
+test('sync Git hides Windows consoles without changing POSIX process groups', async (t) => {
+  const root = temporaryDirectory(t)
+  const args = ['status', '--porcelain']
+  const calls = []
+  const result = await runGit(root, args, {
+    spawnFn(command, actualArgs, options) {
+      calls.push({ command, args: actualArgs, options })
+      return answer(' M KEY.md\n')
+    },
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.stdout, ' M KEY.md\n')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].command, 'git')
+  assert.deepEqual(calls[0].args, args)
+  assert.equal(calls[0].options.cwd, root)
+  assert.deepEqual(calls[0].options.stdio, ['ignore', 'pipe', 'pipe'])
+  assert.equal(calls[0].options.detached, process.platform !== 'win32')
   assertHidden(calls)
 })
