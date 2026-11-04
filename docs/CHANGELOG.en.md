@@ -4,6 +4,12 @@ All version changes for this repository, in reverse chronological order.
 
 > [中文](CHANGELOG.md)
 
+## 2026-11-04
+
+### Fixed
+
+- Hide console windows for background memory/branch queries, sync Git commands and document search on Windows (#95). Explicit file and external-interface opening behavior is unchanged.
+
 ## 2026-09-28
 
 ### Fixed
