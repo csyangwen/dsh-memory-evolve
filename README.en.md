@@ -46,11 +46,11 @@ To uninstall: `dsh plugin --profile web remove dsh-memory-evolve`. Everything is
 
 ## Meet It (30 Seconds)
 
-After installing the plugin, open any session and you'll get a row of capability tabs: **Memory · Skills · Todos · Infinite Canvas · COI Scheduling · Session Broadcast · Prompts · Memory Sync · Model Settings · Bookmarks · Session Review · Web UI Settings · Memory Evolve Settings**. On the AI side, you get a batch of tools: memory read/write, todos, skill management, local file search, session orchestration, session broadcast, external-AI dispatch, prompt injection, model query, and more.
+After installing the plugin, open any session and you'll get a row of capability tabs: **Memory · Skills · Todos · Infinite Canvas · COI Scheduling · Session Broadcast · Prompts · Memory Sync · Model Settings · Bookmarks · Session Review · Web UI Settings**; the plugin overview, runtime config, and version updates live under DSH global **Settings → Memory Evolve**. On the AI side, you get a batch of tools: memory read/write, todos, skill management, local file search, session orchestration, session broadcast, external-AI dispatch, prompt injection, model query, and more.
 
 In one sentence: **let the AI remember you, manage for you, do for you, and work together for you.**
 
-> Tip: Many plugin capabilities are off by default (so they don't bloat the AI's tool list). Turn them on in "Memory Evolve Settings" when needed. Most scenarios below are combination plays — **turn on all the related features to assemble a complete pipeline**.
+> Tip: Many plugin capabilities are off by default (so they don't bloat the AI's tool list). Turn them on in DSH "Settings → Memory Evolve → Config" when needed. Most scenarios below are combination plays — **turn on all the related features to assemble a complete pipeline**.
 
 ---
 
@@ -83,7 +83,7 @@ An AI's conversation is "one-shot": switch projects, wait a few days, or open a 
 
 **How to use it** (see [Memory sync](docs/记忆同步.md) for details):
 
-1. In "Memory Evolve Settings → Config", turn on the **Memory Sync** module switch (this only makes the feature visible);
+1. Under DSH "Settings → Memory Evolve → Config", turn on the **Memory Sync** module switch (this only makes the feature visible);
 2. In the project session's **Memory Sync** tab, turn on **Sync this project** — click "Start sync" (the remote memory defaults to your code repo, auto-stored in a dedicated branch without polluting code), then click "Sync and push" to finish the first push; **code is public (e.g. open-source on GitHub) but you want memory private**? Fill in a **shared memory repo** address — one repo holds all projects' memory (one dedicated branch per project), keeping memory fully isolated from code;
 3. On the other computer, clone the project and open it — **it auto-recognizes** (same repo URL = same project), pull it down and continue;
 4. Write memory as usual (real-time flush, zero latency), accumulate a batch and click "Sync" once; a conflict only appears when both machines edited the same entry — in the tab choose "take local / take remote / keep both".
@@ -233,7 +233,7 @@ The prompt library is an **instruction-paradigm asset library**: code review, de
 
 **How to use it**:
 
-1. In "Memory Evolve Settings → Config", turn on **Session Review** (`advisorEnabled`, off by default); the review model inherits the current session model by default, or configure `advisorProvider`/`advisorModel` separately;
+1. Under DSH "Settings → Memory Evolve → Config", turn on **Session Review** (`advisorEnabled`, off by default); the review model inherits the current session model by default, or configure `advisorProvider`/`advisorModel` separately;
 2. The session page shows a "Session Review" floating window — open the panel to see the reviewer's real-time review stream and context usage;
 3. In the "Constraints" tab, set rules for the reviewer (e.g. project constraint: "state which directory you're in before each reply"), saved and effective immediately;
 4. Click "**New review session**" to restart the reviewer from scratch; click "**Ask**" to ask it directly;
@@ -259,7 +259,7 @@ The prompt library is an **instruction-paradigm asset library**: code review, de
 
 **How to use it**:
 
-1. In "Memory Evolve Settings → Config", turn on **Infinite Canvas** (`canvasEnabled`, off by default);
+1. Under DSH "Settings → Memory Evolve → Config", turn on **Infinite Canvas** (`canvasEnabled`, off by default);
 2. The session page shows a "Canvas" tab: path onto board / note / search onto board, cards freely arranged;
 3. Click a card's "Reference" to copy the reference string, tell the AI "go get XX from the canvas" — the AI uses `de_canvas` to query / read / place notes;
 4. Notes the AI places land in the board's center dashed area — drag them wherever you want.
@@ -276,7 +276,7 @@ The prompt library is an **instruction-paradigm asset library**: code review, de
 - **Session search**: let the AI search other AI tools' (e.g. Codex) historical sessions on this machine — "did XX in Codex before", just ask;
 - **Model config**: the plugin maintains each model's enable status, thinking level, and notes, and marks **image-input support** (🖼 marker, clear at a glance when the AI picks a model);
 - **In-turn memory review**: every N turns, the AI proactively distills memory-worthy info for your confirmation — the memory library grows itself;
-- **Version detection & update**: in multi-device / multi-user deployments, the "Memory Evolve Settings" tab's "Version" page auto-detects remote release versions (git tag v0.x.y); when a new version is detected the settings tab shows a 🔴 red dot, and you decide whether to update (see "Release Versions" below);
+- **Version detection & update**: in multi-device / multi-user deployments, the DSH "Settings → Memory Evolve → Version" page auto-detects remote release versions (git tag v0.x.y); when a new version is detected the Settings nav item shows a 🔴 red dot, and you decide whether to update (see "Release Versions" below);
 - **Session review (Advisor)**: attach an independent reviewer to each session — observes only on-screen conversation (no thinking / tool calls), real-time review every turn, real-time steer as user instruction when needed (info / nit / concern / blocker four levels; info records-only by default), persistent never-truncating session, supports new review session / direct ask / four-level constraints / traceable records. Off by default, see [Scenario 9](#scenario-9-give-every-session-an-invisible-reviewer-session-review).
 - **Web in-site notification**: channel notification (de_notify) adds a `web` channel — AI notifications land on the web page's top-right bell (unread badge + popup list + click subject to jump session + long-text large popup + drag-snap left/right), same notification semantics as Feishu etc. Off by default, enabled with the notification module (`notifyEnabled`) switch, see [Scenario 8](#scenario-8-use-it-away-from-the-computer-mobile-access--session-filtering--notifications).
 

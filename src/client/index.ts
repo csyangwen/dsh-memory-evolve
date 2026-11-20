@@ -18,11 +18,13 @@ import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the 'conversation.view' SlotMap row lives in ui-conversation.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: 'settings.section' & 'settings.section.icon' live in ui-settings.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import { MemoryTabView } from './MemoryTabView.tsx'
 import { SkillsTabView } from './SkillsTabView.tsx'
 import { TodosTabView } from './TodosTabView.tsx'
-import { SettingsTabView } from './SettingsTabView.tsx'
+import { MemoryEvolveSettingsIcon, SettingsTabView } from './SettingsTabView.tsx'
 import { ModelsTabView } from './ModelsTabView.tsx'
 import { UiSettingsTabView } from './UiSettingsView.tsx'
 import { CoIView } from './CoIView.tsx'
@@ -163,7 +165,7 @@ export const zh = {
   'broadcast.tab.rooms': '房间',
   'broadcast.tab.settings': '设置',
   'broadcast.settings.wsCoord.title': '工作区协调（ws-coord）',
-  'broadcast.settings.wsCoord.desc': '同工作区多会话并行时的资源占用协调——声明要改的文件（de_ws_declare）、写后自动登记占用、写前冲突检测（软模式警告 / 硬拦截可切换）、de_ws_status 查看"谁在跑、在干什么"。以下开关只控制本子功能；「会话广播」大开关在「Memory Evolve 设置」→「配置」里。',
+  'broadcast.settings.wsCoord.desc': '同工作区多会话并行时的资源占用协调——声明要改的文件（de_ws_declare）、写后自动登记占用、写前冲突检测（软模式警告 / 硬拦截可切换）、de_ws_status 查看"谁在跑、在干什么"。以下开关只控制本子功能；「会话广播」大开关在 DSH「设置 → Memory Evolve → 配置」里。',
   'broadcast.settings.wsCoord.enabled': '启用工作区协调',
   'broadcast.settings.wsCoord.enabled.hint': '注册 de_ws_declare / de_ws_status / de_ws_release 工具 + 写前冲突检测事件监听 + 活动感知快照段。依赖「会话广播」大开关（广播关闭时本功能不可用）。默认关闭',
   'broadcast.settings.wsCoord.snapshot': '活动快照段',
@@ -192,7 +194,7 @@ export const zh = {
   'broadcast.guide.alias.item1': '顶部「我的会话」行：复制会话 ID / 复制别名，把结果发给对方就能开聊；',
   'broadcast.guide.alias.item2': '会话页右上角 ⧉ 复制会话ID / ✎ 别名 按钮也可设置。',
   'broadcast.guide.switch.title': '开关',
-  'broadcast.guide.switch.body': '会话广播默认关闭：在「Memory Evolve 设置」Tab 的「配置」里打开「会话广播」开关，刷新后本 Tab 出现。',
+  'broadcast.guide.switch.body': '会话广播默认关闭：在 DSH「设置 → Memory Evolve → 配置」里打开「会话广播」开关，刷新后本 Tab 出现。',
   'broadcast.guide.wscoord.title': '工作区协调：多人并行不打架',
   'broadcast.guide.wscoord.body': '同一项目多个会话并行改代码时，用「设置」页的工作区协调避免互相覆盖：',
   'broadcast.guide.wscoord.item1': '开工前让 AI「声明一下我要改哪些文件」（de_ws_declare）——其他人（及其 AI）能看到谁在改什么；',
@@ -266,8 +268,8 @@ export const zh = {
   'advisor.header.toggle.title': '打开或折叠会话评审悬浮面板',
   'promptTab.label': '提示词',
   'promptTab.label.active': '🔴 提示词 ({count})',
-  'settingsTab.label': 'Memory Evolve 设置',
-  'settingsTab.label.pending': '🔴 Memory Evolve 设置',
+  'settingsTab.label': 'Memory Evolve',
+  'settingsTab.label.pending': '🔴 Memory Evolve',
   'settingsTab.feature.guide': '指南',
   'settingsTab.feature.config': '配置',
   'settingsTab.feature.version': '版本',
@@ -337,7 +339,7 @@ export const zh = {
   'modelsTab.guide.tool.item1': '默认只返回「启用」的模型（all=true 查看全部含禁用），可按供应商过滤；',
   'modelsTab.guide.tool.item2': '每个模型返回：是否启用、DSH 是否激活、是否支持图片输入（supportsImage：true / false / null=未知）、是否支持思考、可用思考等级（含推荐与自定义）、备注。',
   'modelsTab.guide.switch.title': '开关',
-  'modelsTab.guide.switch.body': '模型设置默认开启；可在「Memory Evolve 设置」Tab 的「配置」里独立关闭（与其他模块同款开关）——关闭后本 Tab 与 de_models 工具隐藏，配置数据保留。',
+  'modelsTab.guide.switch.body': '模型设置默认开启；可在 DSH「设置 → Memory Evolve → 配置」里独立关闭（与其他模块同款开关）——关闭后本 Tab 与 de_models 工具隐藏，配置数据保留。',
   'modelsTab.searchPh': '搜索供应商、模型或备注…',
   'modelsTab.showReasoning': '显示思考等级',
   'modelsTab.refresh': '刷新',
@@ -387,7 +389,7 @@ export const zh = {
   'uiSettingsTab.guide.what.title': 'Web UI 设置是什么',
   'uiSettingsTab.guide.what.body': '给 DSH web 界面做样式级小功能——不改框架源码，纯客户端注入（CSS + DOM 增强），随 DSH 更新不掉功能；后期扩展（主题更换等）都收进本模块。',
   'uiSettingsTab.guide.switch.title': '开关',
-  'uiSettingsTab.guide.switch.body': '模块开关在「Memory Evolve 设置」Tab 的「配置」里（默认关闭）；本 Tab「综合」里是各功能的独立小开关（默认也全部关闭，由你主动开启）。',
+  'uiSettingsTab.guide.switch.body': '模块开关在 DSH「设置 → Memory Evolve → 配置」里（默认关闭）；本 Tab「综合」里是各功能的独立小开关（默认也全部关闭，由你主动开启）。',
   'uiSettingsTab.guide.features.title': '功能介绍',
   'uiSettingsTab.guide.features.body': '每个功能在「综合」页有独立小开关，开启后即时生效：',
   'uiSettingsTab.guide.features.item1': '会话筛选：左侧会话列表只显示进行中的会话，纯空闲的折叠隐藏，可一键切回全部；',
@@ -515,7 +517,7 @@ export const zh = {
   'bookmark.guide.list.title': '列表与跳转',
   'bookmark.guide.list.body': '本 Tab 列出当前会话全部书签（标签、轮次、时间、摘要）。点击跳转：自动切回「对话」Tab 定位到那一轮；若目标在未加载的历史窗口，会先拉更早消息再定位。',
   'bookmark.guide.switch.title': '开关',
-  'bookmark.guide.switch.body': '默认关闭；在「Memory Evolve 设置」→「配置」打开「会话书签」。关闭后星标与本 Tab 隐藏，已存书签文件保留。',
+  'bookmark.guide.switch.body': '默认关闭；在 DSH「设置 → Memory Evolve → 配置」打开「会话书签」。关闭后星标与本 Tab 隐藏，已存书签文件保留。',
   'panel.guide.bookmark.title': '会话书签',
   'panel.guide.bookmark.desc': '给每轮打星标记，列表一键跳回，并支持从任意轮创建官方分支（含接管官方中间轮分支按钮）。独立开关，默认关。',
   'panel.config.bookmarkEnabled': '会话书签',
@@ -980,7 +982,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'broadcast.tab.rooms': 'Rooms',
   'broadcast.tab.settings': 'Settings',
   'broadcast.settings.wsCoord.title': 'Workspace coordination (ws-coord)',
-  'broadcast.settings.wsCoord.desc': 'Resource-occupancy coordination for parallel sessions in one workspace — declare files you will modify (de_ws_declare), auto-register writes, write-conflict detection (soft warning / hard block switchable), and de_ws_status to see "who is running and what they are doing". These switches only control this sub-feature; the "Session broadcast" master switch lives under Memory Evolve Settings → Config.',
+  'broadcast.settings.wsCoord.desc': 'Resource-occupancy coordination for parallel sessions in one workspace — declare files you will modify (de_ws_declare), auto-register writes, write-conflict detection (soft warning / hard block switchable), and de_ws_status to see "who is running and what they are doing". These switches only control this sub-feature; the "Session broadcast" master switch lives under DSH Settings → Memory Evolve → Config.',
   'broadcast.settings.wsCoord.enabled': 'Enable workspace coordination',
   'broadcast.settings.wsCoord.enabled.hint': 'Registers de_ws_declare / de_ws_status / de_ws_release tools + write-conflict detection listeners + the activity snapshot section. Depends on the "Session broadcast" master switch (unavailable while broadcast is off). Off by default',
   'broadcast.settings.wsCoord.snapshot': 'Activity snapshot section',
@@ -1009,7 +1011,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'broadcast.guide.alias.item1': 'The "My session" row on top: copy session ID / copy alias, then send it to the other side to start chatting;',
   'broadcast.guide.alias.item2': 'The ⧉ copy-session-ID / ✎ alias buttons at the top right of a session also work.',
   'broadcast.guide.switch.title': 'Switch',
-  'broadcast.guide.switch.body': 'Session broadcast is off by default: enable "Session broadcast" under "Config" in the "Memory Evolve Settings" tab, then refresh to reveal this tab.',
+  'broadcast.guide.switch.body': 'Session broadcast is off by default: enable "Session broadcast" under DSH Settings → Memory Evolve → Config, then refresh to reveal this tab.',
   'broadcast.guide.wscoord.title': 'Workspace coordination: parallel work without collisions',
   'broadcast.guide.wscoord.body': 'When several sessions edit the same project in parallel, use the workspace coordination in the "Settings" page to avoid overwriting each other:',
   'broadcast.guide.wscoord.item1': 'Before starting, have the AI "declare which files you will change" (de_ws_declare) — others (and their AIs) can see who is editing what;',
@@ -1083,8 +1085,8 @@ export const en: Record<MemoryEvolveKey, string> = {
   'advisor.header.toggle.title': 'Open or collapse the Advisor review panel',
   'promptTab.label': 'Prompts',
   'promptTab.label.active': '🔴 Prompts ({count})',
-  'settingsTab.label': 'Memory Evolve Settings',
-  'settingsTab.label.pending': '🔴 Memory Evolve Settings',
+  'settingsTab.label': 'Memory Evolve',
+  'settingsTab.label.pending': '🔴 Memory Evolve',
   'settingsTab.feature.guide': 'Guide',
   'settingsTab.feature.config': 'Config',
   'settingsTab.feature.version': 'Version',
@@ -1152,7 +1154,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'modelsTab.guide.tool.item1': 'Only "enabled" models are returned by default (all=true shows everything incl. disabled), filterable by provider;',
   'modelsTab.guide.tool.item2': 'Each model reports: enabled, DSH-activated, image input support (supportsImage: true / false / null=unknown), thinking support, allowed reasoning levels (incl. recommended and custom), note.',
   'modelsTab.guide.switch.title': 'Switch',
-  'modelsTab.guide.switch.body': 'Model Settings are on by default; they can be turned off independently under "Config" in the "Memory Evolve Settings" tab like other modules — the tab and the de_models tool hide, settings data is kept.',
+  'modelsTab.guide.switch.body': 'Model Settings are on by default; they can be turned off independently under DSH Settings → Memory Evolve → Config like other modules — the tab and the de_models tool hide, settings data is kept.',
   'modelsTab.searchPh': 'Search provider, model, or note…',
   'modelsTab.showReasoning': 'Show reasoning levels',
   'modelsTab.refresh': 'Refresh',
@@ -1202,7 +1204,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'uiSettingsTab.guide.what.title': 'What is Web UI Settings',
   'uiSettingsTab.guide.what.body': 'Style-level tweaks for the DSH web GUI — no framework source changes, pure client-side injection (CSS + DOM enhancement) that survives DSH updates; future extensions (themes etc.) all land in this module.',
   'uiSettingsTab.guide.switch.title': 'Switches',
-  'uiSettingsTab.guide.switch.body': 'The module switch lives under "Config" in the "Memory Evolve Settings" tab (off by default); the per-feature switches live in the "General" sub-tab — also all off by default, turned on deliberately.',
+  'uiSettingsTab.guide.switch.body': 'The module switch lives under DSH Settings → Memory Evolve → Config (off by default); the per-feature switches live in the "General" sub-tab — also all off by default, turned on deliberately.',
   'uiSettingsTab.guide.features.title': 'Features',
   'uiSettingsTab.guide.features.body': 'Each feature has an independent switch in the "General" page; it takes effect immediately:',
   'uiSettingsTab.guide.features.item1': 'Session filter: the left session list shows only active sessions; purely idle ones collapse, one click switches back to all;',
@@ -1330,7 +1332,7 @@ export const en: Record<MemoryEvolveKey, string> = {
   'bookmark.guide.list.title': 'List and jump',
   'bookmark.guide.list.body': 'This tab lists every bookmark of the current session (label, turn, time, summary). Click to jump: it switches back to the Chat tab and scrolls to that turn; if the target lies outside the loaded history window it fetches older messages first.',
   'bookmark.guide.switch.title': 'Switch',
-  'bookmark.guide.switch.body': 'Off by default; enable "Session bookmarks" under Memory Evolve Settings → Config. When off, stars and this tab hide; the sidecar file is kept.',
+  'bookmark.guide.switch.body': 'Off by default; enable "Session bookmarks" under DSH Settings → Memory Evolve → Config. When off, stars and this tab hide; the sidecar file is kept.',
   'panel.guide.bookmark.title': 'Session bookmarks',
   'panel.guide.bookmark.desc': 'Star any turn and jump back from the list; fork official branch sessions from any turn (including taking over official mid-turn branch buttons). Independent switch, off by default.',
   'panel.config.bookmarkEnabled': 'Session bookmarks',
@@ -1965,17 +1967,29 @@ export function apply(ctx: Context): void {
   }
   window.addEventListener(RUNTIME_CONFIG_CHANGED, onRuntimeConfigChanged)
   ctx.effect(() => () => window.removeEventListener(RUNTIME_CONFIG_CHANGED, onRuntimeConfigChanged), 'memory-evolve: todo tab runtime listener')
-  // 设置 Tab（Memory Evolve 设置，order 120 放最后）：整体指南 + 配置 + 版本。
-  // 红点：检测到新发布版本时 label 变 🔴 变体（updateBadgeCount 驱动，重注册
+  // 全局「设置」入口（DSH settings.section，id='memory-evolve'，order 35）：
+  // 整体指南 + 运行时配置 + 版本检测/更新。
+  // 挂载到全局设置弹窗后，即使在空白新会话或 memoryTabEnabled=false 时也能打开；
+  // 红点：检测到新发布版本时导航标签变 🔴 变体（updateBadgeCount 驱动，重注册
   // 生效；无红点时注册一次即可，badge 变化才重注册）。
   let disposeSettingsTab: (() => void) | undefined
+  let disposeSettingsIcon: (() => void) | undefined
+  const registerSettingsIcon = (): void => {
+    if (disposeSettingsIcon !== undefined) return
+    disposeSettingsIcon = ctx.slots.inject('settings.section.icon', () =>
+      ctx.slots.register({
+        name: 'settings.section.icon',
+        id: 'memory-evolve',
+      }, (props) => MemoryEvolveSettingsIcon({ size: props.size })))
+  }
   const registerSettingsTab = (): void => {
     disposeSettingsTab?.()
-    disposeSettingsTab = ctx.slots.inject('conversation.view', () =>
+    registerSettingsIcon()
+    disposeSettingsTab = ctx.slots.inject('settings.section', () =>
       ctx.slots.register({
-        name: 'conversation.view',
-        id: 'settings-hub',
-        order: 120,
+        name: 'settings.section',
+        id: 'memory-evolve',
+        order: 35,
         label: () => (updateBadgeCount > 0 ? t('settingsTab.label.pending') : t('settingsTab.label')),
       }, (props) => SettingsTabView({ ...props, t })))
   }
@@ -2008,9 +2022,10 @@ export function apply(ctx: Context): void {
         label: () => t('syncTab.label'),
       }, (props) => SyncView({ ...props, t })))
   }
+  let badgePollingReady = false
   const pollBadge = (): void => {
-    // 三个 tab 未注册前不轮询（registerMemoryTab 是探测成功的标志）。
-    if (tabCancelled || disposeMemoryTab === undefined) return
+    // /api/config 探测成功前不轮询。
+    if (tabCancelled || !badgePollingReady) return
     void fetch('/memory-evolve/api/badge')
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((data: { suggestions?: number; skills?: number; todoSuggestions?: number; update?: number }) => {
@@ -2023,15 +2038,15 @@ export function apply(ctx: Context): void {
           updateBadgeCount = update
           registerSettingsTab()
         }
-        if (suggestions !== memoryBadgeCount) {
+        if (disposeMemoryTab !== undefined && suggestions !== memoryBadgeCount) {
           memoryBadgeCount = suggestions
           registerMemoryTab()
         }
-        if (skills !== skillsBadgeCount) {
+        if (disposeSkillsTab !== undefined && skills !== skillsBadgeCount) {
           skillsBadgeCount = skills
           registerSkillsTab()
         }
-        if (todoSuggestions !== todosBadgeCount) {
+        if (disposeMemoryTab !== undefined && todoSuggestions !== todosBadgeCount) {
           todosBadgeCount = todoSuggestions
           todoTabLifecycle.refresh()
         }
@@ -2042,27 +2057,21 @@ export function apply(ctx: Context): void {
   void fetch('/memory-evolve/api/config')
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
     .then((data: { config?: { memoryTabEnabled?: boolean; modelsEnabled?: boolean } }) => {
+      if (tabCancelled) return
       // 模型设置 tab：跟随 modelsEnabled 运行时开关（默认开，与其他模块
-      // 同款独立开关，在「设置」Tab 的「配置」里切换；开启后刷新页面出现）。
-      if (!tabCancelled && data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
+      // 同款独立开关，在 DSH「设置 → Memory Evolve → 配置」里切换；开启后刷新页面出现）。
+      if (data.config?.modelsEnabled === true && disposeModelsTab === undefined) {
         registerModelsTab()
       }
       // 记忆同步 tab：跟随 syncEnabled 运行时开关（默认关，设置面板/命令
       // setup 打开后刷新页面出现）
-      if (!tabCancelled && data.config?.syncEnabled === true && disposeSyncTab === undefined) {
+      if (data.config?.syncEnabled === true && disposeSyncTab === undefined) {
         registerSyncTab()
       }
-      // memoryTabEnabled is a read-only field of /api/config (default true;
-      // only config.yaml can turn it off — deliberately NOT a runtime key,
-      // since switching it off from inside the tab would hide the tab itself).
-      if (tabCancelled || data.config?.memoryTabEnabled !== true) return
-      // 四个核心 tab 一起注册：记忆 / 技能 / 待办 / 设置（顺序 10/20/30/120）。
-      // 待办 Tab 额外受 todoEnabled 运行时开关控制（默认开；关闭时隐藏）。
-      registerMemoryTab()
-      registerSkillsTab()
-      todoTabLifecycle.setEnabled(data.config?.todoEnabled !== false)
+      // 全局「设置 → Memory Evolve」始终注册，不依赖 session 级 memoryTabEnabled 开关，
+      // 确保空白新会话或关闭 session tab 时仍能进入指南 / 配置 / 版本页。
       registerSettingsTab()
-      pollBadge()
+      badgePollingReady = true
       const timer = setInterval(pollBadge, BADGE_POLL_MS)
       ctx.effect(() => () => clearInterval(timer), 'memory-evolve: memory tab badge poller')
       // 版本检测：进入 Web UI 时触发一次惰性检测（24h 缓存内不跑 git）。
@@ -2085,6 +2094,18 @@ export function apply(ctx: Context): void {
       const onTabChanged = (): void => pollBadge()
       window.addEventListener('dsh-memory-evolve:badge-change', onTabChanged)
       ctx.effect(() => () => window.removeEventListener('dsh-memory-evolve:badge-change', onTabChanged), 'memory-evolve: memory tab badge listener')
+      // memoryTabEnabled is a read-only field of /api/config (default true;
+      // only config.yaml can turn it off — deliberately NOT a runtime key).
+      if (data.config?.memoryTabEnabled !== true) {
+        pollBadge()
+        return
+      }
+      // 三个核心会话 tab：记忆 / 技能 / 待办（顺序 10/20/30）。
+      // 待办 Tab 额外受 todoEnabled 运行时开关控制（默认开；关闭时隐藏）。
+      registerMemoryTab()
+      registerSkillsTab()
+      todoTabLifecycle.setEnabled(data.config?.todoEnabled !== false)
+      pollBadge()
     })
     .catch(() => { /* the tab is optional; a failure just leaves it hidden */ })
   ctx.effect(() => () => {
@@ -2093,6 +2114,7 @@ export function apply(ctx: Context): void {
     disposeSkillsTab?.()
     todoTabLifecycle.dispose()
     disposeSettingsTab?.()
+    disposeSettingsIcon?.()
   }, 'memory-evolve: memory tabs')
 
   // 记忆同步 Tab 的清理（注册本身在 /api/config 探测成功后进行；

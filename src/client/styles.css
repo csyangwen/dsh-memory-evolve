@@ -25,6 +25,20 @@
   max-height: 62vh;
 }
 
+/* Inside DSH global Settings (settings.section): let the dialog's outer
+   scroll container handle scrolling instead of nesting a 62vh scroll box. */
+.me-settings-section.mt-panel {
+  height: auto;
+  overflow: visible;
+  padding: 12px 0 0;
+}
+
+.me-settings-section .me-panel {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
 /* ---------- Notice bar (success / error) ---------- */
 
 .me-notice {
