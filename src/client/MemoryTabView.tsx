@@ -24,7 +24,7 @@ import { TabGuideView, type GuideSection } from './TabGuideView.tsx'
 
 /**
  * 功能子 tab（记忆专属）：指南 / 待确认记忆建议。
- * 整体指南与运行时配置已抽到「Memory Evolve 设置」Tab（SettingsTabView）；
+ * 整体指南与运行时配置已迁入 DSH 全局「设置 → Memory Evolve」（SettingsTabView）；
  * 本 Tab 的「指南」是记忆功能自己的详细介绍（非整体简介）。
  */
 type TabFeature = 'guide' | 'suggestions'
@@ -618,7 +618,7 @@ export function MemoryTabView(props: ConvViewProps & MemoryTabViewProps): JSX.El
       {feature !== null ? (
         feature === 'guide' ? (
           // 记忆专属指南：详细介绍记忆 Tab 自己的功能（五轨/文件页签/分支/
-          // 编辑维护/待确认建议机制）。整体插件指南在「Memory Evolve 设置」Tab。
+          // 编辑维护/待确认建议机制）。整体插件指南在 DSH「设置 → Memory Evolve」。
           <TabGuideView sections={memoryGuideSections(t)} />
         ) : (
           <MemoryQueueView

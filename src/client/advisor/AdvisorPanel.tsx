@@ -1110,9 +1110,9 @@ function SettingsDisclosure({ store, snapshot }: {
     <div className="advisor-settings">
       <div className="advisor-settings-title">会话评审设置</div>
       <div className="advisor-settings-body">
-        {/* 2026-08-14 用户拍板：总闸开关收敛到 Memory Evolve 设置 Tab（此处
+        {/* 总闸开关收敛到 DSH 设置 → Memory Evolve（此处
             曾与其重复）；面板设置只保留本模块的运行参数，不再重复总闸。 */}
-        <div className="advisor-muted">模块总闸（启用/停用）在「Memory Evolve 设置」Tab 的配置区控制</div>
+        <div className="advisor-muted">模块总闸（启用/停用）在 DSH「设置 → Memory Evolve → 配置」控制</div>
         {snapshot.configLoading && draft === null && <LoadingBlock text="正在加载设置…" />}
         {snapshot.configError !== null && (
           <ErrorNotice text={`设置加载失败：${snapshot.configError}`} onRetry={() => void store.refreshConfig()} />
